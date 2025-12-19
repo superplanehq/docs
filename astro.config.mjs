@@ -6,14 +6,15 @@ import starlight from '@astrojs/starlight';
 export default defineConfig({
 	integrations: [
 		starlight({
-			title: 'My Docs',
-			social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/withastro/starlight' }],
+			title: 'SuperPlane Docs',
+			social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/superplanehq/docs' }],
 			sidebar: [
 				{
-					label: 'Guides',
+					label: 'Get Started',
 					items: [
+						{ label: 'Welcome', slug: '' },
 						// Each item here is one entry in the navigation menu.
-						{ label: 'Example Guide', slug: 'guides/example' },
+						{ label: 'Quickstart', slug: 'get-started/quickstart' },
 					],
 				},
 				{

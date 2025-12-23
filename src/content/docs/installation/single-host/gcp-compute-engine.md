@@ -21,13 +21,18 @@ domain you configure.
 
 ## Installation steps
 
-SSH into your VM and run:
+SSH into your VM and run the following commands to download and unpack the
+installer:
 
 ```bash
-wget -q \
-  https://github.com/superplanehq/superplane/releases/download/v0.0.11/superplane-single-host.tar.gz
+wget -q https://github.com/superplanehq/superplane/releases/download/v0.0.11/superplane-single-host.tar.gz
 tar -xf superplane-single-host.tar.gz
 cd superplane
+```
+
+Then run the installer:
+
+```bash
 ./install
 ```
 

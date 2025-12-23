@@ -24,11 +24,11 @@ export default defineConfig({
 						{
 							label: 'Single Host Installation',
 							items: [
+								{ label: 'EC2 on AWS', slug: 'installation/single-host/aws-ec2' },
+								{ label: 'Compute Engine on GCP', slug: 'installation/single-host/gcp-compute-engine' },
 								{ label: 'Hetzner', slug: 'installation/single-host/hetzner' },
 								{ label: 'DigitalOcean', slug: 'installation/single-host/digitalocean' },
 								{ label: 'Heroku', slug: 'installation/single-host/heroku' },
-								{ label: 'EC2 on AWS', slug: 'installation/single-host/aws-ec2' },
-								{ label: 'Compute Engine on GCP', slug: 'installation/single-host/gcp-compute-engine' },
 								{ label: 'Generic server', slug: 'installation/single-host/generic-server' },
 							],
 						},

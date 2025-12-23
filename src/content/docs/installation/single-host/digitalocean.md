@@ -3,26 +3,69 @@ title: Single Host Installation on DigitalOcean
 description: Install SuperPlane on a single DigitalOcean Droplet.
 ---
 
-This guide describes how to install and run SuperPlane on a single
-DigitalOcean Droplet using the SuperPlane single-host installer.
+This guide walks you through setting up a new DigitalOcean Droplet from
+scratch and installing SuperPlane using the single-host installer.
 
-## Prerequisites
+## 1. Create a DigitalOcean Droplet
 
-Before you start, make sure you have:
+1. Sign in to the
+   [DigitalOcean Control Panel](https://cloud.digitalocean.com/).
+2. Click **Create → Droplets**.
+3. Configure your Droplet:
+   - Choose a region close to you.
+   - Select an Ubuntu LTS image (for example Ubuntu 22.04).
+   - Pick a Basic Droplet with 2 vCPUs and 4 GB RAM.
+   - Add SSH keys so you can log in securely.
+4. Create the Droplet and note its public IPv4 address.
 
-- A Linux Droplet that is exposed to the internet (public IP or behind a
-  public load balancer).
-- Docker and Docker Compose installed on the Droplet.
-- A domain name that points to this Droplet’s public IP.
+At this point you have a Linux server that is reachable from the internet.
 
-The single-host installation uses Docker Compose to run SuperPlane and its
-dependencies. It will also issue and maintain an SSL certificate for the
-domain you configure.
+## 2. Point your domain to the Droplet
 
-## Installation steps
+1. In your DNS provider (DigitalOcean DNS or another provider), create an
+   `A` record for your domain or subdomain (for example
+   `superplane.example.com`).
+2. Point the `A` record to the public IP of your Droplet.
+3. Wait for DNS to propagate (usually a few minutes).
 
-SSH into your Droplet and run the following commands to download and unpack
-the installer:
+SuperPlane will use this domain to issue and maintain an SSL certificate.
+
+## 3. Open required ports with Cloud Firewalls
+
+In the DigitalOcean Control Panel:
+
+1. Go to **Networking → Firewalls**.
+2. Create a new firewall (or edit an existing one).
+3. Under **Inbound rules**, allow:
+   - TCP port 22 (SSH)
+   - TCP port 80 (HTTP, for certificate issuance)
+   - TCP port 443 (HTTPS, for SuperPlane)
+4. Under **Apply to Droplets**, select your SuperPlane Droplet.
+5. Save the firewall.
+
+## 4. Install Docker and Docker Compose
+
+SSH into your Droplet using the IP or domain:
+
+```bash
+ssh root@your-droplet-ip-or-domain
+```
+
+On the Droplet, install Docker and Docker Compose. For example, on Ubuntu:
+
+```bash
+apt update
+apt install -y docker.io docker-compose-plugin
+systemctl enable --now docker
+```
+
+You now have a DigitalOcean Droplet with Docker and Docker Compose installed,
+reachable from the internet at your chosen domain.
+
+## 5. Install SuperPlane
+
+With Docker set up, install SuperPlane using the single-host installer.
+First, download and unpack the installer:
 
 ```bash
 wget -q https://github.com/superplanehq/superplane/releases/download/v0.0.11/superplane-single-host.tar.gz
@@ -50,5 +93,20 @@ During installation, SuperPlane automatically:
 - Issues an SSL certificate for your configured domain.
 - Renews the certificate so HTTPS continues to work over time.
 
-Ensure your firewall rules allow inbound traffic on ports 80 and 443 so
+Ensure your firewall allows inbound traffic on ports 80 and 443 so
 certificate issuance and HTTPS access can succeed.
+
+## 6. Enable automatic backups
+
+To protect your SuperPlane instance, enable automatic backups for your
+Droplet.
+
+In the DigitalOcean Control Panel:
+
+1. Go to **Droplets** and click your SuperPlane Droplet.
+2. Open the **Backups** tab.
+3. Enable backups for the Droplet.
+
+DigitalOcean will now create regular full disk backups of your Droplet. You
+can use these backups to restore the entire Droplet to an earlier state if
+something goes wrong.

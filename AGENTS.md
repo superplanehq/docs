@@ -1,0 +1,128 @@
+# Agent Guidelines for SuperPlane Documentation
+
+This document provides guidelines for AI agents working with the SuperPlane documentation repository.
+
+## Repository Overview
+
+This repository contains the documentation for
+[SuperPlane](https://github.com/superplanehq/superplane), an open source DevOps
+control plane. The documentation site is built with
+[Starlight](https://starlight.astro.build), a documentation framework built on
+[Astro](https://astro.build).
+
+## Project Structure
+
+### Key Directories
+
+- `src/content/docs/` - All documentation content (`.md` and `.mdx` files)
+  - Each file becomes a route based on its file name
+  - Organized by topic (e.g., `installation/`, `reference/`)
+- `src/assets/` - Images and other assets referenced in documentation
+- `public/` - Static assets like favicons
+- `astro.config.mjs` - Starlight configuration (sidebar, title, etc.)
+
+### File Organization
+
+Documentation files follow a hierarchical structure:
+- `get-started/` - Getting started guides
+- `installation/` - Installation instructions
+  - `local.md` - Local installation
+  - `single-host/` - Single host deployments
+  - `kubernetes/` - Kubernetes deployments
+- `reference/` - Reference documentation
+
+## Content Guidelines
+
+### Markdown Frontmatter
+
+All documentation files should include frontmatter with:
+- `title` - Page title
+- `description` - Page description (optional but recommended)
+
+Example:
+```markdown
+---
+title: Page Title
+description: Brief description of the page content
+---
+```
+
+### Writing Style
+
+- Write clear, concise documentation
+- Limit markdown files to 120 characters width
+- Use code blocks with appropriate language tags
+- Include prerequisites when relevant
+- Link to related documentation when helpful
+- Use relative paths for internal links
+
+### Code Examples
+
+- Use appropriate syntax highlighting
+- Include complete, runnable examples when possible
+- Add comments to explain complex steps
+- Specify version numbers or tags when relevant (e.g., Docker image tags)
+
+### Images
+
+- Place images in `src/assets/`
+- Reference them with relative paths in Markdown
+- Use descriptive filenames
+- Include alt text for accessibility
+
+## Common Tasks
+
+### Adding New Documentation
+
+1. Create a new `.md` or `.mdx` file in the appropriate directory under `src/content/docs/`
+2. Add frontmatter with `title` and `description`
+3. Write the content following existing patterns
+4. Update `astro.config.mjs` if you need to modify the sidebar structure
+
+### Editing Existing Documentation
+
+1. Locate the file in `src/content/docs/`
+2. Maintain the existing structure and style
+3. Update frontmatter if the title or description changes
+4. Ensure links remain valid
+
+### Adding Images
+
+1. Save the image to `src/assets/`
+2. Reference it in Markdown: `![Alt text](../assets/image-name.png)`
+3. Adjust the relative path based on the documentation file's location
+
+## Technical Details
+
+### Development Commands
+
+- `npm install` - Install dependencies
+- `npm run dev` - Start local dev server at `localhost:4321`
+- `npm run build` - Build production site
+- `npm run preview` - Preview production build locally
+
+### Key Dependencies
+
+- `@astrojs/starlight` - Starlight documentation framework
+- `astro` - Astro framework
+- `sharp` - Image processing
+
+## Best Practices
+
+1. **Consistency**: Follow existing documentation patterns and structure
+2. **Clarity**: Write for users who may be new to SuperPlane
+3. **Completeness**: Include all necessary steps and prerequisites
+4. **Accuracy**: Ensure code examples and commands are correct and tested
+5. **Organization**: Place content in the appropriate directory based on topic
+6. **Links**: Use relative paths for internal documentation links
+7. **Versioning**: When mentioning versions or tags, be specific (e.g., `v0.4`, `stable`, `beta`)
+
+## Notes for AI Agents
+
+- Always read existing documentation files to understand the style and structure before making changes
+- When adding new content, check similar existing files for patterns to follow
+- Maintain the hierarchical organization of documentation
+- Update the sidebar configuration in `astro.config.mjs` if adding new top-level sections
+- Test that relative paths for images and links are correct based on file location
+- Preserve frontmatter structure when editing files
+- When in doubt, follow the patterns established in existing documentation

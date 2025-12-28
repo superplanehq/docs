@@ -25,7 +25,7 @@ Run the following commands on your server to download and unpack the
 installer:
 
 ```bash
-wget -q https://github.com/superplanehq/superplane/releases/download/v0.0.11/superplane-single-host.tar.gz
+wget -q https://install.superplane.com/stable/superplane-single-host.tar.gz
 tar -xf superplane-single-host.tar.gz
 cd superplane
 ```

@@ -32,8 +32,8 @@ terminal.
 
 SuperPlane needs to be reachable from the public internet so it can
 connect to external integrations and webhooks. When you run the
-container, it automatically starts a Cloudflare Tunnel to expose your
-local instance through a public URL.
+container, it automatically starts a [Cloudflare Tunnel][cloudflare-tunnel]
+to expose your local instance through a public URL.
 
 This is convenient for quick trials, but it also means:
 
@@ -67,3 +67,5 @@ docker run -ti --rm ghcr.io/superplanehq/superplane-demo:v0.4
 ```
 
 Replace `v0.4` with the version you want to run.
+
+[cloudflare-tunnel]: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/

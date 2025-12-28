@@ -48,7 +48,7 @@ Run the following commands on your server to download and unpack the
 installer:
 
 ```bash
-wget -q https://install.superplane.com/stable/superplane-single-host.tar.gz
+wget -q https://install.superplane.com/superplane-single-host.tar.gz
 tar -xf superplane-single-host.tar.gz
 cd superplane
 ```

@@ -82,7 +82,7 @@ With Docker set up, install SuperPlane using the single-host installer.
 First, download and unpack the installer:
 
 ```bash
-wget -q https://install.superplane.com/stable/superplane-single-host.tar.gz
+wget -q https://install.superplane.com/superplane-single-host.tar.gz
 tar -xf superplane-single-host.tar.gz
 cd superplane
 ```

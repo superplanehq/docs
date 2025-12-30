@@ -1,6 +1,6 @@
 ---
 title: Try SuperPlane on Your Computer
-description: Run SuperPlane locally for evaluation and development.
+description: Run SuperPlane locally with Docker in less than a minute.
 ---
 
 The fastest way to try SuperPlane is to run the latest version of the
@@ -12,28 +12,27 @@ any cloud infrastructure.
 
 To run SuperPlane you need:
 
-- Docker installed and running (for example Docker Desktop on
+- [Docker installed and running][docker-install] (for example Docker Desktop on
   macOS/Windows, or Docker Engine on Linux).
-- A stable internet connection (SuperPlane connects to external
-  integrations and opens a tunnel).
+- A stable internet connection (SuperPlane opens a tunnel for incoming
+  webhooks).
 
 ## Starting SuperPlane
 
 Run the latest stable SuperPlane Docker container:
 
 ```bash
-docker run -ti --rm ghcr.io/superplanehq/superplane-demo:stable
+docker run --rm -p 3000:3000 -v spdata:/app/data -ti ghcr.io/superplanehq/superplane-demo:stable
 ```
 
-This pulls the stable image (if needed) and starts SuperPlane in your
-terminal.
+This pulls the stable image and starts SuperPlane in your terminal.
 
-### Public access and Cloudflare tunnel
+### Public access and localtunnel
 
-SuperPlane needs to be reachable from the public internet so it can
-connect to external integrations and webhooks. When you run the
-container, it automatically starts a [Cloudflare Tunnel][cloudflare-tunnel]
-to expose your local instance through a public URL.
+SuperPlane needs to be reachable from the public internet to receive
+incoming webhooks. When you run the container, it automatically starts
+a [localtunnel][localtunnel] to expose your local instance through a
+public URL for incoming webhooks.
 
 This is convenient for quick trials, but it also means:
 
@@ -68,4 +67,37 @@ docker run -ti --rm ghcr.io/superplanehq/superplane-demo:v0.4
 
 Replace `v0.4` with the version you want to run.
 
-[cloudflare-tunnel]: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/
+## Updating SuperPlane
+
+To update to the latest version, pull the latest image and restart the
+container:
+
+```bash
+docker pull ghcr.io/superplanehq/superplane-demo:stable
+docker run --rm -p 3000:3000 -v spdata:/app/data -ti ghcr.io/superplanehq/superplane-demo:stable
+```
+
+Docker will automatically pull the latest image if you don't run `docker
+pull` first, but pulling explicitly ensures you have the latest version
+before starting the container.
+
+## Removing SuperPlane
+
+To completely remove SuperPlane, remove the data volume and Docker
+images:
+
+```bash
+docker volume rm spdata
+docker rmi ghcr.io/superplanehq/superplane-demo:stable
+```
+
+If you've used other tags (like `beta` or specific versions), remove
+those images as well:
+
+```bash
+docker rmi ghcr.io/superplanehq/superplane-demo:beta
+docker rmi ghcr.io/superplanehq/superplane-demo:v0.4
+```
+
+[localtunnel]: https://github.com/localtunnel/localtunnel
+[docker-install]: https://docs.docker.com/get-docker/

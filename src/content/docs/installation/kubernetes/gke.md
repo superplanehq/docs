@@ -44,51 +44,30 @@ gcloud projects get-iam-policy $(gcloud config get-value project) \
   --format="table(bindings.role)"
 ```
 
-### Grant Required Permissions
+## Step 1: Enable Cloud SQL Admin API
 
-If you don't have the required permissions, ask your GCP administrator to grant
-you the necessary roles. They can run:
-
-```bash
-PROJECT_ID=$(gcloud config get-value project)
-USER_EMAIL=$(gcloud config get-value account)
-
-gcloud projects add-iam-policy-binding $PROJECT_ID \
-  --member="user:$USER_EMAIL" \
-  --role="roles/cloudsql.admin"
-
-gcloud projects add-iam-policy-binding $PROJECT_ID \
-  --member="user:$USER_EMAIL" \
-  --role="roles/iam.serviceAccountAdmin"
-
-gcloud projects add-iam-policy-binding $PROJECT_ID \
-  --member="user:$USER_EMAIL" \
-  --role="roles/iam.serviceAccountKeyAdmin"
-```
-
-Alternatively, if you have the `roles/owner` or `roles/editor` role on the
-project, you already have sufficient permissions to proceed.
-
-### Test Permissions
-
-Test that you can create a service account (this will fail if you don't have
-permissions, but won't create anything):
+First, enable the Cloud SQL Admin API. This is required before you can create
+Cloud SQL instances:
 
 ```bash
-gcloud iam service-accounts create test-permissions-check \
-  --display-name="Test Permissions" \
-  --description="Temporary account to test permissions"
+gcloud services enable sqladmin.googleapis.com
 ```
 
-If successful, delete the test account:
+This may take a few minutes to complete. You'll see a prompt asking for
+confirmation - type `y` to proceed.
+
+## Step 2: Set Database Password
+
+Export a variable with a secure password for your database:
 
 ```bash
-gcloud iam service-accounts delete test-permissions-check@$(gcloud config get-value project).iam.gserviceaccount.com
+export DB_PASSWORD="your-secure-password-here"
 ```
 
-If either command fails, you need additional permissions before proceeding.
+Replace `your-secure-password-here` with a strong password. This password will
+be used for both the Cloud SQL root user and the SuperPlane database user.
 
-## Step 1: Create a Cloud SQL PostgreSQL Instance
+## Step 3: Create a Cloud SQL PostgreSQL Instance
 
 If you don't already have a Cloud SQL instance, create one:
 
@@ -97,10 +76,10 @@ gcloud sql instances create superplane-db \
   --database-version=POSTGRES_15 \
   --tier=db-f1-micro \
   --region=us-central1 \
-  --root-password=YOUR_SECURE_PASSWORD
+  --root-password=$DB_PASSWORD
 ```
 
-Replace `YOUR_SECURE_PASSWORD` with a strong password. Note the instance
+Note the instance
 connection name, which you'll need later. It follows the format:
 `PROJECT_ID:REGION:INSTANCE_NAME`.
 
@@ -111,27 +90,17 @@ gcloud sql databases create superplane \
   --instance=superplane-db
 ```
 
-## Step 2: Create a Database User
+## Step 4: Create a Database User
 
 Create a dedicated database user:
 
 ```bash
 gcloud sql users create superplane \
   --instance=superplane-db \
-  --password=YOUR_DB_PASSWORD
+  --password=$DB_PASSWORD
 ```
 
-Replace `YOUR_DB_PASSWORD` with a secure password for the database user.
-
-## Step 3: Enable Cloud SQL Admin API
-
-Enable the Cloud SQL Admin API if it's not already enabled:
-
-```bash
-gcloud services enable sqladmin.googleapis.com
-```
-
-## Step 4: Create a Service Account
+## Step 5: Create a Service Account
 
 Create a service account for the Cloud SQL Proxy:
 
@@ -150,7 +119,7 @@ gcloud projects add-iam-policy-binding PROJECT_ID \
 
 Replace `PROJECT_ID` with your GCP project ID.
 
-## Step 5: Create Kubernetes Secrets
+## Step 6: Create Kubernetes Secrets
 
 Create a Kubernetes secret for the database credentials:
 
@@ -160,10 +129,8 @@ kubectl create secret generic superplane-db-credentials \
   --from-literal=port='5432' \
   --from-literal=database='superplane' \
   --from-literal=username='superplane' \
-  --from-literal=password='YOUR_DB_PASSWORD'
+  --from-literal=password="$DB_PASSWORD"
 ```
-
-Replace `YOUR_DB_PASSWORD` with the password you set for the database user.
 
 Create a secret for the Cloud SQL service account key:
 
@@ -179,7 +146,7 @@ rm key.json
 
 Replace `PROJECT_ID` with your GCP project ID.
 
-## Step 6: Add the Helm Repository
+## Step 7: Add the Helm Repository
 
 Add the SuperPlane Helm chart repository:
 
@@ -188,7 +155,7 @@ helm repo add superplane https://superplanehq.github.io/helm-chart
 helm repo update
 ```
 
-## Step 7: Create a Values File
+## Step 8: Create a Values File
 
 Create a `values.yaml` file for your deployment:
 
@@ -234,7 +201,7 @@ Replace:
 - `PROJECT_ID` with your GCP project ID
 - `REGION` with the region where your Cloud SQL instance is located
 
-## Step 8: Install SuperPlane
+## Step 9: Install SuperPlane
 
 Install SuperPlane using Helm:
 
@@ -245,7 +212,7 @@ helm install superplane superplane/superplane \
   -f values.yaml
 ```
 
-## Step 9: Verify the Installation
+## Step 10: Verify the Installation
 
 Check that all pods are running:
 
@@ -267,7 +234,7 @@ kubectl get svc -n superplane
 
 The `EXTERNAL-IP` of the LoadBalancer service is your SuperPlane URL.
 
-## Step 10: Configure Cloud SQL Proxy (if not using sidecar)
+## Step 11: Configure Cloud SQL Proxy (if not using sidecar)
 
 If your Helm chart doesn't include Cloud SQL Proxy as a sidecar, you can
 deploy it separately. First, get your instance connection name:

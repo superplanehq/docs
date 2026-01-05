@@ -10,10 +10,10 @@ Helm charts, with a managed PostgreSQL database on Amazon RDS.
 
 Before you begin, ensure you have:
 
-- An EKS cluster running Kubernetes 1.24 or later
-- `kubectl` configured to connect to your cluster
-- [Helm 3.x installed][helm-install]
-- AWS CLI installed and configured with appropriate credentials
+- An EKS cluster running Kubernetes 1.31 or later
+- [`kubectl` installed and configured][kubectl-install] to connect to your cluster
+- [Helm 4.x installed][helm-install]
+- [AWS CLI installed and configured][aws-cli-install] with appropriate credentials
 - An RDS for PostgreSQL instance (or permission to create one)
 - The EKS cluster and RDS instance in the same VPC or with proper network
   connectivity
@@ -39,6 +39,7 @@ aws rds create-db-instance \
 ```
 
 Replace:
+
 - `YOUR_SECURE_PASSWORD` with a strong password
 - `sg-xxxxxxxxx` with your security group ID
 - Adjust other parameters as needed for your environment
@@ -107,6 +108,7 @@ aws ec2 authorize-security-group-ingress \
 ```
 
 Replace:
+
 - `sg-RDS_SECURITY_GROUP_ID` with your RDS security group ID
 - `sg-EKS_SECURITY_GROUP_ID` with your EKS cluster security group ID
 
@@ -124,6 +126,7 @@ kubectl create secret generic superplane-db-credentials \
 ```
 
 Replace:
+
 - `YOUR_RDS_ENDPOINT` with your RDS endpoint address
 - `YOUR_DB_PASSWORD` with the password you set for the database user
 
@@ -238,13 +241,13 @@ metadata:
 spec:
   podSelector: {}
   policyTypes:
-  - Egress
+    - Egress
   egress:
-  - to:
-    - namespaceSelector: {}
-    ports:
-    - protocol: TCP
-      port: 5432
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: TCP
+          port: 5432
 ```
 
 Apply it:
@@ -327,3 +330,5 @@ aws rds delete-db-instance \
 ```
 
 [helm-install]: https://helm.sh/docs/intro/install/
+[kubectl-install]: https://kubernetes.io/docs/tasks/tools/
+[aws-cli-install]: https://aws.amazon.com/cli/

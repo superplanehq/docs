@@ -11,9 +11,9 @@ self-managed clusters.
 
 Before you begin, ensure you have:
 
-- A Kubernetes cluster running version 1.24 or later
-- `kubectl` configured to connect to your cluster
-- [Helm 3.x installed][helm-install]
+- A Kubernetes cluster running version 1.31 or later
+- [`kubectl` installed and configured][kubectl-install] to connect to your cluster
+- [Helm 4.x installed][helm-install]
 - A PostgreSQL database (managed or self-hosted) accessible from your cluster
 - Network connectivity between your cluster and the database
 
@@ -46,6 +46,7 @@ kubectl create secret generic superplane-db-credentials \
 ```
 
 Replace:
+
 - `YOUR_DB_HOST` with your database hostname or IP address
 - `YOUR_DB_USER` with your database username
 - `YOUR_DB_PASSWORD` with your database password
@@ -89,13 +90,13 @@ image:
 
 # Service configuration
 service:
-  type: LoadBalancer  # or ClusterIP, NodePort, etc.
+  type: LoadBalancer # or ClusterIP, NodePort, etc.
   port: 3000
 
 # Ingress configuration (optional)
 ingress:
   enabled: false
-  className: "nginx"  # or your ingress controller
+  className: "nginx" # or your ingress controller
   annotations: {}
   hosts:
     - host: superplane.example.com
@@ -118,6 +119,7 @@ replicaCount: 1
 ```
 
 Replace:
+
 - `YOUR_DB_HOST` with your database hostname
 - `YOUR_DB_USER` with your database username
 - Adjust other settings based on your cluster configuration
@@ -285,3 +287,4 @@ kubectl delete namespace superplane
 This removes the SuperPlane deployment but does not delete your database.
 
 [helm-install]: https://helm.sh/docs/intro/install/
+[kubectl-install]: https://kubernetes.io/docs/tasks/tools/

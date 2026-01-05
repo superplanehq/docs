@@ -11,12 +11,82 @@ SQL.
 
 Before you begin, ensure you have:
 
-- A GKE cluster running Kubernetes 1.24 or later
-- `kubectl` configured to connect to your cluster
-- [Helm 3.x installed][helm-install]
-- `gcloud` CLI installed and authenticated
-- A Cloud SQL for PostgreSQL instance (or permission to create one)
+- A GKE cluster running Kubernetes 1.31 or later
+- [`kubectl` installed and configured][kubectl-install] to connect to your cluster
+- [Helm 4.x installed][helm-install]
+- [`gcloud` CLI installed and authenticated][gcloud-install]
+- Permission to create Cloud SQL instances and service accounts
 - The Cloud SQL Proxy sidecar image available in your cluster
+
+## Verify Required Permissions
+
+Before proceeding, verify that you have the necessary permissions to create Cloud
+SQL instances and service accounts. You'll need the following IAM roles:
+
+- `roles/cloudsql.admin` - To create and manage Cloud SQL instances
+- `roles/iam.serviceAccountAdmin` - To create service accounts
+- `roles/iam.serviceAccountKeyAdmin` - To create service account keys
+
+### Check Your Current Permissions
+
+Check which project you're using:
+
+```bash
+gcloud config get-value project
+```
+
+Verify your current IAM roles for the project:
+
+```bash
+gcloud projects get-iam-policy $(gcloud config get-value project) \
+  --flatten="bindings[].members" \
+  --filter="bindings.members:user:$(gcloud config get-value account)" \
+  --format="table(bindings.role)"
+```
+
+### Grant Required Permissions
+
+If you don't have the required permissions, ask your GCP administrator to grant
+you the necessary roles. They can run:
+
+```bash
+PROJECT_ID=$(gcloud config get-value project)
+USER_EMAIL=$(gcloud config get-value account)
+
+gcloud projects add-iam-policy-binding $PROJECT_ID \
+  --member="user:$USER_EMAIL" \
+  --role="roles/cloudsql.admin"
+
+gcloud projects add-iam-policy-binding $PROJECT_ID \
+  --member="user:$USER_EMAIL" \
+  --role="roles/iam.serviceAccountAdmin"
+
+gcloud projects add-iam-policy-binding $PROJECT_ID \
+  --member="user:$USER_EMAIL" \
+  --role="roles/iam.serviceAccountKeyAdmin"
+```
+
+Alternatively, if you have the `roles/owner` or `roles/editor` role on the
+project, you already have sufficient permissions to proceed.
+
+### Test Permissions
+
+Test that you can create a service account (this will fail if you don't have
+permissions, but won't create anything):
+
+```bash
+gcloud iam service-accounts create test-permissions-check \
+  --display-name="Test Permissions" \
+  --description="Temporary account to test permissions"
+```
+
+If successful, delete the test account:
+
+```bash
+gcloud iam service-accounts delete test-permissions-check@$(gcloud config get-value project).iam.gserviceaccount.com
+```
+
+If either command fails, you need additional permissions before proceeding.
 
 ## Step 1: Create a Cloud SQL PostgreSQL Instance
 
@@ -268,3 +338,5 @@ gcloud sql instances delete superplane-db
 ```
 
 [helm-install]: https://helm.sh/docs/intro/install/
+[kubectl-install]: https://kubernetes.io/docs/tasks/tools/
+[gcloud-install]: https://cloud.google.com/sdk/docs/install

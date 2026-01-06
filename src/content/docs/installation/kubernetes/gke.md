@@ -64,20 +64,17 @@ Enable the required Google Cloud APIs:
 gcloud services enable container.googleapis.com sqladmin.googleapis.com iam.googleapis.com
 ```
 
-This may take a few minutes. You'll see prompts asking for confirmation - type `y`
-to proceed.
+This may take a few minutes.
 
 ## Step 3: Create a GKE Cluster
 
-Create a GKE cluster with Workload Identity enabled. This is the recommended
-configuration for secure authentication:
+Create a GKE cluster with Workload Identity enabled.
 
 ```bash
 gcloud container clusters create $CLUSTER_NAME \
   --region=$REGION \
   --num-nodes=2 \
   --machine-type=e2-medium \
-  --enable-workload-identity \
   --workload-pool=$PROJECT_ID.svc.id.goog \
   --release-channel=regular \
   --cluster-version=1.31
@@ -90,23 +87,7 @@ This command creates a regional cluster with:
 - Workload Identity enabled (required for secure Cloud SQL access)
 - Kubernetes version 1.31
 
-The cluster creation may take 5-10 minutes. You can monitor progress in the
-Google Cloud Console or wait for the command to complete.
-
-### Alternative: Create a Zonal Cluster
-
-If you prefer a zonal cluster (single zone, lower cost), use:
-
-```bash
-gcloud container clusters create $CLUSTER_NAME \
-  --zone=$ZONE \
-  --num-nodes=2 \
-  --machine-type=e2-medium \
-  --enable-workload-identity \
-  --workload-pool=$PROJECT_ID.svc.id.goog \
-  --release-channel=regular \
-  --cluster-version=1.31
-```
+The cluster creation may take 5-10 minutes.
 
 ### Configure kubectl
 
@@ -114,12 +95,6 @@ After the cluster is created, configure `kubectl` to connect to it:
 
 ```bash
 gcloud container clusters get-credentials $CLUSTER_NAME --region=$REGION
-```
-
-If you created a zonal cluster, use:
-
-```bash
-gcloud container clusters get-credentials $CLUSTER_NAME --zone=$ZONE
 ```
 
 Verify the connection:
@@ -130,19 +105,7 @@ kubectl get nodes
 
 You should see your cluster nodes listed.
 
-## Step 4: Enable Cloud SQL Admin API
-
-Enable the Cloud SQL Admin API. This is required before you can create Cloud
-SQL instances:
-
-```bash
-gcloud services enable sqladmin.googleapis.com
-```
-
-This may take a few minutes to complete. You'll see a prompt asking for
-confirmation - type `y` to proceed.
-
-## Step 5: Set Database Password
+## Step 4: Create a Cloud SQL Instance
 
 Export a variable with a secure password for your database:
 
@@ -153,9 +116,7 @@ export DB_PASSWORD="your-secure-password-here"
 Replace `your-secure-password-here` with a strong password. This password will
 be used for both the Cloud SQL root user and the SuperPlane database user.
 
-## Step 6: Create a Cloud SQL PostgreSQL Instance
-
-If you don't already have a Cloud SQL instance, create one:
+Create a CloudSQL instance:
 
 ```bash
 gcloud sql instances create superplane-db \
@@ -165,28 +126,17 @@ gcloud sql instances create superplane-db \
   --root-password=$DB_PASSWORD
 ```
 
-Note the instance
-connection name, which you'll need later. It follows the format:
-`PROJECT_ID:REGION:INSTANCE_NAME`.
-
 Create a database for SuperPlane:
 
 ```bash
-gcloud sql databases create superplane \
-  --instance=superplane-db
+gcloud sql databases create superplane --instance=superplane-db
 ```
-
-## Step 7: Create a Database User
 
 Create a dedicated database user:
 
 ```bash
-gcloud sql users create superplane \
-  --instance=superplane-db \
-  --password=$DB_PASSWORD
+gcloud sql users create superplane --instance=superplane-db --password=$DB_PASSWORD
 ```
-
-## Step 8: Create a GCP Service Account
 
 Create a Google Cloud service account for the Cloud SQL Proxy:
 
@@ -202,8 +152,6 @@ gcloud projects add-iam-policy-binding $PROJECT_ID \
   --member="serviceAccount:superplane-cloudsql@$PROJECT_ID.iam.gserviceaccount.com" \
   --role="roles/cloudsql.client"
 ```
-
-## Step 9: Create Kubernetes Service Account and Bind to GCP Service Account
 
 Create a Kubernetes service account in the namespace where SuperPlane will run:
 
@@ -230,8 +178,6 @@ kubectl annotate serviceaccount superplane-ksa \
   iam.gke.io/gcp-service-account=superplane-cloudsql@$PROJECT_ID.iam.gserviceaccount.com
 ```
 
-## Step 10: Create Kubernetes Secrets
-
 Create a Kubernetes secret for the database credentials:
 
 ```bash
@@ -244,7 +190,7 @@ kubectl create secret generic superplane-db-credentials \
   --from-literal=password="$DB_PASSWORD"
 ```
 
-## Step 11: Add the Helm Repository
+## Step 7: Install SuperPlane
 
 Add the SuperPlane Helm chart repository:
 
@@ -253,13 +199,10 @@ helm repo add superplane https://superplanehq.github.io/helm-chart
 helm repo update
 ```
 
-## Step 12: Create a Values File
-
 First, get your Cloud SQL instance connection name:
 
 ```bash
-export INSTANCE_CONNECTION_NAME=$(gcloud sql instances describe superplane-db \
-  --format="value(connectionName)")
+export INSTANCE_CONNECTION_NAME=$(gcloud sql instances describe superplane-db --format="value(connectionName)")
 echo $INSTANCE_CONNECTION_NAME
 ```
 
@@ -303,52 +246,6 @@ service:
   port: 3000
 ```
 
-Replace `INSTANCE_CONNECTION_NAME` with the connection name from the command
-above (it will be in the format `PROJECT_ID:REGION:superplane-db`). You can
-also use a command to create the file directly:
-
-```bash
-cat > values.yaml <<EOF
-# Database configuration
-database:
-  host: "127.0.0.1"
-  port: 5432
-  name: "superplane"
-  user: "superplane"
-  existingSecret: "superplane-db-credentials"
-  existingSecretPasswordKey: "password"
-  existingSecretUserKey: "username"
-  existingSecretDatabaseKey: "database"
-  existingSecretHostKey: "host"
-  existingSecretPortKey: "port"
-
-# Disable in-cluster PostgreSQL
-postgresql:
-  enabled: false
-
-# Cloud SQL Proxy configuration
-cloudSqlProxy:
-  enabled: true
-  instanceConnectionName: "$INSTANCE_CONNECTION_NAME"
-  # Use Workload Identity (no service account key needed)
-  useWorkloadIdentity: true
-  serviceAccountName: "superplane-ksa"
-
-# Application configuration
-image:
-  repository: ghcr.io/superplanehq/superplane
-  tag: "stable"
-  pullPolicy: IfNotPresent
-
-# Service configuration
-service:
-  type: LoadBalancer
-  port: 3000
-EOF
-```
-
-## Step 13: Install SuperPlane
-
 Install SuperPlane using Helm:
 
 ```bash
@@ -358,7 +255,7 @@ helm install superplane superplane/superplane \
   -f values.yaml
 ```
 
-## Step 14: Verify the Installation
+## Step 8: Verify the Installation
 
 Check that all pods are running:
 
@@ -439,18 +336,12 @@ To remove the Cloud SQL instance:
 gcloud sql instances delete superplane-db
 ```
 
-### Remove GKE Cluster (Optional)
+### Remove GKE Cluster
 
 If you want to remove the entire GKE cluster:
 
 ```bash
 gcloud container clusters delete $CLUSTER_NAME --region=$REGION
-```
-
-If you created a zonal cluster:
-
-```bash
-gcloud container clusters delete $CLUSTER_NAME --zone=$ZONE
 ```
 
 This will permanently delete the cluster and all its resources. Make sure you

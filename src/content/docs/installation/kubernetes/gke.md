@@ -27,23 +27,6 @@ SQL instances and service accounts. You'll need the following IAM roles:
 - `roles/iam.serviceAccountAdmin` - To create service accounts
 - `roles/iam.serviceAccountUser` - To bind service accounts (if using Workload Identity)
 
-### Check Your Current Permissions
-
-Check which project you're using:
-
-```bash
-gcloud config get-value project
-```
-
-Verify your current IAM roles for the project:
-
-```bash
-gcloud projects get-iam-policy $(gcloud config get-value project) \
-  --flatten="bindings[].members" \
-  --filter="bindings.members:user:$(gcloud config get-value account)" \
-  --format="table(bindings.role)"
-```
-
 ## Step 1: Set Project Variables
 
 First, export your GCP project ID as a variable:
@@ -68,7 +51,7 @@ gcloud config set project $PROJECT_ID
 Set variables for your cluster configuration:
 
 ```bash
-export CLUSTER_NAME="superplane-cluster"
+export CLUSTER_NAME="superplane"
 export REGION="us-central1"  # or your preferred region
 export ZONE="us-central1-a"  # or your preferred zone
 ```
@@ -78,10 +61,7 @@ export ZONE="us-central1-a"  # or your preferred zone
 Enable the required Google Cloud APIs:
 
 ```bash
-gcloud services enable \
-  container.googleapis.com \
-  sqladmin.googleapis.com \
-  iam.googleapis.com
+gcloud services enable container.googleapis.com sqladmin.googleapis.com iam.googleapis.com
 ```
 
 This may take a few minutes. You'll see prompts asking for confirmation - type `y`

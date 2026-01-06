@@ -44,10 +44,30 @@ gcloud projects get-iam-policy $(gcloud config get-value project) \
   --format="table(bindings.role)"
 ```
 
-## Step 1: Enable Cloud SQL Admin API
+## Step 1: Set Project Variables
 
-First, enable the Cloud SQL Admin API. This is required before you can create
-Cloud SQL instances:
+First, export your GCP project ID as a variable:
+
+```bash
+export PROJECT_ID=$(gcloud config get-value project)
+```
+
+Verify the project ID is set correctly:
+
+```bash
+echo $PROJECT_ID
+```
+
+If you need to use a different project, set it explicitly:
+
+```bash
+export PROJECT_ID="your-project-id"
+```
+
+## Step 2: Enable Cloud SQL Admin API
+
+Enable the Cloud SQL Admin API. This is required before you can create Cloud
+SQL instances:
 
 ```bash
 gcloud services enable sqladmin.googleapis.com
@@ -56,7 +76,7 @@ gcloud services enable sqladmin.googleapis.com
 This may take a few minutes to complete. You'll see a prompt asking for
 confirmation - type `y` to proceed.
 
-## Step 2: Set Database Password
+## Step 3: Set Database Password
 
 Export a variable with a secure password for your database:
 
@@ -67,7 +87,7 @@ export DB_PASSWORD="your-secure-password-here"
 Replace `your-secure-password-here` with a strong password. This password will
 be used for both the Cloud SQL root user and the SuperPlane database user.
 
-## Step 3: Create a Cloud SQL PostgreSQL Instance
+## Step 4: Create a Cloud SQL PostgreSQL Instance
 
 If you don't already have a Cloud SQL instance, create one:
 
@@ -90,7 +110,7 @@ gcloud sql databases create superplane \
   --instance=superplane-db
 ```
 
-## Step 4: Create a Database User
+## Step 5: Create a Database User
 
 Create a dedicated database user:
 
@@ -100,7 +120,7 @@ gcloud sql users create superplane \
   --password=$DB_PASSWORD
 ```
 
-## Step 5: Create a Service Account
+## Step 6: Create a Service Account
 
 Create a service account for the Cloud SQL Proxy:
 
@@ -112,12 +132,10 @@ gcloud iam service-accounts create superplane-cloudsql \
 Grant the service account the Cloud SQL Client role:
 
 ```bash
-gcloud projects add-iam-policy-binding PROJECT_ID \
-  --member="serviceAccount:superplane-cloudsql@PROJECT_ID.iam.gserviceaccount.com" \
+gcloud projects add-iam-policy-binding $PROJECT_ID \
+  --member="serviceAccount:superplane-cloudsql@$PROJECT_ID.iam.gserviceaccount.com" \
   --role="roles/cloudsql.client"
 ```
-
-Replace `PROJECT_ID` with your GCP project ID.
 
 ## Step 6: Create Kubernetes Secrets
 
@@ -136,15 +154,13 @@ Create a secret for the Cloud SQL service account key:
 
 ```bash
 gcloud iam service-accounts keys create key.json \
-  --iam-account=superplane-cloudsql@PROJECT_ID.iam.gserviceaccount.com
+  --iam-account=superplane-cloudsql@$PROJECT_ID.iam.gserviceaccount.com
 
 kubectl create secret generic superplane-cloudsql-key \
   --from-file=service-account.json=key.json
 
 rm key.json
 ```
-
-Replace `PROJECT_ID` with your GCP project ID.
 
 ## Step 7: Add the Helm Repository
 
@@ -156,6 +172,14 @@ helm repo update
 ```
 
 ## Step 8: Create a Values File
+
+First, get your Cloud SQL instance connection name:
+
+```bash
+export INSTANCE_CONNECTION_NAME=$(gcloud sql instances describe superplane-db \
+  --format="value(connectionName)")
+echo $INSTANCE_CONNECTION_NAME
+```
 
 Create a `values.yaml` file for your deployment:
 
@@ -180,7 +204,7 @@ postgresql:
 # Cloud SQL Proxy configuration
 cloudSqlProxy:
   enabled: true
-  instanceConnectionName: "PROJECT_ID:REGION:superplane-db"
+  instanceConnectionName: "INSTANCE_CONNECTION_NAME"
   serviceAccountSecret: "superplane-cloudsql-key"
   serviceAccountKey: "service-account.json"
 
@@ -196,10 +220,48 @@ service:
   port: 3000
 ```
 
-Replace:
+Replace `INSTANCE_CONNECTION_NAME` with the connection name from the command
+above (it will be in the format `PROJECT_ID:REGION:superplane-db`). You can
+also use a command to create the file directly:
 
-- `PROJECT_ID` with your GCP project ID
-- `REGION` with the region where your Cloud SQL instance is located
+```bash
+cat > values.yaml <<EOF
+# Database configuration
+database:
+  host: "127.0.0.1"
+  port: 5432
+  name: "superplane"
+  user: "superplane"
+  existingSecret: "superplane-db-credentials"
+  existingSecretPasswordKey: "password"
+  existingSecretUserKey: "username"
+  existingSecretDatabaseKey: "database"
+  existingSecretHostKey: "host"
+  existingSecretPortKey: "port"
+
+# Disable in-cluster PostgreSQL
+postgresql:
+  enabled: false
+
+# Cloud SQL Proxy configuration
+cloudSqlProxy:
+  enabled: true
+  instanceConnectionName: "$INSTANCE_CONNECTION_NAME"
+  serviceAccountSecret: "superplane-cloudsql-key"
+  serviceAccountKey: "service-account.json"
+
+# Application configuration
+image:
+  repository: ghcr.io/superplanehq/superplane
+  tag: "stable"
+  pullPolicy: IfNotPresent
+
+# Service configuration
+service:
+  type: LoadBalancer
+  port: 3000
+EOF
+```
 
 ## Step 9: Install SuperPlane
 
@@ -273,9 +335,9 @@ to Cloud SQL.
 Verify the service account has the correct IAM role:
 
 ```bash
-gcloud projects get-iam-policy PROJECT_ID \
+gcloud projects get-iam-policy $PROJECT_ID \
   --flatten="bindings[].members" \
-  --filter="bindings.members:serviceAccount:superplane-cloudsql@PROJECT_ID.iam.gserviceaccount.com"
+  --filter="bindings.members:serviceAccount:superplane-cloudsql@$PROJECT_ID.iam.gserviceaccount.com"
 ```
 
 ## Updating SuperPlane

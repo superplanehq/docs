@@ -48,7 +48,54 @@ gcloud services enable container.googleapis.com
 
 This may take a few minutes.
 
-## Step 3: Create a GKE Cluster
+## Step 3: Reserve Static IP Address and Configure DNS
+
+Reserve a static IP address for your ingress:
+
+```bash
+gcloud compute addresses create superplane-ip \
+  --global \
+  --ip-version=IPV4
+```
+
+Get the reserved IP address:
+
+```bash
+export INGRESS_IP=$(gcloud compute addresses describe superplane-ip \
+  --global \
+  --format='get(address)')
+echo $INGRESS_IP
+```
+
+Save this IP address. You'll use it to configure DNS and assign it to the
+ingress.
+
+Set your domain name as an environment variable:
+
+```bash
+export DOMAIN_NAME="superplane.example.com"
+```
+
+Replace `superplane.example.com` with your actual domain name.
+
+Configure DNS to point to the static IP address. Create an A record in your DNS
+provider:
+
+- **Type:** A
+- **Name:** `@` or your subdomain (e.g., `superplane`)
+- **Value:** `$INGRESS_IP` (the IP address from above)
+- **TTL:** 300 (or your preferred value)
+
+Wait for DNS propagation (usually 5-30 minutes, but can take up to 48 hours).
+Verify DNS resolution:
+
+```bash
+dig $DOMAIN_NAME +short
+```
+
+This should return the static IP address you reserved.
+
+## Step 4: Create a GKE Cluster
 
 Create a GKE cluster:
 
@@ -79,7 +126,7 @@ kubectl get nodes
 
 You should see your cluster nodes listed.
 
-## Step 4: Set Up a PostgreSQL Database
+## Step 5: Set Up PostgreSQL Database
 
 Create a Cloud SQL PostgreSQL instance for SuperPlane:
 
@@ -89,12 +136,38 @@ export DB_PASSWORD="your-secure-password-here"
 
 Replace `your-secure-password-here` with a strong password.
 
+Enable networking service:
+
+```
+gcloud services enable servicenetworking.googleapis.com
+```
+
+Reserve an IP range for the database:
+
+```
+gcloud compute addresses create google-managed-services-default \
+  --global --purpose=VPC_PEERING --prefix-length=16 --network=default
+```
+
+Create a VPC peering:
+
+```
+gcloud services vpc-peerings connect \
+  --service=servicenetworking.googleapis.com \
+  --ranges=google-managed-services-default --network=default
+```
+
+Create a database instance:
+
 ```
 gcloud sql instances create superplane-db \
   --database-version=POSTGRES_17 \
-  --tier=db-f1-micro \
+  --cpu=2 \
+  --memory=4GB \
   --region=us-central1 \
   --root-password=$DB_PASSWORD \
+  --edition=enterprise \
+  --network=default \
   --no-assign-ip
 ```
 
@@ -104,7 +177,7 @@ Create a database for SuperPlane:
 gcloud sql databases create superplane --instance=superplane-db
 ```
 
-## Step 5: Configure SuperPlane Secrets
+## Step 6: Configure Database Connection
 
 Create the namespace for SuperPlane:
 
@@ -124,36 +197,40 @@ kubectl create secret generic superplane-db-credentials \
   --from-literal=DB_NAME='superplane' \
   --from-literal=DB_USERNAME='postgres' \
   --from-literal=DB_PASSWORD="$DB_PASSWORD" \
-  --from-literal=POSTGRES_DB_SSL='false'
+  --from-literal=POSTGRES_DB_SSL='false' \
+  --from-literal=ENCRYPTION_KEY="$ENCRYPTION_KEY"
 ```
 
 Create a Kubernetes secret for the session key:
 
 ```bash
-kubectl create secret generic superplane-session -n superplane --from-literal=key="$(openssl rand -hex 32)"
+kubectl create secret generic superplane-session -n superplane --from-literal=SESSION_SECRET="$(openssl rand -hex 32)"
 ```
 
 Create a Kubernetes secret for the JWT secret:
 
 ```bash
-kubectl create secret generic superplane-jwt -n superplane --from-literal=secret="$(openssl rand -hex 32)"
+kubectl create secret generic superplane-jwt -n superplane --from-literal=JWT_SECRET="$(openssl rand -hex 32)"
 ```
 
 Create a Kubernetes secret for the encryption key:
 
 ```bash
-kubectl create secret generic superplane-encryption -n superplane --from-literal=key="$(openssl rand -hex 32)"
+kubectl create secret generic superplane-encryption -n superplane --from-literal=ENCRYPTION_KEY="$(openssl rand -hex 32)"
 ```
 
-## Step 6: Install SuperPlane
+## Step 7: Install SuperPlane
 
-Set your domain name as an environment variable:
+Set your email address for Let's Encrypt certificate notifications:
 
 ```bash
-export DOMAIN_NAME="superplane.example.com"
+export EMAIL="your-email@example.com"
 ```
 
-Install the SuperPlane helm chart:
+Replace `your-email@example.com` with your actual email address.
+
+Install the SuperPlane helm chart. cert-manager will be installed automatically
+as a dependency when enabled:
 
 ```bash
 helm install superplane oci://ghcr.io/superplanehq/superplane-chart \
@@ -173,9 +250,19 @@ helm install superplane oci://ghcr.io/superplanehq/superplane-chart \
   --set domain.name="$DOMAIN_NAME" \
   --set ingress.enabled=true \
   --set ingress.className="gce" \
+  --set ingress.annotations."kubernetes\.io/ingress\.global-static-ip-name"="superplane-ip" \
   --set ingress.ssl.enabled=true \
-  --set ingress.ssl.type="google" \
-  --set ingress.ssl.google.certName="superplane-ssl-cert" \
+  --set ingress.ssl.type="cert-manager" \
+  --set ingress.ssl.certManager.issuerRef.name="letsencrypt-prod" \
+  --set ingress.ssl.certManager.issuerRef.kind="ClusterIssuer" \
+  --set cert-manager.enabled=true \
+  --set cert-manager.installCRDs=true \
+  --set certManager.issuerRef.name="letsencrypt-prod" \
+  --set certManager.issuerRef.kind="ClusterIssuer" \
+  --set certManager.secretName="superplane-tls-secret" \
+  --set certManager.createClusterIssuer=true \
+  --set certManager.acme.email="$EMAIL" \
+  --set certManager.acme.server="https://acme-v02.api.letsencrypt.org/directory" \
   --set authentication.github.enabled=false \
   --set authentication.google.enabled=false \
   --set telemetry.opentelemetry.enabled=false \
@@ -185,12 +272,42 @@ helm install superplane oci://ghcr.io/superplanehq/superplane-chart \
   --set encryption.secretName="superplane-encryption"
 ```
 
-## Step 7: Verify the Installation
+Wait for cert-manager to be ready:
+
+```bash
+kubectl wait --for=condition=ready pod \
+  -l app.kubernetes.io/instance=cert-manager \
+  -n cert-manager \
+  --timeout=300s
+```
+
+The ClusterIssuer will be created automatically by the helm chart. Verify it was
+created:
+
+```bash
+kubectl get clusterissuer letsencrypt-prod
+```
+
+## Step 8: Verify the Installation
 
 Check that all pods are running:
 
 ```bash
 kubectl get pods -n superplane
+kubectl get pods -n cert-manager
+```
+
+Verify cert-manager is running:
+
+```bash
+kubectl get pods -A | grep cert-manager
+```
+
+Verify the ClusterIssuer was created:
+
+```bash
+kubectl get clusterissuer letsencrypt-prod
+kubectl describe clusterissuer letsencrypt-prod
 ```
 
 Wait until all pods show `Running` status. Check the logs if needed:
@@ -205,48 +322,55 @@ Get the ingress endpoint:
 kubectl get ingress -n superplane
 ```
 
-Wait for the ingress to be assigned an IP address. This may take a few minutes.
-Once the `ADDRESS` column shows an IP address, note it down.
+Verify that the ingress is using the static IP address:
 
-### Configure DNS
+```bash
+kubectl get ingress -n superplane -o jsonpath='{.items[0].status.loadBalancer.ingress[0].ip}'
+```
 
-Point your domain to the ingress IP address by creating an A record in your DNS
-provider:
-
-1. **Get the ingress IP address:**
-
-   ```bash
-   kubectl get ingress -n superplane -o jsonpath='{.items[0].status.loadBalancer.ingress[0].ip}'
-   ```
-
-2. **Create an A record** in your DNS provider:
-
-   - **Type:** A
-   - **Name:** `@` or your subdomain (e.g., `superplane`)
-   - **Value:** The IP address from step 1
-   - **TTL:** 300 (or your preferred value)
-
-3. **Wait for DNS propagation** (usually 5-30 minutes, but can take up to 48
-   hours)
-
-4. **Verify DNS resolution:**
-   ```bash
-   dig $DOMAIN_NAME +short
-   ```
-   This should return the ingress IP address.
+This should return the static IP address you reserved in Step 3.
 
 ### SSL Certificate
 
-If you configured `ingress.ssl.type="google"`, Google Cloud will automatically
-provision an SSL certificate for your domain. The certificate provisioning may
-take 10-60 minutes. You can check the certificate status:
+cert-manager will automatically request and provision an SSL certificate from
+Let's Encrypt for your domain. The certificate provisioning may take a few
+minutes. Check the certificate status:
 
 ```bash
-kubectl describe ingress -n superplane
+kubectl get certificate -n superplane
+kubectl describe certificate -n superplane
 ```
 
-Once the certificate is provisioned and DNS is configured, your SuperPlane
-instance will be accessible at `https://$DOMAIN_NAME`.
+Check the certificate request status:
+
+```bash
+kubectl get certificaterequest -n superplane
+kubectl describe certificaterequest -n superplane
+```
+
+You can also check the cert-manager logs:
+
+```bash
+kubectl logs -n cert-manager -l app=cert-manager
+```
+
+**Note:** If you don't see a Certificate resource, check the ingress
+annotations to ensure cert-manager is configured correctly:
+
+```bash
+kubectl get ingress -n superplane -o yaml | grep -A 5 annotations
+```
+
+The ingress should have the annotation
+`cert-manager.io/cluster-issuer: letsencrypt-prod`. If it's missing, the helm
+chart may not be creating the Certificate resource automatically. Check the
+ingress configuration in the helm chart values.
+
+If the Certificate resource is not being created automatically, you may need to
+create it manually or verify the helm chart's cert-manager integration.
+
+Once the certificate is issued (status shows `Ready`) and DNS is configured,
+your SuperPlane instance will be accessible at `https://$DOMAIN_NAME`.
 
 ## Troubleshooting
 
@@ -287,7 +411,71 @@ Ensure the following secrets are present:
 - `superplane-jwt`
 - `superplane-encryption`
 
-If any are missing, recreate them using the commands from Step 5.
+If any are missing, recreate them using the commands from Step 6.
+
+### Certificate Resource Not Found
+
+If you don't see a Certificate resource in the superplane namespace, the helm
+chart may not be creating it automatically. Check the ingress to see if it has
+the cert-manager annotation:
+
+```bash
+kubectl get ingress -n superplane -o yaml | grep -A 10 annotations
+```
+
+The ingress should have `cert-manager.io/cluster-issuer: letsencrypt-prod` or
+similar annotation. If it's missing, verify your helm values include the
+cert-manager configuration.
+
+Check if cert-manager is detecting ingress resources:
+
+```bash
+kubectl logs -n cert-manager -l app=cert-manager | grep -i ingress
+```
+
+### TLS Secret Not Found Error
+
+If you see an error like `secrets "superplane-tls-secret" not found` in the
+ingress controller logs, this means either:
+
+1. The Certificate resource hasn't been created yet (see above)
+2. cert-manager is still processing the certificate request
+
+If the Certificate resource exists, check its status:
+
+```bash
+kubectl get certificate -n superplane
+kubectl describe certificate -n superplane
+```
+
+If the certificate shows `Ready: False`, check the events and conditions:
+
+```bash
+kubectl describe certificate -n superplane | grep -A 10 "Conditions:"
+```
+
+Check certificate requests:
+
+```bash
+kubectl get certificaterequest -n superplane
+kubectl describe certificaterequest -n superplane
+```
+
+Common issues:
+
+- **DNS not propagated:** Ensure your DNS is correctly pointing to the static IP
+  and has propagated. Verify with `dig $DOMAIN_NAME +short`.
+- **Let's Encrypt rate limiting:** If you've made too many requests, wait a few
+  hours before trying again.
+- **HTTP-01 challenge failing:** Ensure your domain is publicly accessible and
+  the ingress is working on HTTP (port 80).
+- **ClusterIssuer not found:** Verify the ClusterIssuer exists:
+  ```bash
+  kubectl get clusterissuer letsencrypt-prod
+  ```
+
+Once the certificate is ready, the TLS secret will be created automatically and
+the error will resolve.
 
 ### Pods stuck in Pending status
 
@@ -366,11 +554,22 @@ helm upgrade superplane oci://ghcr.io/superplanehq/superplane-chart \
   --set image.name="superplane" \
   --set image.tag="stable" \
   --set image.pullPolicy="IfNotPresent" \
-  --set domain.name="superplane.example.com" \
+  --set domain.name="$DOMAIN_NAME" \
   --set ingress.enabled=true \
   --set ingress.className="gce" \
+  --set ingress.annotations."kubernetes\.io/ingress\.global-static-ip-name"="superplane-ip" \
   --set ingress.ssl.enabled=true \
-  --set ingress.ssl.type="google" \
+  --set ingress.ssl.type="cert-manager" \
+  --set ingress.ssl.certManager.issuerRef.name="letsencrypt-prod" \
+  --set ingress.ssl.certManager.issuerRef.kind="ClusterIssuer" \
+  --set cert-manager.enabled=true \
+  --set cert-manager.installCRDs=true \
+  --set certManager.issuerRef.name="letsencrypt-prod" \
+  --set certManager.issuerRef.kind="ClusterIssuer" \
+  --set certManager.secretName="superplane-tls-secret" \
+  --set certManager.createClusterIssuer=true \
+  --set certManager.acme.email="$EMAIL" \
+  --set certManager.acme.server="https://acme-v02.api.letsencrypt.org/directory" \
   --set telemetry.opentelemetry.enabled=false \
   --set telemetry.opentelemetry.endpoint="" \
   --set session.secretName="superplane-session" \

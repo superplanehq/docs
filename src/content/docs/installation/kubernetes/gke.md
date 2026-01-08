@@ -51,8 +51,8 @@ dig superplane.example.com +short
 ## Step 4: Clone and Configure Terraform
 
 ```bash
-git clone https://github.com/superplanehq/superplane-k8s-installation
-cd superplane-k8s-installation/gke
+git clone https://github.com/superplanehq/superplane-terraform
+cd superplane-terraform/gke
 cp terraform.tfvars.example terraform.tfvars
 ```
 

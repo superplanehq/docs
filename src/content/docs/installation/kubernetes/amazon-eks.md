@@ -15,8 +15,8 @@ This guide describes how to deploy SuperPlane to Amazon EKS using Terraform.
 ## Step 1: Clone and Configure Terraform
 
 ```bash
-git clone https://github.com/superplanehq/superplane-k8s-installation
-cd superplane-k8s-installation/eks
+git clone https://github.com/superplanehq/superplane-terraform
+cd superplane-terraform/eks
 cp terraform.tfvars.example terraform.tfvars
 ```
 

@@ -9,10 +9,31 @@ This guide describes how to deploy SuperPlane to Amazon EKS using Terraform.
 
 - An AWS account with permissions to create EKS, RDS, and VPC resources
 - [Terraform][terraform-install] >= 1.5.0
-- [AWS CLI][aws-cli-install] installed and configured
+- [AWS CLI][aws-cli-install] installed
 - [`kubectl`][kubectl-install] installed
 
-## Step 1: Clone and Configure Terraform
+## Step 1: Configure AWS CLI
+
+Configure the AWS CLI with your credentials:
+
+```bash
+aws configure
+```
+
+You will be prompted to enter:
+
+- **AWS Access Key ID:** Your access key
+- **AWS Secret Access Key:** Your secret key
+- **Default region name:** e.g., `us-east-1`
+- **Default output format:** `json` (recommended)
+
+Verify the configuration:
+
+```bash
+aws sts get-caller-identity
+```
+
+## Step 2: Clone and Configure Terraform
 
 ```bash
 git clone https://github.com/superplanehq/superplane-terraform
@@ -40,7 +61,7 @@ letsencrypt_email = "admin@example.com"
 | `db_instance_class`    | RDS instance class         | `db.t3.medium` |
 | `superplane_image_tag` | SuperPlane image tag       | `stable`       |
 
-## Step 2: Deploy
+## Step 3: Deploy
 
 ```bash
 terraform init
@@ -56,13 +77,13 @@ The deployment takes 15-20 minutes and creates:
 - cert-manager with Let's Encrypt
 - SuperPlane deployment
 
-## Step 3: Configure kubectl
+## Step 4: Configure kubectl
 
 ```bash
 aws eks update-kubeconfig --region us-east-1 --name superplane
 ```
 
-## Step 4: Configure DNS
+## Step 5: Configure DNS
 
 Get the ALB DNS name:
 
@@ -76,7 +97,7 @@ Create a CNAME record in your DNS provider:
 - **Name:** Your subdomain (e.g., `superplane`)
 - **Value:** The ALB DNS name from the command above
 
-## Step 5: Verify
+## Step 6: Verify
 
 Check pods and ingress:
 

@@ -33,7 +33,39 @@ Verify the configuration:
 aws sts get-caller-identity
 ```
 
-## Step 2: Clone and Configure Terraform
+## Step 2: Create Static IP Address
+
+Create an Elastic IP for the load balancer:
+
+```bash
+aws ec2 allocate-address --domain vpc --tag-specifications \
+  'ResourceType=elastic-ip,Tags=[{Key=Name,Value=superplane-ip}]'
+```
+
+Get the allocation ID and static IP address:
+
+```bash
+aws ec2 describe-addresses --filters "Name=tag:Name,Values=superplane-ip" \
+  --query 'Addresses[0].[AllocationId,PublicIp]' --output text
+```
+
+Save both values — you'll need the allocation ID for Terraform and the IP for DNS.
+
+## Step 3: Configure DNS
+
+Create an A record in your DNS provider pointing to the static IP:
+
+- **Type:** A
+- **Name:** Your subdomain (e.g., `superplane`)
+- **Value:** The static IP address from Step 2
+
+Wait for DNS propagation and verify:
+
+```bash
+dig superplane.example.com +short
+```
+
+## Step 4: Clone and Configure Terraform
 
 ```bash
 git clone https://github.com/superplanehq/superplane-terraform
@@ -44,24 +76,26 @@ cp terraform.tfvars.example terraform.tfvars
 Edit `terraform.tfvars`:
 
 ```hcl
-domain_name       = "superplane.example.com"
-letsencrypt_email = "admin@example.com"
+domain_name          = "superplane.example.com"
+letsencrypt_email    = "admin@example.com"
+eip_allocation_id    = "eipalloc-xxxxxxxxxxxxxxxxx"
 ```
 
 ### Configuration Options
 
-| Variable               | Description                | Default        |
-| ---------------------- | -------------------------- | -------------- |
-| `domain_name`          | Domain name for SuperPlane | (required)     |
-| `letsencrypt_email`    | Email for Let's Encrypt    | (required)     |
-| `region`               | AWS region                 | `us-east-1`    |
-| `cluster_name`         | EKS cluster name           | `superplane`   |
-| `node_count`           | Number of EKS nodes        | `2`            |
-| `instance_type`        | EKS node instance type     | `t3.medium`    |
-| `db_instance_class`    | RDS instance class         | `db.t3.medium` |
-| `superplane_image_tag` | SuperPlane image tag       | `stable`       |
+| Variable               | Description                      | Default        |
+| ---------------------- | -------------------------------- | -------------- |
+| `domain_name`          | Domain name for SuperPlane       | (required)     |
+| `letsencrypt_email`    | Email for Let's Encrypt          | (required)     |
+| `eip_allocation_id`    | Elastic IP allocation ID         | (required)     |
+| `region`               | AWS region                       | `us-east-1`    |
+| `cluster_name`         | EKS cluster name                 | `superplane`   |
+| `node_count`           | Number of EKS nodes              | `2`            |
+| `instance_type`        | EKS node instance type           | `t3.medium`    |
+| `db_instance_class`    | RDS instance class               | `db.t3.medium` |
+| `superplane_image_tag` | SuperPlane image tag             | `stable`       |
 
-## Step 3: Deploy
+## Step 5: Deploy
 
 ```bash
 terraform init
@@ -73,31 +107,17 @@ The deployment takes 15-20 minutes and creates:
 - VPC with public and private subnets
 - EKS cluster with node group
 - RDS PostgreSQL instance
-- AWS Load Balancer Controller
+- Network Load Balancer with Elastic IP
 - cert-manager with Let's Encrypt
 - SuperPlane deployment
 
-## Step 4: Configure kubectl
+## Step 6: Configure kubectl
 
 ```bash
 aws eks update-kubeconfig --region us-east-1 --name superplane
 ```
 
-## Step 5: Configure DNS
-
-Get the ALB DNS name:
-
-```bash
-kubectl get ingress -n superplane
-```
-
-Create a CNAME record in your DNS provider:
-
-- **Type:** CNAME
-- **Name:** Your subdomain (e.g., `superplane`)
-- **Value:** The ALB DNS name from the command above
-
-## Step 6: Verify
+## Step 7: Verify
 
 Check pods and ingress:
 
@@ -136,6 +156,9 @@ aws rds wait db-instance-available --db-instance-identifier superplane-db
 
 # Destroy all resources
 terraform destroy
+
+# Release the Elastic IP
+aws ec2 release-address --allocation-id eipalloc-xxxxxxxxxxxxxxxxx
 ```
 
 [terraform-install]: https://www.terraform.io/downloads

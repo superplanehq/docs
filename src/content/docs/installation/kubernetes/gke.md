@@ -190,7 +190,7 @@ kubectl create secret generic superplane-db-credentials \
   --from-literal=DB_NAME='superplane' \
   --from-literal=DB_USERNAME='postgres' \
   --from-literal=DB_PASSWORD="$DB_PASSWORD" \
-  --from-literal=POSTGRES_DB_SSL='false' \
+  --from-literal=POSTGRES_DB_SSL='false'
 ```
 
 Create a Kubernetes secret for the session key:

@@ -53,22 +53,15 @@ This may take a few minutes.
 Reserve a static IP address for your ingress:
 
 ```bash
-gcloud compute addresses create superplane-ip \
-  --global \
-  --ip-version=IPV4
+gcloud compute addresses create superplane-ip --global --ip-version=IPV4
 ```
 
 Get the reserved IP address:
 
 ```bash
-export INGRESS_IP=$(gcloud compute addresses describe superplane-ip \
-  --global \
-  --format='get(address)')
+export INGRESS_IP=$(gcloud compute addresses describe superplane-ip --global --format='get(address)')
 echo $INGRESS_IP
 ```
-
-Save this IP address. You'll use it to configure DNS and assign it to the
-ingress.
 
 Set your domain name as an environment variable:
 
@@ -198,7 +191,6 @@ kubectl create secret generic superplane-db-credentials \
   --from-literal=DB_USERNAME='postgres' \
   --from-literal=DB_PASSWORD="$DB_PASSWORD" \
   --from-literal=POSTGRES_DB_SSL='false' \
-  --from-literal=ENCRYPTION_KEY="$ENCRYPTION_KEY"
 ```
 
 Create a Kubernetes secret for the session key:
@@ -219,18 +211,36 @@ Create a Kubernetes secret for the encryption key:
 kubectl create secret generic superplane-encryption -n superplane --from-literal=ENCRYPTION_KEY="$(openssl rand -hex 32)"
 ```
 
-## Step 7: Install SuperPlane
+## Step 7: Install cert-manager
 
-Set your email address for Let's Encrypt certificate notifications:
+Install cert-manager, which is required for SSL certificate management:
 
 ```bash
-export EMAIL="your-email@example.com"
+helm repo add jetstack https://charts.jetstack.io
+helm install cert-manager jetstack/cert-manager \
+  --namespace cert-manager \
+  --create-namespace \
+  --set installCRDs=true
 ```
 
-Replace `your-email@example.com` with your actual email address.
+Wait for cert-manager to be ready:
 
-Install the SuperPlane helm chart. cert-manager will be installed automatically
-as a dependency when enabled:
+```bash
+kubectl wait --for=condition=ready pod \
+  -l app.kubernetes.io/instance=cert-manager \
+  -n cert-manager \
+  --timeout=300s
+```
+
+Verify cert-manager is running:
+
+```bash
+kubectl get pods -n cert-manager
+```
+
+## Step 8: Install SuperPlane
+
+Install the SuperPlane helm chart:
 
 ```bash
 helm install superplane oci://ghcr.io/superplanehq/superplane-chart \
@@ -250,17 +260,12 @@ helm install superplane oci://ghcr.io/superplanehq/superplane-chart \
   --set domain.name="$DOMAIN_NAME" \
   --set ingress.enabled=true \
   --set ingress.className="gce" \
-  --set ingress.annotations."kubernetes\.io/ingress\.global-static-ip-name"="superplane-ip" \
+  --set ingress.staticIpName="superplane-ip" \
   --set ingress.ssl.enabled=true \
   --set ingress.ssl.type="cert-manager" \
   --set ingress.ssl.certManager.issuerRef.name="letsencrypt-prod" \
   --set ingress.ssl.certManager.issuerRef.kind="ClusterIssuer" \
   --set ingress.ssl.certManager.secretName="superplane-tls-secret" \
-  --set ingress.ssl.certManager.createClusterIssuer=true \
-  --set ingress.ssl.certManager.acme.email="$EMAIL" \
-  --set ingress.ssl.certManager.acme.server="https://acme-v02.api.letsencrypt.org/directory" \
-  --set cert-manager.enabled=true \
-  --set cert-manager.installCRDs=true \
   --set authentication.github.enabled=false \
   --set authentication.google.enabled=false \
   --set telemetry.opentelemetry.enabled=false \
@@ -270,42 +275,71 @@ helm install superplane oci://ghcr.io/superplanehq/superplane-chart \
   --set encryption.secretName="superplane-encryption"
 ```
 
-Wait for cert-manager to be ready:
+Wait for the SuperPlane pods to start:
 
 ```bash
-kubectl wait --for=condition=ready pod \
-  -l app.kubernetes.io/instance=cert-manager \
-  -n cert-manager \
-  --timeout=300s
+kubectl get pods -n superplane -w
 ```
 
-The ClusterIssuer will be created automatically by the helm chart. Verify it was
-created:
+Once the pods are running, verify the ingress was created with the static IP
+annotation:
 
 ```bash
-kubectl get clusterissuer letsencrypt-prod
+kubectl get ingress superplane -n superplane
 ```
 
-## Step 8: Verify the Installation
+The ingress may take a few minutes to get an IP address assigned.
 
-Check that all pods are running:
+## Step 9: Create ClusterIssuer
+
+Set your email address for Let's Encrypt certificate notifications:
 
 ```bash
-kubectl get pods -n superplane
-kubectl get pods -n cert-manager
+export EMAIL="your-email@example.com"
 ```
 
-Verify cert-manager is running:
+Replace `your-email@example.com` with your actual email address.
+
+Create a ClusterIssuer for Let's Encrypt. This configuration tells cert-manager
+to use the existing SuperPlane ingress for HTTP-01 challenges instead of
+creating a separate solver ingress:
 
 ```bash
-kubectl get pods -A | grep cert-manager
+kubectl apply -f - <<EOF
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: $EMAIL
+    privateKeySecretRef:
+      name: letsencrypt-prod
+    solvers:
+    - http01:
+        ingress:
+          name: superplane
+          serviceType: ClusterIP
+EOF
 ```
+
+This approach reuses the SuperPlane ingress (which has the static IP) for
+certificate validation, avoiding the issue where a separate solver ingress
+would get a different IP address.
 
 Verify the ClusterIssuer was created:
 
 ```bash
 kubectl get clusterissuer letsencrypt-prod
-kubectl describe clusterissuer letsencrypt-prod
+```
+
+## Step 10: Verify the Installation
+
+Check that all pods are running:
+
+```bash
+kubectl get pods -n superplane
 ```
 
 Wait until all pods show `Running` status. Check the logs if needed:
@@ -327,6 +361,54 @@ kubectl get ingress -n superplane -o jsonpath='{.items[0].status.loadBalancer.in
 ```
 
 This should return the static IP address you reserved in Step 3.
+
+**If the ingress shows no IP address**, verify the static IP annotation is set:
+
+```bash
+kubectl get ingress superplane -n superplane -o yaml | grep -A 5 annotations
+```
+
+You should see `kubernetes.io/ingress.global-static-ip-name: superplane-ip` in the
+annotations. If it's missing, add it manually:
+
+```bash
+kubectl annotate ingress superplane -n superplane \
+  kubernetes.io/ingress.global-static-ip-name=superplane-ip \
+  --overwrite
+```
+
+Wait 2-3 minutes after adding the annotation for the GCE ingress controller to
+assign the static IP.
+
+### Verify Firewall Rules for Port 80
+
+The GCE ingress controller automatically creates firewall rules to allow traffic
+on ports 80 (HTTP) and 443 (HTTPS) when the ingress is created. Port 80 is
+required for Let's Encrypt HTTP-01 challenges used by cert-manager.
+
+Verify that firewall rules allow HTTP traffic:
+
+```bash
+gcloud compute firewall-rules list --filter="name~gke-$CLUSTER_NAME"
+```
+
+You should see firewall rules that allow traffic from `0.0.0.0/0` (or specific
+source ranges) to ports 80 and 443. The GCE ingress controller typically
+creates rules with names like `k8s-fw-*` or `gce-*`.
+
+If you need to manually verify port 80 accessibility, test from an external
+machine:
+
+```bash
+curl -I http://$DOMAIN_NAME
+```
+
+This should return an HTTP response (even if it's a redirect to HTTPS or a
+certificate challenge page).
+
+**Note:** If you're using a custom VPC or have strict firewall policies, ensure
+that the default firewall rules allow HTTP traffic. The GCE ingress controller
+requires these rules to function properly.
 
 ### SSL Certificate
 
@@ -360,12 +442,9 @@ kubectl get ingress -n superplane -o yaml | grep -A 5 annotations
 ```
 
 The ingress should have the annotation
-`cert-manager.io/cluster-issuer: letsencrypt-prod`. If it's missing, the helm
-chart may not be creating the Certificate resource automatically. Check the
-ingress configuration in the helm chart values.
-
-If the Certificate resource is not being created automatically, you may need to
-create it manually or verify the helm chart's cert-manager integration.
+`cert-manager.io/cluster-issuer: letsencrypt-prod`. If it's missing, verify your
+helm values include the cert-manager configuration and that the ClusterIssuer
+exists.
 
 Once the certificate is issued (status shows `Ready`) and DNS is configured,
 your SuperPlane instance will be accessible at `https://$DOMAIN_NAME`.
@@ -467,10 +546,175 @@ Common issues:
   hours before trying again.
 - **HTTP-01 challenge failing:** Ensure your domain is publicly accessible and
   the ingress is working on HTTP (port 80).
-- **ClusterIssuer not found:** Verify the ClusterIssuer exists:
+- **ClusterIssuer not found:** Verify the ClusterIssuer exists (created in Step
+  9):
   ```bash
   kubectl get clusterissuer letsencrypt-prod
   ```
+
+### Empty Reply from Server (Port 80 Not Responding)
+
+If you get `curl: (52) Empty reply from server` when testing port 80, this
+usually means the GCE load balancer is still provisioning or the ingress
+backend isn't configured correctly.
+
+**Check if the ingress has an IP address:**
+
+```bash
+kubectl get ingress -n superplane
+```
+
+The ingress should show an IP address in the `ADDRESS` column. If it's empty or
+shows `<pending>`, the load balancer is still being created. This can take 5-10
+minutes.
+
+**Check ingress events and status:**
+
+```bash
+kubectl describe ingress -n superplane
+```
+
+Look for:
+
+- Events indicating the load balancer is being created
+- Backend service configuration
+- Any error messages
+
+**Verify the ingress backend service exists:**
+
+```bash
+kubectl get svc -n superplane
+```
+
+Ensure there's a service for SuperPlane. Check if it has endpoints:
+
+```bash
+kubectl get endpoints -n superplane
+```
+
+If there are no endpoints, the pods may not be ready. Check pod status:
+
+```bash
+kubectl get pods -n superplane
+```
+
+**Check if pods are ready and healthy:**
+
+```bash
+kubectl get pods -n superplane -o wide
+kubectl describe pod -n superplane <pod-name>
+```
+
+Pods should be in `Running` state with `1/1` ready. If pods aren't ready, check
+their logs:
+
+```bash
+kubectl logs -n superplane -l app=superplane
+```
+
+**Verify the load balancer in GCP:**
+
+```bash
+gcloud compute forwarding-rules list --filter="name~k8s"
+```
+
+You should see forwarding rules created by the GCE ingress controller. Check
+their status:
+
+```bash
+gcloud compute forwarding-rules describe <rule-name> --global
+```
+
+**Verify the static IP annotation is correct:**
+
+If the ingress shows no IP address but cert-manager solver ingresses have IPs,
+check that the static IP annotation is properly set:
+
+```bash
+kubectl get ingress superplane -n superplane -o yaml | grep -A 5 annotations
+```
+
+You should see:
+
+```yaml
+annotations:
+  kubernetes.io/ingress.global-static-ip-name: superplane-ip
+```
+
+**If the annotation is missing**, the helm chart may not have applied it correctly.
+You can add it manually by patching the ingress:
+
+```bash
+kubectl annotate ingress superplane -n superplane \
+  kubernetes.io/ingress.global-static-ip-name=superplane-ip \
+  --overwrite
+```
+
+After adding the annotation, wait 2-3 minutes for the GCE ingress controller to
+reconcile and assign the static IP. Check the ingress again:
+
+```bash
+kubectl get ingress superplane -n superplane
+```
+
+If the annotation is still missing after patching, verify the static IP exists:
+
+```bash
+gcloud compute addresses describe superplane-ip --global
+```
+
+**Check ingress controller logs for errors:**
+
+The GCE ingress controller may have errors assigning the static IP. Check the
+ingress controller logs:
+
+```bash
+kubectl logs -n kube-system -l app=gce-ingress --tail=50
+```
+
+Look for errors related to the static IP assignment.
+
+**Verify the static IP is available:**
+
+Ensure the static IP isn't already in use by another resource:
+
+```bash
+gcloud compute addresses list --filter="name=superplane-ip"
+gcloud compute forwarding-rules list --filter="IPAddress:34.117.156.142"
+```
+
+Replace `34.117.156.142` with your actual static IP address.
+
+**Check ingress events for specific errors:**
+
+```bash
+kubectl describe ingress superplane -n superplane
+```
+
+Look for events that indicate why the IP isn't being assigned. Common issues:
+
+- Static IP name doesn't match the annotation
+- Static IP is already in use
+- Insufficient permissions for the ingress controller
+- GCE ingress controller is still processing the annotation
+
+**Wait for load balancer provisioning:**
+
+GCE load balancers can take 5-10 minutes to fully provision, especially when
+using a static IP. If the ingress IP is still pending, wait a few more minutes
+and check again:
+
+```bash
+watch -n 10 'kubectl get ingress -n superplane'
+```
+
+Once the IP is assigned, wait an additional 2-3 minutes for the load balancer
+to be fully configured before testing again.
+
+**Note:** If cert-manager solver ingresses have IPs but the main ingress
+doesn't, this usually means the GCE ingress controller is still processing the
+static IP annotation. This can take longer than a regular dynamic IP
+assignment.
 
 Once the certificate is ready, the TLS secret will be created automatically and
 the error will resolve.
@@ -555,17 +799,12 @@ helm upgrade superplane oci://ghcr.io/superplanehq/superplane-chart \
   --set domain.name="$DOMAIN_NAME" \
   --set ingress.enabled=true \
   --set ingress.className="gce" \
-  --set ingress.annotations."kubernetes\.io/ingress\.global-static-ip-name"="superplane-ip" \
+  --set ingress.staticIpName="superplane-ip" \
   --set ingress.ssl.enabled=true \
   --set ingress.ssl.type="cert-manager" \
   --set ingress.ssl.certManager.issuerRef.name="letsencrypt-prod" \
   --set ingress.ssl.certManager.issuerRef.kind="ClusterIssuer" \
   --set ingress.ssl.certManager.secretName="superplane-tls-secret" \
-  --set ingress.ssl.certManager.createClusterIssuer=true \
-  --set ingress.ssl.certManager.acme.email="$EMAIL" \
-  --set ingress.ssl.certManager.acme.server="https://acme-v02.api.letsencrypt.org/directory" \
-  --set cert-manager.enabled=true \
-  --set cert-manager.installCRDs=true \
   --set telemetry.opentelemetry.enabled=false \
   --set telemetry.opentelemetry.endpoint="" \
   --set session.secretName="superplane-session" \

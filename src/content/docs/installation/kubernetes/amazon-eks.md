@@ -1,334 +1,122 @@
 ---
 title: Install on Amazon EKS
-description: Run SuperPlane on an Amazon Elastic Kubernetes Service (EKS) cluster with RDS for PostgreSQL.
+description: Run SuperPlane on an Amazon Elastic Kubernetes Service (EKS) cluster with RDS PostgreSQL.
 ---
 
-This guide describes how to deploy SuperPlane to an Amazon EKS cluster using
-Helm charts, with a managed PostgreSQL database on Amazon RDS.
+This guide describes how to deploy SuperPlane to Amazon EKS using Terraform.
 
 ## Prerequisites
 
-Before you begin, ensure you have:
+- An AWS account with permissions to create EKS, RDS, and VPC resources
+- [Terraform][terraform-install] >= 1.5.0
+- [AWS CLI][aws-cli-install] installed and configured
+- [`kubectl`][kubectl-install] installed
 
-- An EKS cluster running Kubernetes 1.31 or later
-- [`kubectl` installed and configured][kubectl-install] to connect to your cluster
-- [Helm 4.x installed][helm-install]
-- [AWS CLI installed and configured][aws-cli-install] with appropriate credentials
-- An RDS for PostgreSQL instance (or permission to create one)
-- The EKS cluster and RDS instance in the same VPC or with proper network
-  connectivity
-
-## Step 1: Create an RDS PostgreSQL Instance
-
-If you don't already have an RDS instance, create one using the AWS CLI:
+## Step 1: Clone and Configure Terraform
 
 ```bash
-aws rds create-db-instance \
-  --db-instance-identifier superplane-db \
-  --db-instance-class db.t3.micro \
-  --engine postgres \
-  --engine-version 15.4 \
-  --master-username postgres \
-  --master-user-password YOUR_SECURE_PASSWORD \
-  --allocated-storage 20 \
-  --storage-type gp2 \
-  --vpc-security-group-ids sg-xxxxxxxxx \
-  --db-subnet-group-name default \
-  --backup-retention-period 7 \
-  --publicly-accessible false
+git clone https://github.com/superplanehq/superplane-k8s-installation
+cd superplane-k8s-installation/eks
+cp terraform.tfvars.example terraform.tfvars
 ```
 
-Replace:
+Edit `terraform.tfvars`:
 
-- `YOUR_SECURE_PASSWORD` with a strong password
-- `sg-xxxxxxxxx` with your security group ID
-- Adjust other parameters as needed for your environment
+```hcl
+domain_name       = "superplane.example.com"
+letsencrypt_email = "admin@example.com"
+```
 
-Wait for the instance to become available:
+### Configuration Options
+
+| Variable               | Description                | Default        |
+| ---------------------- | -------------------------- | -------------- |
+| `domain_name`          | Domain name for SuperPlane | (required)     |
+| `letsencrypt_email`    | Email for Let's Encrypt    | (required)     |
+| `region`               | AWS region                 | `us-east-1`    |
+| `cluster_name`         | EKS cluster name           | `superplane`   |
+| `node_count`           | Number of EKS nodes        | `2`            |
+| `instance_type`        | EKS node instance type     | `t3.medium`    |
+| `db_instance_class`    | RDS instance class         | `db.t3.medium` |
+| `superplane_image_tag` | SuperPlane image tag       | `stable`       |
+
+## Step 2: Deploy
 
 ```bash
-aws rds wait db-instance-available --db-instance-identifier superplane-db
+terraform init
+terraform apply
 ```
 
-Get the endpoint address:
+The deployment takes 15-20 minutes and creates:
+
+- VPC with public and private subnets
+- EKS cluster with node group
+- RDS PostgreSQL instance
+- AWS Load Balancer Controller
+- cert-manager with Let's Encrypt
+- SuperPlane deployment
+
+## Step 3: Configure kubectl
 
 ```bash
-aws rds describe-db-instances \
-  --db-instance-identifier superplane-db \
-  --query 'DBInstances[0].Endpoint.Address' \
-  --output text
+aws eks update-kubeconfig --region us-east-1 --name superplane
 ```
 
-## Step 2: Create a Database and User
+## Step 4: Configure DNS
 
-Connect to your RDS instance and create a database and user:
-
-```bash
-PGPASSWORD=YOUR_SECURE_PASSWORD psql \
-  -h YOUR_RDS_ENDPOINT \
-  -U postgres \
-  -d postgres
-```
-
-Replace `YOUR_RDS_ENDPOINT` with the endpoint from the previous step.
-
-Inside the PostgreSQL prompt, run:
-
-```sql
-CREATE DATABASE superplane;
-CREATE USER superplane WITH PASSWORD 'YOUR_DB_PASSWORD';
-GRANT ALL PRIVILEGES ON DATABASE superplane TO superplane;
-\q
-```
-
-Replace `YOUR_DB_PASSWORD` with a secure password for the database user.
-
-## Step 3: Configure Security Groups
-
-Ensure your EKS cluster's security group allows outbound connections to RDS,
-and your RDS security group allows inbound connections from the EKS cluster's
-security group on port 5432.
-
-Get your EKS cluster's security group:
-
-```bash
-aws eks describe-cluster --name CLUSTER_NAME \
-  --query 'cluster.resourcesVpcConfig.clusterSecurityGroupId' \
-  --output text
-```
-
-Add an inbound rule to your RDS security group:
-
-```bash
-aws ec2 authorize-security-group-ingress \
-  --group-id sg-RDS_SECURITY_GROUP_ID \
-  --protocol tcp \
-  --port 5432 \
-  --source-group sg-EKS_SECURITY_GROUP_ID
-```
-
-Replace:
-
-- `sg-RDS_SECURITY_GROUP_ID` with your RDS security group ID
-- `sg-EKS_SECURITY_GROUP_ID` with your EKS cluster security group ID
-
-## Step 4: Create Kubernetes Secrets
-
-Create a Kubernetes secret for the database credentials:
-
-```bash
-kubectl create secret generic superplane-db-credentials \
-  --from-literal=host='YOUR_RDS_ENDPOINT' \
-  --from-literal=port='5432' \
-  --from-literal=database='superplane' \
-  --from-literal=username='superplane' \
-  --from-literal=password='YOUR_DB_PASSWORD'
-```
-
-Replace:
-
-- `YOUR_RDS_ENDPOINT` with your RDS endpoint address
-- `YOUR_DB_PASSWORD` with the password you set for the database user
-
-## Step 5: Add the Helm Repository
-
-Add the SuperPlane Helm chart repository:
-
-```bash
-helm repo add superplane https://superplanehq.github.io/helm-chart
-helm repo update
-```
-
-## Step 6: Create a Values File
-
-Create a `values.yaml` file for your deployment:
-
-```yaml
-# Database configuration
-database:
-  host: "YOUR_RDS_ENDPOINT"
-  port: 5432
-  name: "superplane"
-  user: "superplane"
-  existingSecret: "superplane-db-credentials"
-  existingSecretPasswordKey: "password"
-  existingSecretUserKey: "username"
-  existingSecretDatabaseKey: "database"
-  existingSecretHostKey: "host"
-  existingSecretPortKey: "port"
-
-# Disable in-cluster PostgreSQL
-postgresql:
-  enabled: false
-
-# Application configuration
-image:
-  repository: ghcr.io/superplanehq/superplane
-  tag: "stable"
-  pullPolicy: IfNotPresent
-
-# Service configuration
-service:
-  type: LoadBalancer
-  port: 3000
-
-# Ingress configuration (optional)
-ingress:
-  enabled: true
-  className: "alb"
-  annotations:
-    alb.ingress.kubernetes.io/scheme: internet-facing
-    alb.ingress.kubernetes.io/target-type: ip
-  hosts:
-    - host: superplane.example.com
-      paths:
-        - path: /
-          pathType: Prefix
-```
-
-Replace `YOUR_RDS_ENDPOINT` with your RDS endpoint address. Adjust the ingress
-configuration based on your needs (ALB, NLB, or other ingress controller).
-
-## Step 7: Install SuperPlane
-
-Install SuperPlane using Helm:
-
-```bash
-helm install superplane superplane/superplane \
-  --namespace superplane \
-  --create-namespace \
-  -f values.yaml
-```
-
-## Step 8: Verify the Installation
-
-Check that all pods are running:
-
-```bash
-kubectl get pods -n superplane
-```
-
-Wait until all pods show `Running` status. Check the logs if needed:
-
-```bash
-kubectl logs -n superplane -l app=superplane
-```
-
-Get the service endpoint:
-
-```bash
-kubectl get svc -n superplane
-```
-
-If using a LoadBalancer service, wait for the `EXTERNAL-IP` to be assigned.
-If using ingress, check the ingress resource:
+Get the ALB DNS name:
 
 ```bash
 kubectl get ingress -n superplane
 ```
 
-## Step 9: Configure Network Policies (Optional)
+Create a CNAME record in your DNS provider:
 
-If you're using Kubernetes network policies, ensure pods in the `superplane`
-namespace can connect to RDS on port 5432. Create a network policy:
+- **Type:** CNAME
+- **Name:** Your subdomain (e.g., `superplane`)
+- **Value:** The ALB DNS name from the command above
 
-```yaml
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: allow-rds
-  namespace: superplane
-spec:
-  podSelector: {}
-  policyTypes:
-    - Egress
-  egress:
-    - to:
-        - namespaceSelector: {}
-      ports:
-        - protocol: TCP
-          port: 5432
-```
+## Step 5: Verify
 
-Apply it:
+Check pods and ingress:
 
 ```bash
-kubectl apply -f network-policy.yaml
+kubectl get pods -n superplane
+kubectl get ingress -n superplane
 ```
 
-## Troubleshooting
-
-### Pods not starting
-
-Check pod logs for database connection errors:
+Check SSL certificate status:
 
 ```bash
-kubectl logs -n superplane -l app=superplane
+kubectl get certificate -n superplane
 ```
 
-### Database connection issues
+Once the certificate shows `Ready`, access SuperPlane at `https://your-domain.com`.
 
-Verify network connectivity from a pod:
+## Updating
 
-```bash
-kubectl run -it --rm debug \
-  --image=postgres:15 \
-  --restart=Never \
-  --namespace superplane \
-  -- psql -h YOUR_RDS_ENDPOINT -U superplane -d superplane
-```
-
-### Security group issues
-
-Verify security group rules allow traffic:
+Modify `superplane_image_tag` in `terraform.tfvars` and apply:
 
 ```bash
-aws ec2 describe-security-groups \
-  --group-ids sg-RDS_SECURITY_GROUP_ID \
-  --query 'SecurityGroups[0].IpPermissions'
-```
-
-### RDS endpoint not resolving
-
-Ensure your pods can resolve the RDS endpoint. If using a private endpoint,
-verify DNS resolution:
-
-```bash
-kubectl run -it --rm debug \
-  --image=busybox \
-  --restart=Never \
-  --namespace superplane \
-  -- nslookup YOUR_RDS_ENDPOINT
-```
-
-## Updating SuperPlane
-
-To update to a newer version:
-
-```bash
-helm repo update
-helm upgrade superplane superplane/superplane \
-  --namespace superplane \
-  -f values.yaml
+terraform apply
 ```
 
 ## Uninstalling
 
-To remove SuperPlane from your cluster:
-
 ```bash
-helm uninstall superplane --namespace superplane
-kubectl delete namespace superplane
-```
-
-Note: This does not delete your RDS instance. To remove it:
-
-```bash
-aws rds delete-db-instance \
+# Disable deletion protection on the database
+aws rds modify-db-instance \
   --db-instance-identifier superplane-db \
-  --skip-final-snapshot
+  --no-deletion-protection \
+  --apply-immediately
+
+# Wait for modification to complete
+aws rds wait db-instance-available --db-instance-identifier superplane-db
+
+# Destroy all resources
+terraform destroy
 ```
 
-[helm-install]: https://helm.sh/docs/intro/install/
+[terraform-install]: https://www.terraform.io/downloads
 [kubectl-install]: https://kubernetes.io/docs/tasks/tools/
 [aws-cli-install]: https://aws.amazon.com/cli/

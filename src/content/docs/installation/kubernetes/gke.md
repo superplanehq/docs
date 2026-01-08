@@ -52,7 +52,7 @@ dig superplane.example.com +short
 
 ```bash
 git clone https://github.com/superplanehq/superplane-k8s-installation
-cd superplane-k8s-installation
+cd superplane-k8s-installation/gke
 cp terraform.tfvars.example terraform.tfvars
 ```
 

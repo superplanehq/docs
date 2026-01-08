@@ -76,9 +76,8 @@ cp terraform.tfvars.example terraform.tfvars
 Edit `terraform.tfvars`:
 
 ```hcl
-domain_name          = "superplane.example.com"
-letsencrypt_email    = "admin@example.com"
-eip_allocation_id    = "eipalloc-xxxxxxxxxxxxxxxxx"
+domain_name       = "superplane.example.com"
+eip_allocation_id = "eipalloc-xxxxxxxxxxxxxxxxx"
 ```
 
 ### Configuration Options
@@ -86,7 +85,6 @@ eip_allocation_id    = "eipalloc-xxxxxxxxxxxxxxxxx"
 | Variable               | Description                      | Default        |
 | ---------------------- | -------------------------------- | -------------- |
 | `domain_name`          | Domain name for SuperPlane       | (required)     |
-| `letsencrypt_email`    | Email for Let's Encrypt          | (required)     |
 | `eip_allocation_id`    | Elastic IP allocation ID         | (required)     |
 | `region`               | AWS region                       | `us-east-1`    |
 | `cluster_name`         | EKS cluster name                 | `superplane`   |
@@ -108,31 +106,39 @@ The deployment takes 15-20 minutes and creates:
 - EKS cluster with node group
 - RDS PostgreSQL instance
 - Network Load Balancer with Elastic IP
-- cert-manager with Let's Encrypt
+- ACM certificate for TLS
 - SuperPlane deployment
 
-## Step 6: Configure kubectl
+## Step 6: Validate ACM Certificate
+
+After the deployment, Terraform will output the DNS records needed to validate the ACM
+certificate. Create a CNAME record in your DNS provider with the provided values.
+
+Get the validation records:
+
+```bash
+terraform output acm_certificate_validation_records
+```
+
+Create the CNAME record in your DNS provider, then wait for validation to complete
+(this typically takes a few minutes).
+
+## Step 7: Configure kubectl
 
 ```bash
 aws eks update-kubeconfig --region us-east-1 --name superplane
 ```
 
-## Step 7: Verify
+## Step 8: Verify
 
-Check pods and ingress:
+Check pods and load balancer:
 
 ```bash
 kubectl get pods -n superplane
-kubectl get ingress -n superplane
+kubectl get svc -n superplane superplane-nlb
 ```
 
-Check SSL certificate status:
-
-```bash
-kubectl get certificate -n superplane
-```
-
-Once the certificate shows `Ready`, access SuperPlane at `https://your-domain.com`.
+Once the load balancer is ready, access SuperPlane at `https://your-domain.com`.
 
 ## Updating
 

@@ -37,7 +37,6 @@ export default defineConfig({
 							items: [
 								{ label: 'Google Kubernetes Engine', slug: 'installation/kubernetes/gke' },
 								{ label: 'Amazon Kubernetes (EKS)', slug: 'installation/kubernetes/amazon-eks' },
-								{ label: 'Generic Kubernetes cluster', slug: 'installation/kubernetes/generic-cluster' },
 							],
 						},
 					],

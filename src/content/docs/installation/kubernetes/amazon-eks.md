@@ -33,42 +33,17 @@ Verify the configuration:
 aws sts get-caller-identity
 ```
 
-## Step 2: Create Static IP Address
+## Step 2: Clone and Configure Terraform
 
-Create an Elastic IP for the load balancer:
-
-```bash
-aws ec2 allocate-address --domain vpc --tag-specifications \
-  'ResourceType=elastic-ip,Tags=[{Key=Name,Value=superplane-ip}]'
-```
-
-Get the allocation ID and static IP address:
-
-```bash
-aws ec2 describe-addresses --filters "Name=tag:Name,Values=superplane-ip" \
-  --query 'Addresses[0].[AllocationId,PublicIp]' --output text
-```
-
-Save both values — you'll need the allocation ID for Terraform and the IP for DNS.
-
-## Step 3: Configure DNS
-
-Create an A record in your DNS provider pointing to the static IP:
-
-- **Type:** A
-- **Name:** Your subdomain (e.g., `superplane`)
-- **Value:** The static IP address from Step 2
-
-Wait for DNS propagation and verify:
-
-```bash
-dig superplane.example.com +short
-```
-
-## Step 4: Clone and Configure Terraform
+If you already have the SuperPlane repo checked out, the Terraform configuration lives in `superplane-terraform/eks`. Otherwise, clone it:
 
 ```bash
 git clone https://github.com/superplanehq/superplane-terraform
+```
+
+Then:
+
+```bash
 cd superplane-terraform/eks
 cp terraform.tfvars.example terraform.tfvars
 ```
@@ -78,24 +53,22 @@ Edit `terraform.tfvars`:
 ```hcl
 domain_name       = "superplane.example.com"
 letsencrypt_email = "admin@example.com"
-eip_allocation_id = "eipalloc-xxxxxxxxxxxxxxxxx"
 ```
 
 ### Configuration Options
 
-| Variable               | Description                      | Default        |
-| ---------------------- | -------------------------------- | -------------- |
-| `domain_name`          | Domain name for SuperPlane       | (required)     |
-| `letsencrypt_email`    | Email for Let's Encrypt          | (required)     |
-| `eip_allocation_id`    | Elastic IP allocation ID         | (required)     |
-| `region`               | AWS region                       | `us-east-1`    |
-| `cluster_name`         | EKS cluster name                 | `superplane`   |
-| `node_count`           | Number of EKS nodes              | `2`            |
-| `instance_type`        | EKS node instance type           | `t3.medium`    |
-| `db_instance_class`    | RDS instance class               | `db.t3.medium` |
-| `superplane_image_tag` | SuperPlane image tag             | `stable`       |
+| Variable               | Description                | Default        |
+| ---------------------- | -------------------------- | -------------- |
+| `domain_name`          | Domain name for SuperPlane | (required)     |
+| `letsencrypt_email`    | Email for Let's Encrypt    | (required)     |
+| `region`               | AWS region                 | `us-east-1`    |
+| `cluster_name`         | EKS cluster name           | `superplane`   |
+| `node_count`           | Number of EKS nodes        | `2`            |
+| `instance_type`        | EKS node instance type     | `t3.medium`    |
+| `db_instance_class`    | RDS instance class         | `db.t3.medium` |
+| `superplane_image_tag` | SuperPlane image tag       | `stable`       |
 
-## Step 5: Deploy
+## Step 3: Deploy
 
 ```bash
 terraform init
@@ -107,33 +80,71 @@ The deployment takes 15-20 minutes and creates:
 - VPC with public and private subnets
 - EKS cluster with node group
 - RDS PostgreSQL instance
-- Network Load Balancer with Elastic IP
+- Network Load Balancer
 - NGINX Ingress Controller
 - cert-manager with Let's Encrypt
 - SuperPlane deployment
 
-## Step 6: Configure kubectl
+### Troubleshooting deploy
+
+#### Helm release failed or timed out
+
+If Terraform reports a failed Helm release or `context deadline exceeded`, inspect the release and pods:
+
+```bash
+helm -n superplane status superplane
+kubectl get pods -n superplane
+kubectl describe pod -n superplane
+kubectl logs -n superplane --all-containers --tail=200
+```
+
+Fix the underlying error (for example, image pull failures or database connectivity) and rerun:
+
+```bash
+terraform apply
+```
+
+## Step 4: Configure kubectl
 
 ```bash
 aws eks update-kubeconfig --region us-east-1 --name superplane
 ```
 
-## Step 7: Verify
+## Step 5: Configure DNS
 
-Check pods and ingress:
+Get the Load Balancer hostname:
+
+```bash
+kubectl get svc -n ingress-nginx ingress-nginx-controller \
+  -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
+```
+
+Create a CNAME record in your DNS provider:
+
+- **Type:** CNAME
+- **Name:** Your subdomain (e.g., `superplane`)
+- **Value:** The hostname from the command above
+
+Wait for DNS propagation:
+
+```bash
+dig superplane.example.com +short
+```
+
+## Step 6: Verify
+
+Check pods and certificate status:
 
 ```bash
 kubectl get pods -n superplane
-kubectl get ingress -n superplane
-```
-
-Check SSL certificate status:
-
-```bash
 kubectl get certificate -n superplane
 ```
 
 Once the certificate shows `Ready`, access SuperPlane at `https://your-domain.com`.
+
+:::note
+Certificate issuance may take 5-10 minutes after DNS propagation completes.
+:::
 
 ## Updating
 
@@ -157,9 +168,44 @@ aws rds wait db-instance-available --db-instance-identifier superplane-db
 
 # Destroy all resources
 terraform destroy
+```
 
-# Release the Elastic IP
-aws ec2 release-address --allocation-id eipalloc-xxxxxxxxxxxxxxxxx
+### Troubleshooting destroy
+
+If `terraform destroy` fails, resolve the issue and rerun `terraform destroy`.
+
+#### Helm uninstall kept cert-manager CRDs
+
+Helm keeps cert-manager CRDs due to a resource policy. If the destroy is blocked or times out, remove them manually:
+
+```bash
+kubectl delete crd \
+  challenges.acme.cert-manager.io \
+  orders.acme.cert-manager.io \
+  certificaterequests.cert-manager.io \
+  certificates.cert-manager.io \
+  clusterissuers.cert-manager.io \
+  issuers.cert-manager.io
+```
+
+#### RDS final snapshot already exists
+
+RDS will fail to delete the DB if a snapshot with the final snapshot identifier already exists. Delete the snapshot, then rerun destroy:
+
+```bash
+aws rds delete-db-snapshot \
+  --db-snapshot-identifier superplane-db-final-snapshot
+```
+
+#### Internet gateway detach dependency violation
+
+If the internet gateway cannot detach because the VPC still has mapped public addresses, release the remaining elastic IPs (or delete dependent resources such as NAT gateways or load balancers), then rerun destroy:
+
+```bash
+aws ec2 describe-addresses --filters Name=domain,Values=vpc
+
+aws ec2 disassociate-address --association-id eipassoc-xxxxxxxx
+aws ec2 release-address --allocation-id eipalloc-xxxxxxxx
 ```
 
 [terraform-install]: https://www.terraform.io/downloads

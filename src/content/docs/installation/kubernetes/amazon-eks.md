@@ -81,28 +81,8 @@ The deployment takes 15-20 minutes and creates:
 - EKS cluster with node group
 - RDS PostgreSQL instance
 - Network Load Balancer
-- NGINX Ingress Controller
 - cert-manager with Let's Encrypt
 - SuperPlane deployment
-
-### Troubleshooting deploy
-
-#### Helm release failed or timed out
-
-If Terraform reports a failed Helm release or `context deadline exceeded`, inspect the release and pods:
-
-```bash
-helm -n superplane status superplane
-kubectl get pods -n superplane
-kubectl describe pod -n superplane
-kubectl logs -n superplane --all-containers --tail=200
-```
-
-Fix the underlying error (for example, image pull failures or database connectivity) and rerun:
-
-```bash
-terraform apply
-```
 
 ## Step 4: Configure kubectl
 
@@ -142,9 +122,7 @@ kubectl get certificate -n superplane
 
 Once the certificate shows `Ready`, access SuperPlane at `https://your-domain.com`.
 
-:::note
-Certificate issuance may take 5-10 minutes after DNS propagation completes.
-:::
+Note: Certificate issuance may take 5-10 minutes after DNS propagation completes.
 
 ## Updating
 
@@ -168,44 +146,6 @@ aws rds wait db-instance-available --db-instance-identifier superplane-db
 
 # Destroy all resources
 terraform destroy
-```
-
-### Troubleshooting destroy
-
-If `terraform destroy` fails, resolve the issue and rerun `terraform destroy`.
-
-#### Helm uninstall kept cert-manager CRDs
-
-Helm keeps cert-manager CRDs due to a resource policy. If the destroy is blocked or times out, remove them manually:
-
-```bash
-kubectl delete crd \
-  challenges.acme.cert-manager.io \
-  orders.acme.cert-manager.io \
-  certificaterequests.cert-manager.io \
-  certificates.cert-manager.io \
-  clusterissuers.cert-manager.io \
-  issuers.cert-manager.io
-```
-
-#### RDS final snapshot already exists
-
-RDS will fail to delete the DB if a snapshot with the final snapshot identifier already exists. Delete the snapshot, then rerun destroy:
-
-```bash
-aws rds delete-db-snapshot \
-  --db-snapshot-identifier superplane-db-final-snapshot
-```
-
-#### Internet gateway detach dependency violation
-
-If the internet gateway cannot detach because the VPC still has mapped public addresses, release the remaining elastic IPs (or delete dependent resources such as NAT gateways or load balancers), then rerun destroy:
-
-```bash
-aws ec2 describe-addresses --filters Name=domain,Values=vpc
-
-aws ec2 disassociate-address --association-id eipassoc-xxxxxxxx
-aws ec2 release-address --allocation-id eipalloc-xxxxxxxx
 ```
 
 [terraform-install]: https://www.terraform.io/downloads

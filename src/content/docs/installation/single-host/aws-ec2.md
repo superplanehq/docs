@@ -99,7 +99,7 @@ cd superplane
 Then run the installer:
 
 ```bash
-./install
+./install.sh
 ```
 
 This downloads the single-host bundle, extracts it, and runs the installer.

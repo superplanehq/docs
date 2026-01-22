@@ -22,6 +22,7 @@ To run SuperPlane you need:
 Run the latest stable SuperPlane Docker container:
 
 ```bash
+docker pull ghcr.io/superplanehq/superplane-demo:stable
 docker run --rm -p 3000:3000 -v spdata:/app/data -ti ghcr.io/superplanehq/superplane-demo:stable
 ```
 

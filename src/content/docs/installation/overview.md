@@ -28,7 +28,7 @@ teams or early deployments.
 
 ### Kubernetes
 
-Choose this if you want scallable, production instance, of SuperPlane.
+Choose this if you want a scalable, production instance of SuperPlane.
 
 - GKE: [Google Kubernetes Engine](./kubernetes/gke)
 - EKS: [Amazon Kubernetes (EKS)](./kubernetes/amazon-eks)

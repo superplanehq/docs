@@ -1,0 +1,36 @@
+---
+const { title = "Example Output", open = false } = Astro.props;
+---
+
+<details class="example-output" open={open ? true : undefined}>
+  <summary>{title}</summary>
+  <div class="example-output__content">
+    <slot />
+  </div>
+</details>
+
+<style>
+  .example-output {
+    border-left: none;
+    margin-top: 0.75rem;
+    padding-left: 0;
+  }
+
+  .example-output summary {
+    cursor: pointer;
+    font-weight: 600;
+    list-style: none;
+  }
+
+  .example-output summary::marker {
+    content: "";
+  }
+
+  .example-output summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .example-output__content {
+    margin-top: 0.75rem;
+  }
+</style>

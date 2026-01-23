@@ -1,0 +1,126 @@
+app:
+    name: pagerduty
+    label: PagerDuty
+    description: Manage and react to incidents in PagerDuty
+components:
+    - name: pagerduty.createIncident
+      label: Create Incident
+      description: Create a new incident in PagerDuty
+      configuration:
+        - name: title
+          label: Incident Title
+          type: string
+          required: true
+          description: A succinct description of the incident
+        - name: description
+          label: Description
+          type: string
+          required: false
+          description: Additional details about the incident
+        - name: urgency
+          label: Urgency
+          type: select
+          required: true
+          description: ""
+        - name: service
+          label: Service
+          type: app-installation-resource
+          required: true
+          description: The PagerDuty service to create the incident for
+        - name: fromEmail
+          label: From Email
+          type: string
+          required: false
+          description: Email address of a valid PagerDuty user. Required for App OAuth and account-level API tokens, optional for user-level API tokens.
+      example_output: pkg/applications/pagerduty/example_output_create_incident.json
+    - name: pagerduty.updateIncident
+      label: Update Incident
+      description: Update an existing incident in PagerDuty
+      configuration:
+        - name: incidentId
+          label: Incident ID
+          type: string
+          required: true
+          description: The ID of the incident to update (e.g., A12BC34567...)
+        - name: fromEmail
+          label: From Email
+          type: string
+          required: false
+          description: Email address of a valid PagerDuty user. Required for App OAuth and account-level API tokens, optional for user-level API tokens.
+        - name: status
+          label: Status
+          type: select
+          required: false
+          description: Update the incident status
+        - name: priority
+          label: Priority
+          type: app-installation-resource
+          required: false
+          description: Update the incident priority
+        - name: title
+          label: Title
+          type: string
+          required: false
+          description: Update the incident title
+        - name: description
+          label: Description
+          type: text
+          required: false
+          description: Update the incident description (body)
+        - name: escalationPolicy
+          label: Escalation Policy
+          type: app-installation-resource
+          required: false
+          description: Update the escalation policy
+        - name: assignees
+          label: Assignees
+          type: list
+          required: false
+          description: Update incident assignees (user IDs)
+        - name: note
+          label: Note
+          type: text
+          required: false
+          description: Add a note/comment to the incident
+      example_output: pkg/applications/pagerduty/example_output_update_incident.json
+triggers:
+    - name: pagerduty.onIncident
+      label: On Incident
+      description: Listen to incident events
+      configuration:
+        - name: events
+          label: Events
+          type: multi-select
+          required: true
+          description: ""
+        - name: service
+          label: Service
+          type: app-installation-resource
+          required: true
+          description: The PagerDuty service to monitor for incidents
+        - name: urgencies
+          label: Urgencies
+          type: multi-select
+          required: false
+          description: Filter incidents by urgency
+        - name: customName
+          label: Run title (optional)
+          type: string
+          required: false
+          description: Optional run title template. Supports expressions like {{ $.data }}.
+      example_data: pkg/applications/pagerduty/example_data_on_incident.json
+    - name: pagerduty.onIncidentStatusUpdate
+      label: On Incident Status Update
+      description: Listen to incident status update events
+      configuration:
+        - name: service
+          label: Service
+          type: app-installation-resource
+          required: true
+          description: The PagerDuty service to monitor for incident status updates
+        - name: customName
+          label: Run title (optional)
+          type: string
+          required: false
+          description: Optional run title template. Supports expressions like {{ $.data }}.
+      example_data: pkg/applications/pagerduty/example_data_on_incident_status_update.json

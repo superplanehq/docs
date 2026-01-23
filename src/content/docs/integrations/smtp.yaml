@@ -1,0 +1,55 @@
+app:
+    name: smtp
+    label: SMTP
+    description: Send emails via any SMTP server
+components:
+    - name: smtp.sendEmail
+      label: Send Email
+      description: Send an email via SMTP
+      configuration:
+        - name: to
+          label: To
+          type: string
+          required: true
+          description: Recipient email addresses (comma-separated for multiple)
+        - name: cc
+          label: CC
+          type: string
+          required: false
+          description: CC recipients (comma-separated)
+        - name: bcc
+          label: BCC
+          type: string
+          required: false
+          description: BCC recipients (comma-separated)
+        - name: subject
+          label: Subject
+          type: string
+          required: true
+          description: Email subject line
+        - name: body
+          label: Body
+          type: text
+          required: true
+          description: Email body content
+        - name: isHTML
+          label: HTML Format
+          type: boolean
+          required: false
+          description: Enable if the body contains HTML markup
+        - name: fromName
+          label: From Name (Override)
+          type: string
+          required: false
+          description: Override the default sender display name
+        - name: fromEmail
+          label: From Email (Override)
+          type: string
+          required: false
+          description: Override the default sender email address
+        - name: replyTo
+          label: Reply-To
+          type: string
+          required: false
+          description: Reply-to email address
+      example_output: pkg/applications/smtp/example_output_send_email.json

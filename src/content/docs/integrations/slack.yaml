@@ -1,0 +1,39 @@
+app:
+    name: slack
+    label: Slack
+    description: Send and react to Slack messages and interactions
+    installation_instructions: |4
+        You can install the Slack app without the **Bot Token** and **Signing Secret**.
+        After installation, follow the setup prompt to create the Slack app and add those values.
+components:
+    - name: slack.sendTextMessage
+      label: Send Text Message
+      description: Send a text message to a Slack channel
+      configuration:
+        - name: channel
+          label: Channel
+          type: app-installation-resource
+          required: true
+          description: ""
+        - name: text
+          label: Text
+          type: text
+          required: true
+          description: ""
+      example_output: pkg/applications/slack/example_output_send_text_message.json
+triggers:
+    - name: slack.onAppMention
+      label: On App Mention
+      description: Listen to messages mentioning the Slack App
+      configuration:
+        - name: channel
+          label: Channel
+          type: app-installation-resource
+          required: false
+          description: ""
+        - name: customName
+          label: Run title (optional)
+          type: string
+          required: false
+          description: Optional run title template. Supports expressions like {{ $.data }}.
+      example_data: pkg/applications/slack/example_data_on_app_mention.json

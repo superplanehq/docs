@@ -1,0 +1,20 @@
+app:
+    name: openai
+    label: OpenAI
+    description: Generate text responses with OpenAI models
+components:
+    - name: openai.text_prompt
+      label: Text Prompt
+      description: Generate a text response using OpenAI
+      configuration:
+        - name: model
+          label: Model
+          type: app-installation-resource
+          required: true
+          description: ""
+        - name: input
+          label: Prompt
+          type: text
+          required: true
+          description: ""
+      example_output: pkg/applications/openai/example_output_text_prompt.json

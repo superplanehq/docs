@@ -1,0 +1,426 @@
+app:
+    name: github
+    label: GitHub
+    description: Manage and react to changes in your GitHub repositories
+components:
+    - name: github.createIssue
+      label: Create Issue
+      description: Create a new issue in a GitHub repository
+      configuration:
+        - name: repository
+          label: Repository
+          type: app-installation-resource
+          required: true
+          description: ""
+        - name: title
+          label: Title
+          type: string
+          required: true
+          description: ""
+        - name: body
+          label: Body
+          type: text
+          required: false
+          description: ""
+        - name: assignees
+          label: Assignees
+          type: list
+          required: false
+          description: ""
+        - name: labels
+          label: Labels
+          type: list
+          required: false
+          description: ""
+      example_output: pkg/applications/github/example_output_create_issue.json
+    - name: github.createRelease
+      label: Create Release
+      description: Create a new release in a GitHub repository
+      configuration:
+        - name: repository
+          label: Repository
+          type: app-installation-resource
+          required: true
+          description: ""
+        - name: versionStrategy
+          label: Version Strategy
+          type: select
+          required: true
+          description: How to determine the release version
+        - name: tagName
+          label: Tag Name
+          type: string
+          required: false
+          description: The name of the tag to create the release for
+        - name: name
+          label: Release Name
+          type: string
+          required: false
+          description: The title of the release
+        - name: draft
+          label: Draft
+          type: boolean
+          required: false
+          description: Mark this release as a draft
+        - name: prerelease
+          label: Prerelease
+          type: boolean
+          required: false
+          description: Mark this release as a prerelease
+        - name: generateReleaseNotes
+          label: Generate release notes
+          type: boolean
+          required: false
+          description: Automatically generate release notes from commits since the last release
+        - name: body
+          label: Additional notes
+          type: text
+          required: false
+          description: Optional text to append after auto-generated release notes. If auto-generation is off, this becomes the entire release description.
+      example_output: pkg/applications/github/example_output_create_release.json
+    - name: github.deleteRelease
+      label: Delete Release
+      description: Delete a release from a GitHub repository
+      configuration:
+        - name: repository
+          label: Repository
+          type: app-installation-resource
+          required: true
+          description: ""
+        - name: releaseStrategy
+          label: Release to Delete
+          type: select
+          required: true
+          description: How to identify which release to delete
+        - name: tagName
+          label: Tag Name
+          type: string
+          required: false
+          description: Git tag identifying the release to delete. Supports template variables from previous steps.
+        - name: deleteTag
+          label: Also delete Git tag
+          type: boolean
+          required: false
+          description: When enabled, also deletes the associated Git tag from the repository
+      example_output: pkg/applications/github/example_output_delete_release.json
+    - name: github.getIssue
+      label: Get Issue
+      description: Get a GitHub issue by number
+      configuration:
+        - name: repository
+          label: Repository
+          type: app-installation-resource
+          required: true
+          description: ""
+        - name: issueNumber
+          label: Issue Number
+          type: string
+          required: true
+          description: ""
+      example_output: pkg/applications/github/example_output_get_issue.json
+    - name: github.publishCommitStatus
+      label: Publish Commit Status
+      description: Publish a status check to a GitHub commit
+      configuration:
+        - name: repository
+          label: Repository
+          type: app-installation-resource
+          required: true
+          description: ""
+        - name: sha
+          label: Commit SHA
+          type: string
+          required: true
+          description: The full SHA of the commit to attach the status to
+        - name: state
+          label: State
+          type: select
+          required: true
+          description: ""
+        - name: context
+          label: Context
+          type: string
+          required: true
+          description: A label to identify this status check
+        - name: description
+          label: Description
+          type: text
+          required: false
+          description: Short description of the status (max ~140 characters)
+        - name: targetUrl
+          label: Target URL
+          type: string
+          required: false
+          description: e.g. Link to build logs, test results, ...
+      example_output: pkg/applications/github/example_output_publish_commit_status.json
+    - name: github.runWorkflow
+      label: Run Workflow
+      description: Run GitHub Actions workflow
+      configuration:
+        - name: repository
+          label: Repository
+          type: app-installation-resource
+          required: true
+          description: ""
+        - name: workflowFile
+          label: Workflow file
+          type: string
+          required: true
+          description: ""
+        - name: ref
+          label: Branch or tag
+          type: git-ref
+          required: true
+          description: ""
+        - name: inputs
+          label: Inputs
+          type: list
+          required: false
+          description: ""
+      example_output: pkg/applications/github/example_output_run_workflow.json
+    - name: github.updateIssue
+      label: Update Issue
+      description: Update a GitHub issue
+      configuration:
+        - name: repository
+          label: Repository
+          type: app-installation-resource
+          required: true
+          description: ""
+        - name: issueNumber
+          label: Issue Number
+          type: number
+          required: true
+          description: ""
+        - name: title
+          label: Title
+          type: string
+          required: false
+          description: ""
+        - name: body
+          label: Body
+          type: text
+          required: false
+          description: ""
+        - name: state
+          label: State
+          type: select
+          required: false
+          description: ""
+        - name: assignees
+          label: Assignees
+          type: list
+          required: false
+          description: ""
+        - name: labels
+          label: Labels
+          type: list
+          required: false
+          description: ""
+      example_output: pkg/applications/github/example_output_update_issue.json
+    - name: github.updateRelease
+      label: Update Release
+      description: Update an existing release in a GitHub repository
+      configuration:
+        - name: repository
+          label: Repository
+          type: app-installation-resource
+          required: true
+          description: ""
+        - name: releaseStrategy
+          label: Release Strategy
+          type: select
+          required: true
+          description: How to identify which release to update
+        - name: tagName
+          label: Tag Name
+          type: string
+          required: false
+          description: Git tag identifying the release to update. Supports template variables from previous steps.
+        - name: name
+          label: Release Name
+          type: string
+          required: false
+          description: Update the release title (leave empty to keep current)
+        - name: generateReleaseNotes
+          label: Generate release notes
+          type: boolean
+          required: false
+          description: Automatically generate release notes from commits since the last release. If body is also provided, custom text is appended.
+        - name: body
+          label: Release Notes
+          type: text
+          required: false
+          description: Update release description (leave empty to keep current)
+        - name: draft
+          label: Draft
+          type: boolean
+          required: false
+          description: Mark release as draft or publish it
+        - name: prerelease
+          label: Prerelease
+          type: boolean
+          required: false
+          description: Mark as prerelease or stable release
+      example_output: pkg/applications/github/example_output_update_release.json
+triggers:
+    - name: github.onBranchCreated
+      label: On Branch Created
+      description: Listen to GitHub branch creation events
+      configuration:
+        - name: repository
+          label: Repository
+          type: app-installation-resource
+          required: true
+          description: ""
+        - name: branches
+          label: Branches
+          type: any-predicate-list
+          required: true
+          description: ""
+        - name: customName
+          label: Run title (optional)
+          type: string
+          required: false
+          description: Optional run title template. Supports expressions like {{ $.data }}.
+      example_data: pkg/applications/github/example_data_on_branch_created.json
+    - name: github.onIssue
+      label: On Issue
+      description: Listen to issue events
+      configuration:
+        - name: repository
+          label: Repository
+          type: app-installation-resource
+          required: true
+          description: ""
+        - name: actions
+          label: Actions
+          type: multi-select
+          required: true
+          description: ""
+        - name: customName
+          label: Run title (optional)
+          type: string
+          required: false
+          description: Optional run title template. Supports expressions like {{ $.data }}.
+      example_data: pkg/applications/github/example_data_on_issue.json
+    - name: github.onIssueComment
+      label: On Issue Comment
+      description: Listen to issue comment events
+      configuration:
+        - name: repository
+          label: Repository
+          type: app-installation-resource
+          required: true
+          description: ""
+        - name: contentFilter
+          label: Content Filter
+          type: string
+          required: false
+          description: Optional regex pattern to filter comments by content
+        - name: customName
+          label: Run title (optional)
+          type: string
+          required: false
+          description: Optional run title template. Supports expressions like {{ $.data }}.
+      example_data: pkg/applications/github/example_data_on_issue_comment.json
+    - name: github.onPRComment
+      label: On PR Comment
+      description: Listen to all comment events on pull requests
+      configuration:
+        - name: repository
+          label: Repository
+          type: app-installation-resource
+          required: true
+          description: ""
+        - name: contentFilter
+          label: Content Filter
+          type: string
+          required: false
+          description: Optional regex pattern to filter comments by content
+        - name: customName
+          label: Run title (optional)
+          type: string
+          required: false
+          description: Optional run title template. Supports expressions like {{ $.data }}.
+      example_data: pkg/applications/github/example_data_on_pull_request_review_comment.json
+    - name: github.onPullRequest
+      label: On Pull Request
+      description: Listen to pull request events
+      configuration:
+        - name: repository
+          label: Repository
+          type: app-installation-resource
+          required: true
+          description: ""
+        - name: actions
+          label: Actions
+          type: multi-select
+          required: true
+          description: ""
+        - name: customName
+          label: Run title (optional)
+          type: string
+          required: false
+          description: Optional run title template. Supports expressions like {{ $.data }}.
+      example_data: pkg/applications/github/example_data_on_pull_request.json
+    - name: github.onPush
+      label: On Push
+      description: Listen to GitHub push events
+      configuration:
+        - name: repository
+          label: Repository
+          type: app-installation-resource
+          required: true
+          description: ""
+        - name: refs
+          label: Refs
+          type: any-predicate-list
+          required: true
+          description: ""
+        - name: customName
+          label: Run title (optional)
+          type: string
+          required: false
+          description: Optional run title template. Supports expressions like {{ $.data }}.
+      example_data: pkg/applications/github/example_data_on_push.json
+    - name: github.onRelease
+      label: On Release
+      description: Listen to release events
+      configuration:
+        - name: repository
+          label: Repository
+          type: app-installation-resource
+          required: true
+          description: ""
+        - name: actions
+          label: Actions
+          type: multi-select
+          required: true
+          description: ""
+        - name: customName
+          label: Run title (optional)
+          type: string
+          required: false
+          description: Optional run title template. Supports expressions like {{ $.data }}.
+      example_data: pkg/applications/github/example_data_on_release.json
+    - name: github.onTagCreated
+      label: On Tag Created
+      description: Listen to GitHub tag creation events
+      configuration:
+        - name: repository
+          label: Repository
+          type: app-installation-resource
+          required: true
+          description: ""
+        - name: tags
+          label: Tags
+          type: any-predicate-list
+          required: true
+          description: ""
+        - name: customName
+          label: Run title (optional)
+          type: string
+          required: false
+          description: Optional run title template. Supports expressions like {{ $.data }}.
+      example_data: pkg/applications/github/example_data_on_tag_created.json

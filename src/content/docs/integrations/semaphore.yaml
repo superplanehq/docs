@@ -1,0 +1,51 @@
+app:
+    name: semaphore
+    label: Semaphore
+    description: Run and react to your Semaphore workflows
+components:
+    - name: semaphore.runWorkflow
+      label: Run Workflow
+      description: Run Semaphore workflow
+      configuration:
+        - name: project
+          label: Project
+          type: app-installation-resource
+          required: true
+          description: ""
+        - name: pipelineFile
+          label: Pipeline file
+          type: string
+          required: true
+          description: ""
+        - name: ref
+          label: Pipeline file location
+          type: git-ref
+          required: true
+          description: ""
+        - name: commitSha
+          label: Commit SHA
+          type: string
+          required: false
+          description: ""
+        - name: parameters
+          label: Parameters
+          type: list
+          required: false
+          description: ""
+      example_output: pkg/applications/semaphore/example_output_run_workflow.json
+triggers:
+    - name: semaphore.onPipelineDone
+      label: On Pipeline Done
+      description: Listen to Semaphore pipeline done events
+      configuration:
+        - name: project
+          label: Project
+          type: app-installation-resource
+          required: true
+          description: ""
+        - name: customName
+          label: Run title (optional)
+          type: string
+          required: false
+          description: Optional run title template. Supports expressions like {{ $.data }}.
+      example_data: pkg/applications/semaphore/example_data_on_pipeline_done.json

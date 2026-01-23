@@ -30,5 +30,5 @@ teams or early deployments.
 
 Choose this if you want a scalable, production instance of SuperPlane.
 
-- GKE: [Google Kubernetes Engine](./kubernetes/gke)
-- EKS: [Amazon Kubernetes (EKS)](./kubernetes/amazon-eks)
+- [Google Kubernetes Engine](./kubernetes/gke)
+- [Amazon Kubernetes (EKS)](./kubernetes/amazon-eks)

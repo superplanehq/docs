@@ -7,15 +7,13 @@ Use the SuperPlane CLI to configure access and manage canvases from your termina
 
 ## Installation
 
-Install the CLI with Homebrew:
+Download a binary from the GitHub releases page:
 
-```sh
-brew install superplanehq/tap/superplane
 ```
-
-Or download a binary from the GitHub releases page:
-
-- https://github.com/superplanehq/superplane/releases
+curl -L https://github.com/superplanehq/superplane/releases/download/v0.1.3/superplane-cli-v0.1.3-darwin-arm64 -o superplane
+chmod +x superplane
+sudo mv superplane /usr/local/bin/superplane
+```
 
 ## Prerequisites
 
@@ -49,5 +47,5 @@ Export the existing canvas, edit it, then apply your changes:
 ```sh
 superplane get canvas <canvas_name> > my_canvas.yaml
 # update your YAML to reflect the changes you want to make
-superplane apply -f my_canvas.yaml
+superplane update -f my_canvas.yaml
 ```

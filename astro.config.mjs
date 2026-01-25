@@ -32,10 +32,10 @@ export default defineConfig({
 						{ label: 'Amazon Kubernetes (EKS)', slug: 'installation/kubernetes/amazon-eks' },
 					],
 				},
-        {
-          label: 'Components & Triggers',
-          autogenerate: { directory: 'integrations' },
-        },
+				{
+					label: 'Components & Triggers',
+					autogenerate: { directory: 'integrations' },
+				},
 				{
 					label: 'Reference',
 					autogenerate: { directory: 'reference' },

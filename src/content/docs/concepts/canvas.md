@@ -1,5 +1,5 @@
 ---
-title: Canvas Overview
+title: Canvas
 description: Learn about canvases and how to use the canvas page to design and manage workflows.
 ---
 
@@ -27,7 +27,7 @@ managing your workflows.
 The canvas consists of:
 
 1. **Nodes** — They are a single instance of a component — the core building blocks of Canvas. See
-   [Component Nodes Overview](./component-nodes-overview) for more details.
+   [Component Nodes](./component-nodes) for more details.
 2. **Connections** — These connect components and indicate which node listens to which. See [Data
    Flow](./data-flow) for more details.
 3. **Add new elements buttons** — Add annotations and new components to the Canvas.
@@ -89,8 +89,8 @@ events, execute actions, and emit payloads. To add a node:
 Nodes show status badges indicating their current execution state (running, succeeded, failed) and
 display key information from their latest payload.
 
-For detailed information about components and how to configure them, see [Components
-Overview](./components-overview).
+For detailed information about components and how to configure them, see [Component
+Nodes](./component-nodes).
 
 ### Payloads and Events
 
@@ -154,4 +154,4 @@ When working with canvases:
 - **Use the console**: Check for errors and warnings regularly
 
 For more details on how data flows through your canvas, see [Data Flow](./data-flow). For
-information about the components you can use as nodes, see [Component Nodes Overview](./component-nodes-overview).
+information about the components you can use as nodes, see [Component Nodes](./component-nodes).

@@ -101,28 +101,28 @@ can execute simultaneously.
 
 Each node on the canvas shows a quick overview of its current or most recent run item.
 
-![Node with run item status](../../assets/placeholder-node-status.png)
+![Node with run item status](../../../assets/placeholder-node-status.png)
 
 ### Run History
 
 Click on any node to open the sidebar. The sidebar shows the run history — all executions or events that
 have passed through this node, along with each execution's result.
 
-![Run history sidebar](../../assets/placeholder-run-history.png)
+![Run history sidebar](../../../assets/placeholder-run-history.png)
 
 ### Run Chain
 
 Click on any item in the run history to see the full run chain. This shows all run items from all nodes
 that executed as part of that particular run.
 
-![Run chain view](../../assets/placeholder-run-chain.png)
+![Run chain view](../../../assets/placeholder-run-chain.png)
 
 ### Inspecting Run Items
 
 In the run chain view, the node you were inspecting is preselected. You can click on any other run item
 in the chain to explore its details and payload.
 
-![Run item details expanded](../../assets/placeholder-run-details.png)
+![Run item details expanded](../../../assets/placeholder-run-details.png)
 
 ## Payloads
 

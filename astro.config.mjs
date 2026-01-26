@@ -46,8 +46,8 @@ export default defineConfig({
 					],
 				},
 				{
-					label: 'Components & Triggers',
-					autogenerate: { directory: 'integrations' },
+					label: 'Components',
+					autogenerate: { directory: 'components' },
 				},
 				{
 					label: 'Reference',

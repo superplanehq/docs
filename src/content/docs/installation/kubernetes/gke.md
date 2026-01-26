@@ -67,18 +67,19 @@ letsencrypt_email = "admin@example.com"
 
 ### Configuration Options
 
-| Variable               | Description                   | Default         |
-| ---------------------- | ----------------------------- | --------------- |
-| `project_id`           | GCP project ID                | (required)      |
-| `domain_name`          | Domain name for SuperPlane    | (required)      |
-| `static_ip_name`       | Name of pre-created static IP | (required)      |
-| `letsencrypt_email`    | Email for Let's Encrypt       | (required)      |
-| `region`               | GCP region                    | `us-central1`   |
-| `zone`                 | GCP zone                      | `us-central1-a` |
-| `cluster_name`         | GKE cluster name              | `superplane`    |
-| `node_count`           | Number of GKE nodes           | `2`             |
-| `machine_type`         | GKE node machine type         | `e2-medium`     |
-| `superplane_image_tag` | SuperPlane image tag          | `stable`        |
+| Variable                     | Description                           | Default         |
+| ---------------------------- | ------------------------------------- | --------------- |
+| `project_id`                 | GCP project ID                        | (required)      |
+| `domain_name`                | Domain name for SuperPlane            | (required)      |
+| `static_ip_name`             | Name of pre-created static IP         | (required)      |
+| `letsencrypt_email`          | Email for Let's Encrypt               | (required)      |
+| `region`                     | GCP region                            | `us-central1`   |
+| `zone`                       | GCP zone                              | `us-central1-a` |
+| `cluster_name`               | GKE cluster name                      | `superplane`    |
+| `node_count`                 | Number of GKE nodes                   | `2`             |
+| `machine_type`               | GKE node machine type                 | `e2-medium`     |
+| `superplane_image_tag`       | SuperPlane image tag                  | `stable`        |
+| `installation.beaconEnabled` | Enable anonymized beacon telemetry    | `true`          |
 
 ## Step 5: Deploy
 

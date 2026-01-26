@@ -15,9 +15,11 @@ chmod +x superplane
 sudo mv superplane /usr/local/bin/superplane
 ```
 
-## Prerequisites
+## Authentication
 
-- A SuperPlane API token
+The SuperPlane CLI uses API tokens for authentication. To generate a new one:
+- Go to **Profile > API token** in the SuperPlane UI
+- Click the **Regenerate Token** button
 
 ## Configure the CLI
 

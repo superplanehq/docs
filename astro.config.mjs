@@ -28,6 +28,10 @@ export default defineConfig({
             { label: "Welcome", slug: "" },
             // Each item here is one entry in the navigation menu.
             { label: "Quickstart", slug: "get-started/quickstart" },
+            {
+              label: "Example use cases",
+              slug: "get-started/example-use-cases",
+            },
           ],
         },
         {

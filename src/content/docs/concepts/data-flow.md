@@ -15,7 +15,7 @@ the event, emits a payload, and downstream nodes that subscribe to it receive th
 flowchart LR
     External[External Event] --> Trigger[Trigger Node]
     Trigger -->|payload| Action[Action Node]
-    Action -->|result| Next[Next Node]
+    Action -->|payload| Next[Next Node]
 ```
 
 Each node in the workflow:
@@ -101,57 +101,65 @@ can execute simultaneously.
 
 Each node on the canvas shows a quick overview of its current or most recent run item.
 
-![Node with run item status](../../../assets/placeholder-node-status.png)
+![Node with run item status](../../../assets/data-flow-node-status.png)
 
 ### Run History
 
 Click on any node to open the sidebar. The sidebar shows the run history — all executions or events that
 have passed through this node, along with each execution's result.
 
-![Run history sidebar](../../../assets/placeholder-run-history.png)
+![Run history sidebar](../../../assets/data-flow-run-history.png)
 
 ### Run Chain
 
 Click on any item in the run history to see the full run chain. This shows all run items from all nodes
 that executed as part of that particular run.
 
-![Run chain view](../../../assets/placeholder-run-chain.png)
+![Run chain view](../../../assets/data-flow-run-chain.png)
 
 ### Inspecting Run Items
 
 In the run chain view, the node you were inspecting is preselected. You can click on any other run item
 in the chain to explore its details and payload.
 
-![Run item details expanded](../../../assets/placeholder-run-details.png)
+![Run item details expanded](../../../assets/data-flow-run-details.png)
 
 ## Payloads
 
 Every node emits a **payload** — a JSON object containing data from its execution.
 
-### Trigger Nodes
+### Trigger Components
 
-Trigger nodes listen to external resources and emit the event data as their payload.
+Trigger components listen to external resources and emit the event data as their payload.
 
 - Connect to external systems via webhooks or integrations
 - Emit events when something happens externally
 - Payload contains the raw event data from the external system
 
-**Examples:** GitHub onPush, GitHub onRelease, Slack onAppMention
+**Examples:** [GitHub onPush](/integrations/github/#on-push), [GitHub onRelease](/integrations/github/#on-release), [Slack onAppMention](/integrations/slack/#on-app-mention)
 
-### Action Nodes
+### Action Components
 
-Action nodes execute operations and emit execution results as their payload.
+Action components execute operations and emit execution results as their payload.
 
 - Subscribe to events from upstream nodes
 - Execute operations on external systems
 - Payload contains execution results and any returned data
 
-**Examples:** GitHub runWorkflow, Slack sendMessage, HTTP request
+**Examples:** [GitHub runWorkflow](/integrations/github/#run-workflow), [Slack sendMessage](/integrations/slack/#send-text-message), [HTTP request](/integrations/core/#http-request)
 
 ### Output Channels
 
 Nodes can emit through one or multiple output channels. Channels let you route data based on different
 outcomes.
+
+**Example: Pass/Fail Routing**
+
+![Output channels](../../../assets/data-flow-output-channels.png)
+
+Subscribe to the `passed` channel to continue on success, or the `failed` channel to handle errors.
+
+**Output channels example**  
 
 | Component | Channels | Description |
 |-----------|----------|-------------|
@@ -160,16 +168,6 @@ outcomes.
 | Merge | `success`, `stopped`, `timeout` | Routes based on merge outcome |
 | Dash0 listIssues | `clear`, `degraded`, `critical` | Routes based on issue severity |
 | PagerDuty listIncidents | `clear`, `low`, `high` | Routes based on incident urgency |
-
-**Example: Pass/Fail Routing**
-
-```mermaid
-flowchart LR
-    Build[GitHub runWorkflow] -->|passed| Deploy[Deploy to Production]
-    Build -->|failed| Alert[Create PagerDuty Incident]
-```
-
-Subscribe to the `passed` channel to continue on success, or the `failed` channel to handle errors.
 
 ## Expressions
 

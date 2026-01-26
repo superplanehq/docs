@@ -26,15 +26,11 @@ managing your workflows.
 
 The canvas consists of:
 
-1. **Nodes** — They are a single instance of a component — the core building blocks of Canvas. See
-   [Component Nodes](./component-nodes) for more details.
-2. **Connections** — These connect components and indicate which node listens to which. See [Data
-   Flow](./data-flow) for more details.
-3. **Add new elements buttons** — Add annotations and new components to the Canvas.
-4. **Helper toolbar** — Contains useful tools for navigating Canvas as well as switching between
-   select/pan mode, search, etc.
-5. **Console** — Displays warnings and errors and contains log of changes and events happening on the
-   canvas.
+1. **Nodes** — Instances of components, the core building blocks. See [Component Nodes](./component-nodes).
+2. **Connections** — Indicate which node listens to which. See [Data Flow](./data-flow).
+3. **Add new elements** — Add annotations and new components to the canvas.
+4. **Helper toolbar** — Navigation tools, select/pan mode, search.
+5. **Console** — Warnings, errors, and log of changes and events.
 
 ## Editing and Updating Canvases
 
@@ -68,90 +64,55 @@ superplane update -f my_canvas.yaml
 
 ## The Canvas Page
 
-The canvas page is the main interface for working with SuperPlane. It provides a visual workspace
-where you can see your entire workflow at a glance.
-
 ### Nodes and Connections
 
-**Nodes** are instances of components that perform work in your workflow. Each node can receive
-events, execute actions, and emit payloads. To add a node:
+**Nodes** are instances of components. To add a node, click **"+ Components"** and drag onto the
+canvas. **Connections** define how events flow between nodes — drag from a source node's output
+channel to a target node.
 
-- Click the **"+ Components"** button in the top right
-- Select a component from the list
-- Place it on the canvas
-
-**Connections** (subscriptions) define how events flow between nodes. To create a connection:
-
-- Click on a source node
-- Drag to a target node
-- Optionally specify an output channel if the source has multiple channels
-
-Nodes show status badges indicating their current execution state (running, succeeded, failed) and
-display key information from their latest payload.
-
-For detailed information about components and how to configure them, see [Component
-Nodes](./component-nodes).
+Nodes show status badges (running, succeeded, failed) and key information from their latest
+payload. For details on components, see [Component Nodes](./component-nodes).
 
 ### Payloads and Events
 
-Every node emits a **payload** — JSON data containing the results of its execution. You can inspect
-payloads by clicking on any node and viewing the Payload tab in the inspector.
+Every node emits a **payload** — JSON data containing the results of its execution. Click any node
+and view the Payload tab to inspect it.
 
 ![Inspecting a node payload](../../../assets/canvas-overview-payload.png)
 
-When configuring nodes, you can access payload data from upstream nodes using expressions. Type
-`{{` in any expression field to see available data from connected nodes.
+When configuring nodes, type `{{` in expression fields to access payload data from upstream nodes.
 
 ![Selecting payload data in expressions](../../../assets/canvas-overview-selecting-payload.png)
 
-The `$` variable provides access to all upstream payloads in the message chain. Use expressions
-like `$['Node Name'].field` to reference data from any connected node.
-
-For more details on how data flows through workflows, see [Data Flow](./data-flow).
+Use `$['Node Name'].field` to reference data from any connected node. See [Data Flow](./data-flow)
+for more details.
 
 ### Workflows and Runs
 
-A single canvas can express multiple workflows. The workflow that executes depends on which trigger
-fires and which paths events take through the graph.
+A single canvas can express multiple workflows depending on which trigger fires and which paths
+events take. **Multiple runs execute simultaneously** — the canvas updates in real-time as runs
+execute, with each node showing its current or most recent status.
 
-**Multiple runs execute simultaneously** on the canvas. Each run represents a complete workflow
-execution from start to finish. When you look at the canvas:
-
-- You see the **workflow definition** (the graph of nodes and subscriptions)
-- Each node shows its **current or most recent status** from all runs
-- Multiple runs can be executing at the same time
-- The canvas updates in real-time as runs execute
-
-Click on any node to view its run history — all executions that have passed through that node. From
-there, you can click any run item to see the full run chain, showing all nodes that executed as
-part of that particular run.
+Click any node to view its run history. Select a run item to see the full run chain showing all
+nodes that executed as part of that run.
 
 ### Console
 
-The console tracks errors, warnings, and provides a log of all changes and events happening on the
-canvas.
+The console tracks errors, warnings, and provides a log of all changes and events on the canvas.
 
 ![Console showing logs and errors](../../../assets/canvas-overview-console.png)
 
-The console displays:
-
-- **Errors and warnings**: Count indicators show how many issues need attention
-- **Canvas changes**: Logs when components or connections are added, updated, or removed
-- **Run details**: Execution logs for each run that executes on the canvas
-- **Search**: Filter through logs to find specific events or changes
-
-Use the console to debug issues, track canvas modifications, and monitor workflow execution history.
+- **Errors and warnings** — Count indicators show issues needing attention
+- **Canvas changes** — Logs when components or connections are added, updated, or removed
+- **Run details** — Execution logs for each run
+- **Search** — Filter through logs to find specific events
 
 ## Best Practices
 
-When working with canvases:
-
 - **Organize logically**: Group related nodes together visually
 - **Use clear node names**: Make it easy to understand what each node does
-- **Document complex logic**: Use node descriptions or comments for non-obvious flows
 - **Test incrementally**: Build and test workflows step by step
-- **Monitor run history**: Regularly check execution history to understand behavior
-- **Use the console**: Check for errors and warnings regularly
+- **Monitor the console**: Check for errors and review run history regularly
 
-For more details on how data flows through your canvas, see [Data Flow](./data-flow). For
-information about the components you can use as nodes, see [Component Nodes](./component-nodes).
+For more details on data flow, see [Data Flow](./data-flow). For component details, see [Component
+Nodes](./component-nodes).

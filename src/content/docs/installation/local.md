@@ -10,7 +10,7 @@ any cloud infrastructure.
 
 ## Prerequisites
 
-To run SuperPlane you need:
+To run SuperPlane, you need:
 
 - [Docker installed and running][docker-install] (for example Docker Desktop on
   macOS/Windows, or Docker Engine on Linux).
@@ -43,7 +43,7 @@ This is convenient for quick trials, but it also means:
   production systems.
 
 Use this setup for exploration and evaluation only. For more
-controlled, production‑like deployments, use one of the single‑host or
+controlled, production-like deployments, use one of the single-host or
 Kubernetes installation options instead.
 
 ## Try the beta channel

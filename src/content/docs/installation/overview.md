@@ -6,9 +6,9 @@ description: Choose the right installation path for local, single-host, or Kuber
 SuperPlane can be installed in a few different ways depending on the
 level of scale and operational control you need.
 
-### Try it your computer
+### Try it on your computer
 
-Choose this if you want to quickly try SuperPlane on your local machine without 
+Choose this if you want to quickly try SuperPlane on your local machine without
 setting up cloud resources or Kubernetes.
 
 - [Try it on your computer](./local)

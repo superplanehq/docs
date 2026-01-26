@@ -18,6 +18,12 @@ export default defineConfig({
 					],
 				},
 				{
+					label: 'Concepts',
+					items: [
+						{ label: 'Data Flow', slug: 'concepts/data-flow' },
+					],
+				},
+				{
 					label: 'Installation',
 					items: [
 						{ label: 'Overview', slug: 'installation/overview' },

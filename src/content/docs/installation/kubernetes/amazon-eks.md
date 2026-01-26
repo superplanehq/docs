@@ -57,16 +57,17 @@ letsencrypt_email = "admin@example.com"
 
 ### Configuration Options
 
-| Variable               | Description                | Default        |
-| ---------------------- | -------------------------- | -------------- |
-| `domain_name`          | Domain name for SuperPlane | (required)     |
-| `letsencrypt_email`    | Email for Let's Encrypt    | (required)     |
-| `region`               | AWS region                 | `us-east-1`    |
-| `cluster_name`         | EKS cluster name           | `superplane`   |
-| `node_count`           | Number of EKS nodes        | `2`            |
-| `instance_type`        | EKS node instance type     | `t3.medium`    |
-| `db_instance_class`    | RDS instance class         | `db.t3.medium` |
-| `superplane_image_tag` | SuperPlane image tag       | `stable`       |
+| Variable                     | Description                        | Default        |
+| ---------------------------- | ---------------------------------- | -------------- |
+| `domain_name`                | Domain name for SuperPlane         | (required)     |
+| `letsencrypt_email`          | Email for Let's Encrypt            | (required)     |
+| `region`                     | AWS region                         | `us-east-1`    |
+| `cluster_name`               | EKS cluster name                   | `superplane`   |
+| `node_count`                 | Number of EKS nodes                | `2`            |
+| `instance_type`              | EKS node instance type             | `t3.medium`    |
+| `db_instance_class`          | RDS instance class                 | `db.t3.medium` |
+| `superplane_image_tag`       | SuperPlane image tag               | `stable`       |
+| `installation.beaconEnabled` | Enable anonymized beacon telemetry | `true`         |
 
 ## Step 3: Deploy
 

@@ -72,6 +72,7 @@ export default defineConfig({
               label: "Amazon Kubernetes (EKS)",
               slug: "installation/kubernetes/amazon-eks",
             },
+            { label: "Beacon", slug: "installation/beacon" },
           ],
         },
         {

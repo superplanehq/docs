@@ -35,6 +35,7 @@ export default defineConfig({
           items: [
             { label: "Data flow", slug: "concepts/data-flow" },
             { label: "Expressions", slug: "concepts/expressions" },
+            { label: "Glossary", slug: "concepts/glossary" },
           ],
         },
         {

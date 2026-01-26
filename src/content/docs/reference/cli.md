@@ -24,7 +24,7 @@ sudo mv superplane /usr/local/bin/superplane
 Set the API URL and your API token before running any commands:
 
 ```sh
-superplane config set api_url https://app.superplane.com
+superplane config set api_url <SUPERPLANE_URL>
 superplane config set api_token <API_TOKEN>
 ```
 

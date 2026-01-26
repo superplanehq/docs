@@ -1,11 +1,13 @@
 // @ts-check
 import starlight from '@astrojs/starlight';
 import { defineConfig } from 'astro/config';
+import starlightClientMermaid from '@pasqal-io/starlight-client-mermaid';
 
 // https://astro.build/config
 export default defineConfig({
 	integrations: [
 		starlight({
+			plugins: [starlightClientMermaid()],
 			title: 'SuperPlane Docs',
 			social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/superplanehq/docs' }],
 			sidebar: [

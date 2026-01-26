@@ -37,6 +37,8 @@ export default defineConfig({
         {
           label: "Concepts",
           items: [
+            { label: "Canvas", slug: "concepts/canvas" },
+            { label: "Component Nodes", slug: "concepts/component-nodes" },
             { label: "Data flow", slug: "concepts/data-flow" },
             { label: "Expressions", slug: "concepts/expressions" },
             { label: "Glossary", slug: "concepts/glossary" },

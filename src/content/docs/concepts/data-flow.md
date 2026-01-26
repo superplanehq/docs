@@ -136,7 +136,7 @@ Trigger components listen to external resources and emit the event data as their
 - Emit events when something happens externally
 - Payload contains the raw event data from the external system
 
-**Examples:** [GitHub onPush](/integrations/github/#on-push), [GitHub onRelease](/integrations/github/#on-release), [Slack onAppMention](/integrations/slack/#on-app-mention)
+**Examples:** [GitHub onPush](/components/github/#on-push), [GitHub onRelease](/components/github/#on-release), [Slack onAppMention](/components/slack/#on-app-mention)
 
 ### Action Components
 
@@ -146,7 +146,7 @@ Action components execute operations and emit execution results as their payload
 - Execute operations on external systems
 - Payload contains execution results and any returned data
 
-**Examples:** [GitHub runWorkflow](/integrations/github/#run-workflow), [Slack sendMessage](/integrations/slack/#send-text-message), [HTTP request](/integrations/core/#http-request)
+**Examples:** [GitHub runWorkflow](/components/github/#run-workflow), [Slack sendMessage](/components/slack/#send-text-message), [HTTP request](/components/core/#http-request)
 
 ### Output Channels
 

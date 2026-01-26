@@ -1,14 +1,19 @@
 // @ts-check
 import starlight from '@astrojs/starlight';
 import { defineConfig } from 'astro/config';
-import starlightClientMermaid from '@pasqal-io/starlight-client-mermaid';
+import mermaid from 'astro-mermaid';
+import starlightImageZoom from 'starlight-image-zoom';
 
 // https://astro.build/config
 export default defineConfig({
 	integrations: [
+		mermaid({ autoTheme: true }),
 		starlight({
-			plugins: [starlightClientMermaid()],
+			plugins: [starlightImageZoom()],
 			title: 'SuperPlane Docs',
+			logo: {
+				src: './src/assets/superplane-logo.svg',
+			},
 			social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/superplanehq/docs' }],
 			sidebar: [
 				{

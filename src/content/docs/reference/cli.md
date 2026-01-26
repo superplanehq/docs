@@ -7,10 +7,18 @@ Use the SuperPlane CLI to configure access and manage canvases from your termina
 
 ## Installation
 
-Download a binary from the GitHub releases page:
+Download the latest binary for your operating system and architecture:
 
 ```
-curl -L https://github.com/superplanehq/superplane/releases/download/v0.1.3/superplane-cli-v0.1.3-darwin-arm64 -o superplane
+curl -L https://install.superplane.com/superplane-cli-darwin-arm64 -o superplane
+chmod +x superplane
+sudo mv superplane /usr/local/bin/superplane
+```
+
+Or download a specific version:
+
+```
+curl -L https://install.superplane.com/v0.1.6/superplane-cli-darwin-arm64 -o superplane
 chmod +x superplane
 sudo mv superplane /usr/local/bin/superplane
 ```

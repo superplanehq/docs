@@ -1,0 +1,67 @@
+---
+title: Example use cases
+description: Six templates you can copy and adapt to your own workflows.
+---
+
+import { Aside, Card, CardGrid } from "@astrojs/starlight/components";
+import { Image } from "astro:assets";
+import t1PolicyGatedDeployment from "../../../assets/templates/policy-gated-deployment.png";
+import t2AutomatedRollback from "../../../assets/templates/automated-rollback.png";
+import t3IncidentDataCollection from "../../../assets/templates/incident-triage.png";
+import t4StagedRelease from "../../../assets/templates/progressive-delivery.png";
+import t5IncidentRouter from "../../../assets/templates/incident-router.png";
+import t6MultiRepoRelease from "../../../assets/templates/multi-repo-release.png";
+
+SuperPlane ships with a set of built-in templates you can copy into your workspace and adapt.
+This page gives you a quick tour of what each template is for, plus screenshots you can reference as you build.
+
+<Aside>
+  Use the gallery view to scan the shape of the workflow, then click
+  the image to view the full canvas.
+</Aside>
+
+## Templates
+
+<CardGrid>
+  <Card title="Policy Gated Deployment" icon="approve-check-circle">
+    <Image
+      class="sp-thumb"
+      src={t1PolicyGatedDeployment}
+      alt="Policy-gated deployment template canvas (cropped preview)."
+    />
+    <p>Gate deployments with a policy check, business hours, and approval.</p>
+  </Card>
+
+  <Card title="Automated Rollback" icon="warning">
+    <Image class="sp-thumb" src={t2AutomatedRollback} alt="Automated rollback template canvas (cropped preview)." />
+    <p>
+      Automatically trigger rollback workflows when deployments fail and verify system health with Dash0 monitoring.
+    </p>
+  </Card>
+
+  <Card title="Incident Data Collection" icon="magnifier">
+    <Image
+      class="sp-thumb"
+      src={t3IncidentDataCollection}
+      alt="Incident data collection template canvas (cropped preview)."
+    />
+    <p>Collect data and metrics when new P1/P2 incident is opened and create a GitHub issue</p>
+  </Card>
+
+  <Card title="Staged Release" icon="rocket">
+    <Image class="sp-thumb" src={t4StagedRelease} alt="Staged release template canvas (cropped preview)." />
+    <p>Gradually roll out releases through 10%, 50%, and 100% stages with health checks at each step.</p>
+  </Card>
+
+  <Card title="Incident Router" icon="forward-slash">
+    <Image class="sp-thumb" src={t5IncidentRouter} alt="Incident router template canvas (cropped preview)." />
+    <p>
+      Route P1 incidents from Slack mentions to PagerDuty and GitHub with AI-generated titles and descriptions.
+    </p>
+  </Card>
+
+  <Card title="Multi-repo release" icon="seti:folder">
+    <Image class="sp-thumb" src={t6MultiRepoRelease} alt="Multi-repo release template canvas (cropped preview)." />
+    <p>Coordinate releases across multiple repositories with unified CI builds and deployments.</p>
+  </Card>
+</CardGrid>

@@ -1,0 +1,47 @@
+/*
+  SuperPlane docs: small, pragmatic styling utilities.
+  Keep changes local (scoped classes), avoid global overrides.
+*/
+
+/* A full-bleed wrapper for wide screenshots (desktop only). */
+@media (min-width: 1024px) {
+  .sp-full-bleed {
+    width: 100vw;
+    margin-left: calc(50% - 50vw);
+    margin-right: calc(50% - 50vw);
+  }
+}
+
+.sp-canvas-figure {
+  margin: 1.25rem 0;
+}
+
+.sp-canvas-figure img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 10px;
+}
+
+.sp-canvas-figure figcaption {
+  margin-top: 0.5rem;
+  font-size: 0.9rem;
+  opacity: 0.85;
+}
+
+/* Thumbnail crop for “wide canvas” previews. */
+.sp-thumb {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  object-position: left center;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 10px;
+}
+
+/* A gentle “screenshot” caption style for inline hints. */
+.sp-muted {
+  opacity: 0.85;
+}

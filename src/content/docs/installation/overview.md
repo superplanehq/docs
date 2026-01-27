@@ -11,7 +11,7 @@ level of scale and operational control you need.
 Choose this if you want to quickly try SuperPlane on your local machine without
 setting up cloud resources or Kubernetes.
 
-- [Try it on your computer](./local)
+- [Try it on your computer](/installation/local)
 
 ### Single-host installation
 
@@ -19,16 +19,16 @@ Choose this if you want a production-like setup without Kubernetes.
 Single-host installs are simpler to operate and are ideal for smaller
 teams or early deployments.
 
-  - [EC2 on AWS](./single-host/aws-ec2)
-  - [Compute Engine on GCP](./single-host/gcp-compute-engine)
-  - [Hetzner](./single-host/hetzner)
-  - [DigitalOcean](./single-host/digitalocean)
-  - [Linode](./single-host/linode)
-  - [Generic server](./single-host/generic-server)
+  - [EC2 on AWS](/installation/single-host/aws-ec2)
+  - [Compute Engine on GCP](/installation/single-host/gcp-compute-engine)
+  - [Hetzner](/installation/single-host/hetzner)
+  - [DigitalOcean](/installation/single-host/digitalocean)
+  - [Linode](/installation/single-host/linode)
+  - [Generic server](/installation/single-host/generic-server)
 
 ### Kubernetes
 
 Choose this if you want a scalable, production instance of SuperPlane.
 
-- [Google Kubernetes Engine](./kubernetes/gke)
-- [Amazon Kubernetes (EKS)](./kubernetes/amazon-eks)
+- [Google Kubernetes Engine](/installation/kubernetes/gke)
+- [Amazon Kubernetes (EKS)](/installation/kubernetes/amazon-eks)

@@ -21,6 +21,11 @@ export default defineConfig({
           label: "GitHub",
           href: "https://github.com/superplanehq/docs",
         },
+        {
+          icon: "discord",
+          label: "Discord",
+          href: "https://discord.superplane.com",
+        },
       ],
       sidebar: [
         {

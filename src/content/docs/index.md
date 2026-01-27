@@ -46,4 +46,4 @@ For more details and options, see [installation guide](./installation/overview).
 
 - Submit project issues and feature requests at [github.com/superplanehq/superplane](https://github.com/superplanehq/superplane).
 - Submit documentation issues at [github.com/superplanehq/docs](https://github.com/superplanehq/docs).
-- Talk to the devs in the [Discord server](https://discord.gg/KC78eCNsnw).
+- Talk to the devs in the [Discord server](https://discord.superplane.com).

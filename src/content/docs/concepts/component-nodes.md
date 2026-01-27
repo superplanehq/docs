@@ -67,27 +67,18 @@ Each component node on the canvas displays key information and provides interact
 
 ## Component Node Sidebar
 
-Clicking on a component node selects it and opens a component node sidebar. The sidebar is resizable
-and contains all the information about the node.
+Clicking on a component node selects it and opens a component node sidebar.
 
 ![Component node sidebar](../../../assets/component-nodes-sidebar.png)
 
-### Runs Tab
-
-The **Runs** tab displays run items for this node:
-
-- **Latest runs** — Recent executions with event ID, timestamp, and status
-- **Active run actions** — Cancel or push through running items
-- **Queued runs** — Items waiting to execute (FIFO order)
-
-### Configuration Tab
-
-The **Configuration** tab is for setting up and updating the node's configuration settings. Each
-component has its own configuration requirements:
-
-- **Required fields**: Settings that must be provided for the component to work
-- **Optional fields**: Settings that customize behavior or provide additional context
-- **Expression support**: Many fields support expressions using `{{ }}` syntax
+1. **Click to open** — You can click on a node to open the sidebar.
+2. **Resizable sidebar** — Sidebar is resizable and contains node details.
+3. **Latest runs section** — Recent executions with event ID, timestamp, and status.
+4. **Configuration tab** — Settings for setting up and updating the node's configuration. Each
+   component has its own configuration requirements (required fields, optional fields, and expression
+   support using `{{ }}` syntax).
+5. **Action menu for run item** — Cancel or push through running items.
+6. **Queue** — Items waiting to execute (FIFO order).
 
 See [Expressions](./expressions) for details on writing expressions.
 

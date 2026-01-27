@@ -11,6 +11,7 @@ export default defineConfig({
     starlight({
       plugins: [starlightImageZoom()],
       title: "SuperPlane Docs",
+      customCss: ["./src/styles/custom.css"],
       logo: {
         src: "./src/assets/superplane-logo.svg",
       },

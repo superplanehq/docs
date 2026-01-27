@@ -49,6 +49,7 @@ export default defineConfig({
           label: "Installation",
           items: [
             { label: "Overview", slug: "installation/overview" },
+
             { label: "Try it on your computer", slug: "installation/local" },
             { label: "EC2 on AWS", slug: "installation/single-host/aws-ec2" },
             {
@@ -74,15 +75,12 @@ export default defineConfig({
               slug: "installation/kubernetes/amazon-eks",
             },
             { label: "Beacon", slug: "installation/beacon" },
+            { label: "CLI", slug: "installation/cli" },
           ],
         },
         {
           label: "Components",
           autogenerate: { directory: "components" },
-        },
-        {
-          label: "Reference",
-          autogenerate: { directory: "reference" },
         },
       ],
     }),

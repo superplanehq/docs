@@ -1,5 +1,5 @@
 ---
-title: CLI Reference
+title: SuperPlaneCLI
 description: Install the SuperPlane CLI and manage canvases.
 ---
 
@@ -26,6 +26,7 @@ sudo mv superplane /usr/local/bin/superplane
 ## Authentication
 
 The SuperPlane CLI uses API tokens for authentication. To generate a new one:
+
 - Go to **Profile > API token** in the SuperPlane UI
 - Click the **Regenerate Token** button
 

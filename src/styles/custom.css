@@ -45,3 +45,85 @@
 .sp-muted {
   opacity: 0.85;
 }
+
+@layer starlight.user {
+  :root,
+  :root[data-theme='light'],
+  :root[data-theme='dark'] {
+    --sl-text-h1: 2.25rem; /* 36px */
+    --sl-text-h2: 1.5rem; /* 24px */
+    --sl-text-h3: 1.25rem; /* 20px */
+    --sl-text-h4: 1.125rem; /* 18px */
+    --sl-text-h5: 1rem; /* 16px */
+    --sl-text-h6: 1rem; /* 16px */
+  }
+
+  :root,
+  :root[data-theme='light'],
+  :root[data-theme='dark'] {
+    --sl-color-hairline-shade: var(--sl-color-gray-5) !important;
+  }
+
+  :root[data-theme='light'] {
+    --sl-color-bg-nav: #ffffff !important;
+    --sl-color-gray-5: #dfe1e8 !important;
+    --sl-color-hairline: var(--sl-color-gray-5) !important;
+    --sl-color-text-accent: #3b6fff !important;
+
+    .sidebar-content ul ul li {
+      border-inline-start-color: var(--sl-color-hairline-shade) !important;
+    }
+
+    .sidebar-content ul ul li a {
+      color: var(--sl-color-gray-3) !important;
+      font-weight: 500 !important;
+    }
+
+    .sidebar-content ul ul li a[aria-current=page] {
+      color: white !important;
+    }
+  }
+
+  :root[data-theme='dark'] {
+    --sl-color-bg: var(--sl-color-gray-6) !important;
+  }
+
+
+  .sl-markdown-content h1:not(:where(.not-content *)) {
+    font-size: 2.25rem !important; /* 36px */
+  }
+  #_top {
+    margin-top: 0 !important;
+  }
+  .right-sidebar h2 {
+    font-size: 1rem !important;
+  }
+  .sl-markdown-content .sl-heading-wrapper {
+    --sl-anchor-icon-size: 0.7em !important;
+    --sl-anchor-icon-gap: 1em !important;
+  }
+  .sl-markdown-content .sl-anchor-icon > svg {
+    transform: translateY(0.4em) !important;
+  }
+  .sl-markdown-content h2:not(:where(.not-content *)) {
+    font-size: 1.5rem !important; /* 24px */
+  }
+  .sl-markdown-content h3:not(:where(.not-content *)) {
+    font-size: 1.125rem !important; /* 18px */
+  }
+  .sl-markdown-content h4:not(:where(.not-content *)) {
+    font-size: 1rem !important; /* 16px */
+  }
+  .sl-markdown-content h5:not(:where(.not-content *)) {
+    font-size: 0.875rem !important; /* 14px */
+  }
+  .sl-markdown-content h6:not(:where(.not-content *)) {
+    font-size: 0.75rem !important; /* 12px */
+  }
+  .sl-markdown-content strong {
+    font-weight: 600 !important;
+  }
+  :root {
+    --sl-font-weight-bold: 600 !important;
+  }
+}

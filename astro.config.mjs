@@ -15,6 +15,9 @@ export default defineConfig({
       logo: {
         src: "./src/assets/superplane-logo.svg",
       },
+      components: {
+        SiteTitle: "./src/components/CustomSiteTitle.astro",
+      },
       social: [
         {
           icon: "github",

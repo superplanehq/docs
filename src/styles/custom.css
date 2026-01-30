@@ -50,7 +50,7 @@
   :root,
   :root[data-theme='light'],
   :root[data-theme='dark'] {
-    --sl-text-h1: 2.25rem; /* 36px */
+    --sl-text-h1: 2.25rem !important; /* 36px */
     --sl-text-h2: 1.5rem; /* 24px */
     --sl-text-h3: 1.25rem; /* 20px */
     --sl-text-h4: 1.125rem; /* 18px */
@@ -62,6 +62,10 @@
   :root[data-theme='light'],
   :root[data-theme='dark'] {
     --sl-color-hairline-shade: var(--sl-color-gray-5) !important;
+
+    .sidebar-content ul ul li a {
+      font-weight: 500 !important;
+    }
   }
 
   :root[data-theme='light'] {
@@ -69,6 +73,7 @@
     --sl-color-gray-5: #dfe1e8 !important;
     --sl-color-hairline: var(--sl-color-gray-5) !important;
     --sl-color-text-accent: #3b6fff !important;
+    --sl-color-blue: #3b6fff !important;
 
     .sidebar-content ul ul li {
       border-inline-start-color: var(--sl-color-hairline-shade) !important;
@@ -76,18 +81,49 @@
 
     .sidebar-content ul ul li a {
       color: var(--sl-color-gray-3) !important;
-      font-weight: 500 !important;
     }
 
     .sidebar-content ul ul li a[aria-current=page] {
       color: white !important;
     }
+
+    .social-icons a {
+      color: var(--sl-color-gray-1) !important;
+    }
+
+    .starlight-aside {
+      border-inline-start-color: var(--sl-color-text-accent) !important;
+    }
+
+    .starlight-aside--note {
+      background-color: #e0efff !important;
+    }
+
+    .starlight-aside__title {
+      color: var(--sl-color-blue) !important;
+    }
   }
 
   :root[data-theme='dark'] {
     --sl-color-bg: var(--sl-color-gray-6) !important;
-  }
+    --sl-color-hairline: var(--sl-color-gray-5) !important;
 
+    .social-icons a {
+      color: white !important;
+    }
+
+    .starlight-aside {
+      border-inline-start-color: var(--sl-color-text-accent) !important;
+    }
+
+    .starlight-aside--note {
+      background-color: #2b3359 !important;
+    }
+
+    .starlight-aside__title {
+      color: #b3c7ff !important;
+    }
+  }
 
   .sl-markdown-content h1:not(:where(.not-content *)) {
     font-size: 2.25rem !important; /* 36px */

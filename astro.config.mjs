@@ -16,6 +16,7 @@ export default defineConfig({
         src: "./src/assets/superplane-logo.svg",
       },
       components: {
+        Head: "./src/components/CustomHead.astro",
         SiteTitle: "./src/components/CustomSiteTitle.astro",
       },
       social: [

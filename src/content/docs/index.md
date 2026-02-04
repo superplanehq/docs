@@ -34,7 +34,7 @@ docker run --rm -p 3000:3000 -v spdata:/app/data -ti ghcr.io/superplanehq/superp
 
 Then open `http://localhost:3000`.
 
-For more details and options, see [installation guide](./installation/overview).
+For more details and options, see [installation guide](/installation/overview).
 
 ## Project status: alpha
 

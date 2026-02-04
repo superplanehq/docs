@@ -80,7 +80,7 @@ Clicking on a component node selects it and opens a component node sidebar.
 5. **Action menu for run item** — Cancel or push through running items.
 6. **Queue** — Items waiting to execute (FIFO order).
 
-See [Expressions](./expressions) for details on writing expressions.
+See [Expressions](/concepts/expressions) for details on writing expressions.
 
 ## Single Run Chain
 
@@ -104,7 +104,7 @@ Components are provided by **integrations**. SuperPlane includes:
 To use integration components, you may need to configure authentication or connection settings for
 that integration first.
 
-Browse the [Components](/components) section to see all available components and their
+Browse the [Components](/components/core) section to see all available components and their
 documentation.
 
 ## Best Practices
@@ -118,5 +118,5 @@ When working with component nodes:
 - **Monitor run history**: Check execution history to understand behavior and debug issues
 
 For more details on how component nodes connect and how data flows between them, see [Data
-Flow](./data-flow). For information about the canvas where you work with component nodes, see
-[Canvas](./canvas).
+Flow](/concepts/data-flow). For information about the canvas where you work with component nodes, see
+[Canvas](/concepts/canvas).

@@ -78,4 +78,4 @@ and combine data from earlier steps.
 ## Expression
 
 An **expression** is a small program used to read and transform payload data (for example to build a message, compute a
-condition, or select an output path). See the [Expressions](./expressions) page for more details.
+condition, or select an output path). See the [Expressions](/concepts/expressions) page for more details.

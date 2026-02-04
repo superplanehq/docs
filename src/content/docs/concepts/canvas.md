@@ -26,8 +26,8 @@ managing your workflows.
 
 The canvas consists of:
 
-1. **Nodes** — Instances of components, the core building blocks. See [Component Nodes](./component-nodes).
-2. **Connections** — Indicate which node listens to which. See [Data Flow](./data-flow).
+1. **Nodes** — Instances of components, the core building blocks. See [Component Nodes](/concepts/component-nodes).
+2. **Connections** — Indicate which node listens to which. See [Data Flow](/concepts/data-flow).
 3. **Add new elements** — Add annotations and new components to the canvas.
 4. **Helper toolbar** — Navigation tools, select/pan mode, search.
 5. **Console** — Warnings, errors, and log of changes and events.
@@ -71,7 +71,7 @@ canvas. **Connections** define how events flow between nodes — drag from a sou
 channel to a target node.
 
 Nodes show status badges (running, succeeded, failed) and key information from their latest
-payload. For details on components, see [Component Nodes](./component-nodes).
+payload. For details on components, see [Component Nodes](/concepts/component-nodes).
 
 ### Payloads and Events
 
@@ -84,7 +84,7 @@ When configuring nodes, type `{{` in expression fields to access payload data fr
 
 ![Selecting payload data in expressions](../../../assets/canvas-overview-selecting-payload.png)
 
-Use `$['Node Name'].field` to reference data from any connected node. See [Data Flow](./data-flow)
+Use `$['Node Name'].field` to reference data from any connected node. See [Data Flow](/concepts/data-flow)
 for more details.
 
 ### Workflows and Runs
@@ -114,5 +114,5 @@ The console tracks errors, warnings, and provides a log of all changes and event
 - **Test incrementally**: Build and test workflows step by step
 - **Monitor the console**: Check for errors and review run history regularly
 
-For more details on data flow, see [Data Flow](./data-flow). For component details, see [Component
-Nodes](./component-nodes).
+For more details on data flow, see [Data Flow](/concepts/data-flow). For component details, see [Component
+Nodes](/concepts/component-nodes).

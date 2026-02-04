@@ -90,7 +90,7 @@ $['Filter'].passed               // true
 ```
 
 You can also use `root()` to access the original event that started the run, and `previous()` to access
-the immediate upstream node. See the [Expressions](#expressions) section for details.
+the immediate upstream node. See the [Expressions](/concepts/expressions) page for details.
 
 ## Exploring Runs on the Canvas
 

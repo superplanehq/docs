@@ -4,7 +4,7 @@ description: Roles, permissions, groups, and member access in SuperPlane organiz
 ---
 
 **Overview**
-SuperPlane uses organization-scoped role-based access control (RBAC) to decide who can do what in an organization. Today, RBAC is only defined at the organization level (there are no project-level roles).
+SuperPlane uses organization-scoped role-based access control (RBAC) to decide who can do what in an organization. Today, RBAC is only defined at the organization level.
 
 **RBAC Sections**
 - [Roles](#roles)
@@ -71,7 +71,7 @@ Owner permissions:
 - `org.update`
 - `org.delete`
 
-**Permissions Reference**
+## Permissions Reference
 Permissions are defined as resource/action pairs (for example, `members.create`). Use this list when
 building custom roles.
 
@@ -114,7 +114,7 @@ building custom roles.
 - `secrets.update` - Update secrets.
 - `secrets.delete` - Delete secrets from the organization
 
-**Roles**
+## Roles
 Use **Organization Settings > Roles** to review roles and create custom roles.
 - Default roles are marked as **Default Role** and are read-only.
 - Custom roles can be created, edited, and deleted if you have `roles.*` permissions.
@@ -125,7 +125,7 @@ The Create Role page lets you pick permissions by category.
 
 ![Create role page](../../../assets/rbac-create-role.png)
 
-**Groups**
+## Groups
 Groups map to a single role. When a user is added to a group, they inherit that role in addition to any direct role assignment.
 - Create groups in **Organization Settings > Groups**.
 - Change a group role from the Groups list; all group members inherit the new role immediately.
@@ -133,7 +133,7 @@ Groups map to a single role. When a user is added to a group, they inherit that 
 ![Groups page](../../../assets/rbac-groups.png)
 ![Groups creation page](../../../assets/rbac-create-group.png)
 
-**Members**
+## Members
 The Members page is where you assign a member's direct role and manage invite links.
 - New members start as `Viewer` by default.
 - Assigning a role replaces the previous direct role.

@@ -119,19 +119,19 @@ Use **Organization Settings > Roles** to review roles and create custom roles.
 - Default roles are marked as **Default Role** and are read-only.
 - Custom roles can be created, edited, and deleted if you have `roles.*` permissions.
 
-![Roles page](../../assets/rbac-roles.png)
+![Roles page](../../../assets/rbac-roles.png)
 
 The Create Role page lets you pick permissions by category.
 
-![Create role page](../../assets/rbac-create-role.png)
+![Create role page](../../../assets/rbac-create-role.png)
 
 **Groups**
 Groups map to a single role. When a user is added to a group, they inherit that role in addition to any direct role assignment.
 - Create groups in **Organization Settings > Groups**.
 - Change a group role from the Groups list; all group members inherit the new role immediately.
 
-![Groups page](../../assets/rbac-groups.png)
-![Groups creation page](../../assets/rbac-create-group.png)
+![Groups page](../../../assets/rbac-groups.png)
+![Groups creation page](../../../assets/rbac-create-group.png)
 
 **Members**
 The Members page is where you assign a member's direct role and manage invite links.
@@ -139,4 +139,4 @@ The Members page is where you assign a member's direct role and manage invite li
 - Assigning a role replaces the previous direct role.
 - You must keep at least one `Owner` in the organization.
 
-![Members page](../../assets/rbac-members.png)
+![Members page](../../../assets/rbac-members.png)

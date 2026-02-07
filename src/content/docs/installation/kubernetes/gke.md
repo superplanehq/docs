@@ -131,11 +131,15 @@ terraform apply
 ## Uninstalling
 
 ```bash
-# Disable deletion protection on the database
-gcloud sql instances patch superplane-db --no-deletion-protection
+# Disable deletion protection for the database and the cluster
+terraform apply \
+  -var="gke_deletion_protection=false" \
+  -var="sql_deletion_protection=false"
 
-# Destroy all resources
-terraform destroy
+# Then destroy all resources
+terraform destroy \
+  -var="gke_deletion_protection=false" \
+  -var="sql_deletion_protection=false"
 
 # Delete the static IP
 gcloud compute addresses delete superplane-ip --global

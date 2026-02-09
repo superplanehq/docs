@@ -70,17 +70,13 @@ Replace `v0.4` with the version you want to run.
 
 ## Updating SuperPlane
 
-To update to the latest version, pull the latest image and restart the
-container:
-
-```bash
+To update to the latest version, run docker pull and restart the container:
+```
 docker pull ghcr.io/superplanehq/superplane-demo:stable
 docker run --rm -p 3000:3000 -v spdata:/app/data -ti ghcr.io/superplanehq/superplane-demo:stable
 ```
 
-Docker will automatically pull the latest image if you don't run `docker
-pull` first, but pulling explicitly ensures you have the latest version
-before starting the container.
+Replace `stable` with the specific version tag if needed.
 
 ## Removing SuperPlane
 

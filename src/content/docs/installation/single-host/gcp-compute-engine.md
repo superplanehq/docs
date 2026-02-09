@@ -137,3 +137,18 @@ In the Google Cloud Console:
 
 You can use these snapshots to restore the disk, or create a new VM with the
 same data if something goes wrong.
+
+## Updating SuperPlane
+
+1. Check the [GitHub releases][github-releases] for the latest version tag.
+2. Edit `docker-compose.yml` and update the `image` field with the new tag.
+3. Restart the stack:
+
+```
+docker compose pull
+docker compose up -d
+```
+
+[github-releases]: https://github.com/superplanehq/superplane/releases
+
+[github-releases]: https://github.com/superplanehq/superplane/releases

@@ -60,3 +60,17 @@ superplane get canvas <canvas_name> > my_canvas.yaml
 # update your YAML to reflect the changes you want to make
 superplane update -f my_canvas.yaml
 ```
+
+## Updating SuperPlane
+
+To upgrade to the latest version, download the latest binary and replace
+the existing one:
+
+```bash
+curl -L https://install.superplane.com/superplane-cli-darwin-arm64 -o superplane
+chmod +x superplane
+sudo mv superplane /usr/local/bin/superplane
+```
+
+Replace `darwin-arm64` with your operating system and architecture
+(e.g., `linux-amd64`, `darwin-amd64`).

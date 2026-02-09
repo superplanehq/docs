@@ -122,6 +122,21 @@ In the Hetzner Cloud Console:
 3. Go to the **Backups** section.
 4. Enable backups for the server.
 
-Hetzner will now create regular full disk backups of your server’s root
+Hetzner will now create regular full disk backups of your server's root
 volume. You can use these backups to restore the entire server to an earlier
 state if something goes wrong.
+
+## Updating SuperPlane
+
+1. Check the [GitHub releases][github-releases] for the latest version tag.
+2. Edit `docker-compose.yml` and update the `image` field with the new tag.
+3. Restart the stack:
+
+```
+docker compose pull
+docker compose up -d
+```
+
+[github-releases]: https://github.com/superplanehq/superplane/releases
+
+[github-releases]: https://github.com/superplanehq/superplane/releases

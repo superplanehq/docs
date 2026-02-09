@@ -125,11 +125,13 @@ Once the certificate shows `Ready`, access SuperPlane at `https://your-domain.co
 
 Note: Certificate issuance may take 5-10 minutes after DNS propagation completes.
 
-## Updating
+## Updating SuperPlane
 
-Modify `superplane_image_tag` in `terraform.tfvars` and apply:
+1. Check the [GitHub releases][github-releases] for the latest version tag.
+2. Update `superplane_image_tag` in `terraform.tfvars` with the new tag.
+3. Apply the changes:
 
-```bash
+```
 terraform apply
 ```
 
@@ -152,3 +154,4 @@ terraform destroy
 [terraform-install]: https://www.terraform.io/downloads
 [kubectl-install]: https://kubernetes.io/docs/tasks/tools/
 [aws-cli-install]: https://aws.amazon.com/cli/
+[github-releases]: https://github.com/superplanehq/superplane/releases

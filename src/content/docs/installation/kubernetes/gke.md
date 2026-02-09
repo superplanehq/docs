@@ -120,11 +120,13 @@ kubectl get certificate -n superplane
 
 Once the certificate shows `Ready`, access SuperPlane at `https://your-domain.com`.
 
-## Updating
+## Updating SuperPlane
 
-Modify `superplane_image_tag` in `terraform.tfvars` and apply:
+1. Check the [GitHub releases][github-releases] for the latest version tag.
+2. Update `superplane_image_tag` in `terraform.tfvars` with the new tag.
+3. Apply the changes:
 
-```bash
+```
 terraform apply
 ```
 
@@ -148,3 +150,4 @@ gcloud compute addresses delete superplane-ip --global
 [terraform-install]: https://www.terraform.io/downloads
 [kubectl-install]: https://kubernetes.io/docs/tasks/tools/
 [gcloud-install]: https://cloud.google.com/sdk/docs/install
+[github-releases]: https://github.com/superplanehq/superplane/releases

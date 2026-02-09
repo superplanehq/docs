@@ -124,3 +124,18 @@ In the DigitalOcean Control Panel:
 DigitalOcean will now create regular full disk backups of your Droplet. You
 can use these backups to restore the entire Droplet to an earlier state if
 something goes wrong.
+
+## Updating SuperPlane
+
+1. Check the [GitHub releases][github-releases] for the latest version tag.
+2. Edit `docker-compose.yml` and update the `image` field with the new tag.
+3. Restart the stack:
+
+```
+docker compose pull
+docker compose up -d
+```
+
+[github-releases]: https://github.com/superplanehq/superplane/releases
+
+[github-releases]: https://github.com/superplanehq/superplane/releases

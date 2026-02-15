@@ -1,5 +1,5 @@
 ---
-title: SuperPlaneCLI
+title: SuperPlane CLI
 description: Install the SuperPlane CLI and manage canvases.
 ---
 
@@ -39,26 +39,105 @@ superplane config set api_url <SUPERPLANE_URL>
 superplane config set api_token <API_TOKEN>
 ```
 
-## Create a canvas
+## Managing canvases
+
+### Create a canvas
 
 ```sh
-superplane create canvas <canvas_name>
+superplane canvases create <canvas_name>
 ```
 
-## Describe a canvas
+### Describe a canvas
 
 ```sh
-superplane get canvas <canvas_name>
+superplane canvases get <canvas_name>
 ```
 
-## Update a canvas
+### Update a canvas
 
 Export the existing canvas, edit it, then apply your changes:
 
 ```sh
-superplane get canvas <canvas_name> > my_canvas.yaml
+superplane canvases get <canvas_name> > my_canvas.yaml
 # update your YAML to reflect the changes you want to make
-superplane update -f my_canvas.yaml
+superplane canvases update -f my_canvas.yaml
+```
+
+## Discovering components
+
+### List integrations
+
+```sh
+superplane integrations list
+```
+
+Get details for one integration:
+
+```sh
+superplane integrations get <integration_name>
+```
+
+### List components
+
+List all available components:
+
+```sh
+superplane components list
+```
+
+List components from a specific integration:
+
+```sh
+superplane components list --from <integration_name>
+```
+
+Get details for one component:
+
+```sh
+superplane components get <component_name>
+```
+
+### List triggers
+
+List all available triggers:
+
+```sh
+superplane triggers list
+```
+
+List triggers from a specific integration:
+
+```sh
+superplane triggers list --from <integration_name>
+```
+
+Get details for one trigger:
+
+```sh
+superplane triggers get <trigger_name>
+```
+
+## Managing integrations
+
+List only integrations connected to your authenticated organization:
+
+```sh
+superplane integrations list --connected
+```
+
+List resources available from a connected integration:
+
+```sh
+superplane integrations list-resources --id <connected_integration_id> --type <resource_type>
+```
+
+You can pass additional query parameters when needed:
+
+```sh
+superplane integrations list-resources \
+  --id <connected_integration_id> \
+  --type <resource_type> \
+  --parameters key=value,key2=value2
 ```
 
 ## Updating SuperPlane

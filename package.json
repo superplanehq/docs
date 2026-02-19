@@ -5,6 +5,8 @@
   "scripts": {
     "dev": "astro dev",
     "start": "astro dev",
+    "generate:llms": "node scripts/generate-llms.mjs",
+    "prebuild": "npm run generate:llms",
     "build": "astro build",
     "preview": "astro preview",
     "astro": "astro"

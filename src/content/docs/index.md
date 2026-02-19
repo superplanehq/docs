@@ -42,6 +42,13 @@ For more details and options, see [installation guide](/installation/overview).
 - **Expect rough edges**: we’re still stabilizing the core primitives and integrations.
 - **Breaking changes are possible**: but we'll do our best to avoid them.
 
+## LLM context files
+
+If you use SuperPlane docs in AI tooling, you can point your tool at:
+
+- [`/llms.txt`](/llms.txt): compact docs index organized by docs sections.
+- [`/llms-full.txt`](/llms-full.txt): expanded companion with full page content.
+
 ## Get help / share feedback
 
 - Submit project issues and feature requests at [github.com/superplanehq/superplane](https://github.com/superplanehq/superplane).

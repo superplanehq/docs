@@ -128,6 +128,7 @@ inside-baseball.
 
 - `npm install` - Install dependencies
 - `npm run dev` - Start local dev server at `localhost:4321`
+- `npm run generate:llms` - Generate `public/llms.txt` and `public/llms-full.txt`
 - `npm run build` - Build production site
 - `npm run preview` - Preview production build locally
 
@@ -158,7 +159,8 @@ When making content or navigation changes, run `npm run build` to catch:
 - Always read existing documentation files to understand the style and structure before making changes
 - When adding new content, check similar existing files for patterns to follow
 - Maintain the hierarchical organization of documentation
-- Update the sidebar configuration in `astro.config.mjs` if adding new top-level sections
+- Update the sidebar source in `src/config/sidebar.mjs` if adding new top-level sections
 - Test that relative paths for images and links are correct based on file location
 - Preserve frontmatter structure when editing files
 - When in doubt, follow the patterns established in existing documentation
+- Treat `public/llms.txt` and `public/llms-full.txt` as generated artifacts (do not edit manually)

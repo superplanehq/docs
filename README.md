@@ -6,6 +6,15 @@ This repository contains the documentation for [SuperPlane](https://github.com/s
 
 This documentation site is built with [Starlight](https://starlight.astro.build), a documentation framework built on [Astro](https://astro.build) and deployed to [docs.superplane.com](https://docs.superplane.com) via Cloudflare Pages.
 
+## LLM Context Files
+
+This repo publishes two LLM-oriented files at:
+
+- `/llms.txt`
+- `/llms-full.txt`
+
+These files are generated automatically during `npm run build` (via `prebuild`) and should not be edited manually.
+
 ## Contributing
 
 We welcome your contributions to improve the documentation. See [CONTRIBUTING.md](./CONTRIBUTING.md) for development setup and contribution guidelines.

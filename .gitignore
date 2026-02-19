@@ -19,3 +19,7 @@ pnpm-debug.log*
 
 # macOS-specific files
 .DS_Store
+
+# generated LLM index files
+public/llms.txt
+public/llms-full.txt

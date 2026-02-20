@@ -116,6 +116,11 @@ Notes:
 - For trigger nodes, use `type: TYPE_TRIGGER` and `trigger.name`.
 - Edge fields are `sourceId`, `targetId`, and optional `channel`.
 - Use `superplane components list` to find component keys (for example, `http`, `if`, `noop`).
+- Positioning guideline for agents:
+  - Keep downstream nodes on the same row by default (`y` unchanged).
+  - Use `x = upstream.x + 480` as the default spacing for new connected nodes.
+  - Avoid changing positions of existing nodes unless explicitly requested.
+  - If overlap still appears in UI, apply a small horizontal nudge (`x +/- 80..120`) before changing `y`.
 
 ## Discovering components
 

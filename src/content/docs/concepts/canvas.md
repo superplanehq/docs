@@ -53,13 +53,13 @@ Use the SuperPlane CLI to manage canvases programmatically:
 
 ```sh
 # Export a canvas
-superplane get canvas <canvas_name> > my_canvas.yaml
+superplane canvases get <canvas_name> > my_canvas.yaml
 
 # Edit the YAML file
 # ... make your changes ...
 
 # Apply updates
-superplane update -f my_canvas.yaml
+superplane canvases update -f my_canvas.yaml
 ```
 
 ## The Canvas Page

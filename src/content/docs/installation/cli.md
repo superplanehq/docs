@@ -63,6 +63,65 @@ superplane canvases get <canvas_name> > my_canvas.yaml
 superplane canvases update -f my_canvas.yaml
 ```
 
+### Canvas YAML shape (minimal working example)
+
+When updating canvases via YAML, component nodes and edges must use the API field names.
+
+This example connects a `schedule` trigger to an `http` component that sends a keepalive
+request every minute:
+
+```yaml
+apiVersion: v1
+kind: Canvas
+metadata:
+  id: <canvas_id>
+  name: Store app
+spec:
+  edges:
+    - sourceId: schedule-schedule-w3mak1
+      targetId: http-keepalive-ping
+      channel: default
+  nodes:
+    - id: schedule-schedule-w3mak1
+      name: schedule
+      type: TYPE_TRIGGER
+      trigger:
+        name: schedule
+      paused: false
+      position:
+        x: 144
+        y: 0
+      configuration:
+        type: minutes
+        minutesInterval: 1
+        customName: Keepalive {{ now() }}
+    - id: http-keepalive-ping
+      name: http
+      type: TYPE_COMPONENT
+      component:
+        name: http
+      paused: false
+      position:
+        x: 456
+        y: 0
+      configuration:
+        method: GET
+        url: https://store-app-c6nr.examplepaas.com/
+        customName: PaaS keepalive
+```
+
+Notes:
+
+- For component nodes, `type` must be `TYPE_COMPONENT` and `component.name` is required.
+- For trigger nodes, use `type: TYPE_TRIGGER` and `trigger.name`.
+- Edge fields are `sourceId`, `targetId`, and optional `channel`.
+- Use `superplane components list` to find component keys (for example, `http`, `if`, `noop`).
+- Positioning guideline for agents:
+  - Keep downstream nodes on the same row by default (`y` unchanged).
+  - Use `x = upstream.x + 480` as the default spacing for new connected nodes.
+  - Avoid changing positions of existing nodes unless explicitly requested.
+  - If overlap still appears in UI, apply a small horizontal nudge (`x +/- 80..120`) before changing `y`.
+
 ## Discovering components
 
 ### List integrations

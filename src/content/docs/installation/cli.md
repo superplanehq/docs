@@ -30,8 +30,6 @@ The SuperPlane CLI uses API tokens for authentication. To generate a new one:
 - Go to **Profile > API token** in the SuperPlane UI
 - Click the **Regenerate Token** button
 
-For automation and CI/CD, see [Service Accounts](/concepts/service-accounts).
-
 ## Configure the CLI
 
 Set the API URL and your API token before running any commands:

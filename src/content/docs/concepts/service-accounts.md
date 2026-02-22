@@ -3,30 +3,34 @@ title: Service Accounts
 description: Use service accounts and API tokens for programmatic and automation access.
 ---
 
-Service accounts are non-interactive identities for API access. Authentication uses API tokens (Bearer tokens) instead of user login.
+Service accounts are non-human identities for API access. Use them for scripts
+and integrations that need a dedicated set of permissions.
 
 ## When to use
 
-- **API access**: Scripts or external systems calling the SuperPlane API.
-- **Integrations**: External systems that need a dedicated identity and scoped permissions.
+- **Scripts**: Call the SuperPlane API from automation.
+- **Integrations**: Let external systems call the SuperPlane API with their own identity and role.
 
-## Creating and using an API token
+## Creating and using a service account token
 
-1. In the SuperPlane UI, go to **Profile > API token**.
-2. Click **Regenerate Token** to create or replace your API token.
-3. Copy the token and store it securely (it is shown only once).
+1. In the SuperPlane UI, go to **Organization Settings > Service accounts**.
+2. Create a service account (or select an existing one) and assign it a role.
+3. Generate an API token. Copy and store it securely; it is shown only once.
 
-Send the token in the `Authorization` header as `Bearer <token>` when calling the API.
+Send the token in the `Authorization` header as `Bearer <token>`.
 
 ## Permissions
 
-Tokens inherit the permissions of the identity they belong to. Access is scoped to the organization and governed by [RBAC](/concepts/access-control).
+The token can only do what the service account’s role allows. Permissions are
+organization-scoped and governed by [RBAC](/concepts/access-control).
 
 - **Viewer**: Read-only (e.g. list canvases, read run history).
 - **Admin** or custom roles: Create or update canvases, integrations, or secrets when required.
 
 ## Best practices
 
-- **One token per use case**: Use separate tokens per integration or script so you can revoke or rotate them independently.
-- **Rotate regularly**: Regenerate tokens periodically and update any systems that store them.
-- **Least privilege**: Assign the minimum role that satisfies the use case (e.g. Viewer for read-only automation).
+- **One service account per external system**: Create a dedicated service
+  account per integration or script so you can revoke access or rotate credentials
+  without impacting others.
+- **Rotate**: Regenerate tokens periodically and update any stored copies.
+- **Least privilege**: Use the minimum role that satisfies the use case (e.g. Viewer for read-only).

@@ -11,13 +11,18 @@ and integrations that need a dedicated set of permissions.
 - **Scripts**: Call the SuperPlane API from automation.
 - **Integrations**: Let external systems call the SuperPlane API with their own identity and role.
 
-## Creating and using a service account token
+## Create a service account and token
 
 1. In the SuperPlane UI, go to **Organization Settings > Service accounts**.
-2. Create a service account (or select an existing one) and assign it a role.
-3. Generate an API token. Copy and store it securely; it is shown only once.
+2. Create a service account and assign it a role.
+3. Generate an API token and copy it (it is shown only once).
 
-Send the token in the `Authorization` header as `Bearer <token>`.
+## Use the token to configure the SuperPlane CLI
+
+```sh
+superplane config set api_url <SUPERPLANE_URL>
+superplane config set api_token <SERVICE_ACCOUNT_TOKEN>
+```
 
 ## Permissions
 

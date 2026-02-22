@@ -25,10 +25,10 @@ sudo mv superplane /usr/local/bin/superplane
 
 ## Authentication
 
-The SuperPlane CLI uses API tokens for authentication. To generate a new one:
+The SuperPlane CLI uses API tokens for authentication. You can use:
 
-- Go to **Profile > API token** in the SuperPlane UI
-- Click the **Regenerate Token** button
+- **Service account token** (recommended for scripts and integrations): see [Service Accounts](/concepts/service-accounts).
+- **Personal token** (tied to your user): go to **Profile > API token** in the SuperPlane UI.
 
 ## Configure the CLI
 

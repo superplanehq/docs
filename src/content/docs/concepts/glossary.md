@@ -79,3 +79,8 @@ and combine data from earlier steps.
 
 An **expression** is a small program used to read and transform payload data (for example to build a message, compute a
 condition, or select an output path). See the [Expressions](/concepts/expressions) page for more details.
+
+## Service account
+
+A **service account** is an identity used for programmatic or automation access (CLI, API, CI/CD). It uses an API token
+instead of interactive login and is subject to [RBAC](/concepts/access-control). See [Service Accounts](/concepts/service-accounts) for details.

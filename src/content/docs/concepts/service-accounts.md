@@ -20,8 +20,7 @@ and integrations that need a dedicated set of permissions.
 ## Use the token to configure the SuperPlane CLI
 
 ```sh
-superplane config set api_url <SUPERPLANE_URL>
-superplane config set api_token <SERVICE_ACCOUNT_TOKEN>
+superplane connect <SUPERPLANE_URL> <SERVICE_ACCOUNT_TOKEN>
 ```
 
 ## Permissions

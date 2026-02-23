@@ -1,9 +1,9 @@
 ---
 title: SuperPlane CLI
-description: Install the SuperPlane CLI and manage canvases.
+description: Install the SuperPlane CLI and manage canvases, integrations, and runtime operations.
 ---
 
-Use the SuperPlane CLI to configure access and manage canvases from your terminal.
+Use the SuperPlane CLI to connect to your organization and manage workflows from your terminal.
 
 ## Installation
 
@@ -30,13 +30,32 @@ The SuperPlane CLI uses API tokens for authentication. You can use:
 - **Service account token** (recommended for scripts and integrations): see [Service Accounts](/concepts/service-accounts).
 - **Personal token** (tied to your user): go to **Profile > API token** in the SuperPlane UI.
 
-## Configure the CLI
+## Connect
 
-Set the API URL and your API token before running any commands:
+Connect to a SuperPlane organization:
 
 ```sh
-superplane config set api_url <SUPERPLANE_URL>
-superplane config set api_token <API_TOKEN>
+superplane connect <SUPERPLANE_URL> <API_TOKEN>
+```
+
+Show your identity for the current context:
+
+```sh
+superplane whoami
+```
+
+### Multiple organizations
+
+You can connect to multiple SuperPlane organizations at the same. Each connection will become a CLI context. You can list contexts and switch interactively:
+
+```sh
+superplane contexts
+```
+
+Switch directly with a context selector:
+
+```sh
+superplane contexts <SUPERPLANE_URL>/<ORGANIZATION_NAME>
 ```
 
 ## Managing canvases
@@ -47,11 +66,33 @@ superplane config set api_token <API_TOKEN>
 superplane canvases create <canvas_name>
 ```
 
+You can also create from a file:
+
+```sh
+superplane canvases create --file my_canvas.yaml
+```
+
 ### Describe a canvas
 
 ```sh
-superplane canvases get <canvas_name>
+superplane canvases get <canvas_name_or_id>
 ```
+
+### List canvases
+
+```sh
+superplane canvases list
+```
+
+### Set active canvas
+
+Since you're mostly working on a single canvas at a time, you can set the active canvas with:
+
+```sh
+superplane canvases active <canvas_id>
+```
+
+This allows you to not have to specify `--canvas-id` on commands that require it.
 
 ### Update a canvas
 
@@ -115,73 +156,69 @@ Notes:
 - For component nodes, `type` must be `TYPE_COMPONENT` and `component.name` is required.
 - For trigger nodes, use `type: TYPE_TRIGGER` and `trigger.name`.
 - Edge fields are `sourceId`, `targetId`, and optional `channel`.
-- Use `superplane components list` to find component keys (for example, `http`, `if`, `noop`).
+- Use `superplane index components` to find component keys (for example, `http`, `if`, `noop`).
 - Positioning guideline for agents:
   - Keep downstream nodes on the same row by default (`y` unchanged).
   - Use `x = upstream.x + 480` as the default spacing for new connected nodes.
   - Avoid changing positions of existing nodes unless explicitly requested.
   - If overlap still appears in UI, apply a small horizontal nudge (`x +/- 80..120`) before changing `y`.
 
-## Discovering components
+## Discovery index
 
-### List integrations
+Use `index` to discover available integration definitions, triggers, and components.
+
+```sh
+superplane index integrations
+```
+
+Describe one integration definition:
+
+```sh
+superplane index integrations --name <integration_name>
+```
+
+List core components:
+
+```sh
+superplane index components
+```
+
+List components from an integration definition:
+
+```sh
+superplane index components --from <integration_name>
+```
+
+Describe one component:
+
+```sh
+superplane index components --name <component_name>
+```
+
+List triggers from an integration definition:
+
+```sh
+superplane index triggers --from <integration_name>
+```
+
+Describe one trigger:
+
+```sh
+superplane index triggers --name <trigger_name>
+```
+
+## Managing integrations
+
+List connected integrations:
 
 ```sh
 superplane integrations list
 ```
 
-Get details for one integration:
+Get details for one connected integration:
 
 ```sh
-superplane integrations get <integration_name>
-```
-
-### List components
-
-List all available components:
-
-```sh
-superplane components list
-```
-
-List components from a specific integration:
-
-```sh
-superplane components list --from <integration_name>
-```
-
-Get details for one component:
-
-```sh
-superplane components get <component_name>
-```
-
-### List triggers
-
-List all available triggers:
-
-```sh
-superplane triggers list
-```
-
-List triggers from a specific integration:
-
-```sh
-superplane triggers list --from <integration_name>
-```
-
-Get details for one trigger:
-
-```sh
-superplane triggers get <trigger_name>
-```
-
-## Managing integrations
-
-List only integrations connected to your authenticated organization:
-
-```sh
-superplane integrations list --connected
+superplane integrations get <connected_integration_id>
 ```
 
 List resources available from a connected integration:
@@ -197,6 +234,70 @@ superplane integrations list-resources \
   --id <connected_integration_id> \
   --type <resource_type> \
   --parameters key=value,key2=value2
+```
+
+## Managing secrets
+
+List secrets:
+
+```sh
+superplane secrets list
+```
+
+Create a secret from a file:
+
+```sh
+superplane secrets create --file my_secret.yaml
+```
+
+Update a secret from a file:
+
+```sh
+superplane secrets update --file my_secret.yaml
+```
+
+Delete a secret:
+
+```sh
+superplane secrets delete <secret_name_or_id>
+```
+
+## Runtime operations
+
+List root events:
+
+```sh
+superplane events list --canvas-id <canvas_id>
+```
+
+List executions for a root event:
+
+```sh
+superplane events list-executions --canvas-id <canvas_id> --event-id <event_id>
+```
+
+List node executions:
+
+```sh
+superplane executions list --canvas-id <canvas_id> --node-id <node_id>
+```
+
+Cancel a node execution:
+
+```sh
+superplane executions cancel --canvas-id <canvas_id> --execution-id <execution_id>
+```
+
+List queue items for a node:
+
+```sh
+superplane queue list --canvas-id <canvas_id> --node-id <node_id>
+```
+
+Delete a queue item:
+
+```sh
+superplane queue delete --canvas-id <canvas_id> --node-id <node_id> --item-id <item_id>
 ```
 
 ## Updating SuperPlane

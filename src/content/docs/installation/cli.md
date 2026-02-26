@@ -58,6 +58,24 @@ Switch directly with a context selector:
 superplane contexts <SUPERPLANE_URL>/<ORGANIZATION_NAME>
 ```
 
+## Output formats
+
+All commands support `--output` (or `-o`) to choose the response format.
+
+Possible values are:
+
+- `text` (default)
+- `json`
+- `yaml`
+
+Examples:
+
+```sh
+superplane canvases list --output text
+superplane canvases list -o json
+superplane canvases get <canvas_name_or_id> -o yaml
+```
+
 ## Managing canvases
 
 ### Create a canvas

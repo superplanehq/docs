@@ -42,9 +42,17 @@ For more details and options, see [installation guide](/installation/overview).
 - **Expect rough edges**: we’re still stabilizing the core primitives and integrations.
 - **Breaking changes are possible**: but we'll do our best to avoid them.
 
-## LLM context files
+## LLM and agent tooling
 
-If you use SuperPlane docs in AI tooling, you can point your tool at:
+For **agent-first engineering**, use the [SuperPlane skills repository](https://github.com/superplanehq/skills). It provides skills that help AI agents operate SuperPlane efficiently (CLI usage, canvas design, workflow debugging). Install all skills or a specific one:
+
+```bash
+npx skills add superplanehq/skills
+# or a single skill, e.g.:
+npx skills add superplanehq/skills --skill superplane-cli
+```
+
+For **docs context** in your AI tooling, you can point at:
 
 - [`/llms.txt`](/llms.txt): compact docs index organized by docs sections.
 - [`/llms-full.txt`](/llms-full.txt): expanded companion with full page content.

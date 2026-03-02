@@ -1,0 +1,341 @@
+---
+title: SuperPlane CLI
+description: Install the SuperPlane CLI and manage canvases, integrations, and runtime operations.
+---
+
+import { Aside } from "@astrojs/starlight/components";
+
+Use the SuperPlane CLI to connect to your organization and manage workflows from your terminal.
+
+<Aside type="tip" title="AI agents">
+For agent-first usage of the CLI (auth, canvases, secrets, runs), use the
+[SuperPlane skills repository](https://github.com/superplanehq/skills) and install the
+`superplane-cli` skill: `npx skills add superplanehq/skills --skill superplane-cli`.
+</Aside>
+
+## Installation
+
+Download the latest binary for your operating system and architecture:
+
+```
+curl -L https://install.superplane.com/superplane-cli-darwin-arm64 -o superplane
+chmod +x superplane
+sudo mv superplane /usr/local/bin/superplane
+```
+
+Or download a specific version:
+
+```
+curl -L https://install.superplane.com/v0.1.6/superplane-cli-darwin-arm64 -o superplane
+chmod +x superplane
+sudo mv superplane /usr/local/bin/superplane
+```
+
+## Authentication
+
+The SuperPlane CLI uses API tokens for authentication. You can use:
+
+- **Service account token** (recommended for scripts and integrations): see [Service Accounts](/concepts/service-accounts).
+- **Personal token** (tied to your user): go to **Profile > API token** in the SuperPlane UI.
+
+## Connect
+
+Connect to a SuperPlane organization:
+
+```sh
+superplane connect <SUPERPLANE_URL> <API_TOKEN>
+```
+
+Show your identity for the current context:
+
+```sh
+superplane whoami
+```
+
+### Multiple organizations
+
+You can connect to multiple SuperPlane organizations at the same. Each connection will become a CLI context. You can list contexts and switch interactively:
+
+```sh
+superplane contexts
+```
+
+Switch directly with a context selector:
+
+```sh
+superplane contexts <SUPERPLANE_URL>/<ORGANIZATION_NAME>
+```
+
+## Output formats
+
+All commands support `--output` (or `-o`) to choose the response format.
+
+Possible values are:
+
+- `text` (default)
+- `json`
+- `yaml`
+
+Examples:
+
+```sh
+superplane canvases list --output text
+superplane canvases list -o json
+superplane canvases get <canvas_name_or_id> -o yaml
+```
+
+## Managing canvases
+
+### Create a canvas
+
+```sh
+superplane canvases create <canvas_name>
+```
+
+You can also create from a file:
+
+```sh
+superplane canvases create --file my_canvas.yaml
+```
+
+### Describe a canvas
+
+```sh
+superplane canvases get <canvas_name_or_id>
+```
+
+### List canvases
+
+```sh
+superplane canvases list
+```
+
+### Set active canvas
+
+Since you're mostly working on a single canvas at a time, you can set the active canvas with:
+
+```sh
+superplane canvases active <canvas_id>
+```
+
+This allows you to not have to specify `--canvas-id` on commands that require it.
+
+### Update a canvas
+
+Export the existing canvas, edit it, then apply your changes:
+
+```sh
+superplane canvases get <canvas_name> > my_canvas.yaml
+# update your YAML to reflect the changes you want to make
+superplane canvases update -f my_canvas.yaml
+```
+
+### Canvas YAML shape (minimal working example)
+
+When updating canvases via YAML, component nodes and edges must use the API field names.
+
+This example connects a `schedule` trigger to an `http` component that sends a keepalive
+request every minute:
+
+```yaml
+apiVersion: v1
+kind: Canvas
+metadata:
+  id: <canvas_id>
+  name: Store app
+spec:
+  edges:
+    - sourceId: schedule-schedule-w3mak1
+      targetId: http-keepalive-ping
+      channel: default
+  nodes:
+    - id: schedule-schedule-w3mak1
+      name: schedule
+      type: TYPE_TRIGGER
+      trigger:
+        name: schedule
+      paused: false
+      position:
+        x: 144
+        y: 0
+      configuration:
+        type: minutes
+        minutesInterval: 1
+        customName: Keepalive {{ now() }}
+    - id: http-keepalive-ping
+      name: http
+      type: TYPE_COMPONENT
+      component:
+        name: http
+      paused: false
+      position:
+        x: 456
+        y: 0
+      configuration:
+        method: GET
+        url: https://store-app-c6nr.examplepaas.com/
+        customName: PaaS keepalive
+```
+
+Notes:
+
+- For component nodes, `type` must be `TYPE_COMPONENT` and `component.name` is required.
+- For trigger nodes, use `type: TYPE_TRIGGER` and `trigger.name`.
+- Edge fields are `sourceId`, `targetId`, and optional `channel`.
+- Use `superplane index components` to find component keys (for example, `http`, `if`, `noop`).
+- Positioning guideline for agents:
+  - Keep downstream nodes on the same row by default (`y` unchanged).
+  - Use `x = upstream.x + 480` as the default spacing for new connected nodes.
+  - Avoid changing positions of existing nodes unless explicitly requested.
+  - If overlap still appears in UI, apply a small horizontal nudge (`x +/- 80..120`) before changing `y`.
+
+## Discovery index
+
+Use `index` to discover available integration definitions, triggers, and components.
+
+```sh
+superplane index integrations
+```
+
+Describe one integration definition:
+
+```sh
+superplane index integrations --name <integration_name>
+```
+
+List core components:
+
+```sh
+superplane index components
+```
+
+List components from an integration definition:
+
+```sh
+superplane index components --from <integration_name>
+```
+
+Describe one component:
+
+```sh
+superplane index components --name <component_name>
+```
+
+List triggers from an integration definition:
+
+```sh
+superplane index triggers --from <integration_name>
+```
+
+Describe one trigger:
+
+```sh
+superplane index triggers --name <trigger_name>
+```
+
+## Managing integrations
+
+List connected integrations:
+
+```sh
+superplane integrations list
+```
+
+Get details for one connected integration:
+
+```sh
+superplane integrations get <connected_integration_id>
+```
+
+List resources available from a connected integration:
+
+```sh
+superplane integrations list-resources --id <connected_integration_id> --type <resource_type>
+```
+
+You can pass additional query parameters when needed:
+
+```sh
+superplane integrations list-resources \
+  --id <connected_integration_id> \
+  --type <resource_type> \
+  --parameters key=value,key2=value2
+```
+
+## Managing secrets
+
+List secrets:
+
+```sh
+superplane secrets list
+```
+
+Create a secret from a file:
+
+```sh
+superplane secrets create --file my_secret.yaml
+```
+
+Update a secret from a file:
+
+```sh
+superplane secrets update --file my_secret.yaml
+```
+
+Delete a secret:
+
+```sh
+superplane secrets delete <secret_name_or_id>
+```
+
+## Runtime operations
+
+List root events:
+
+```sh
+superplane events list --canvas-id <canvas_id>
+```
+
+List executions for a root event:
+
+```sh
+superplane events list-executions --canvas-id <canvas_id> --event-id <event_id>
+```
+
+List node executions:
+
+```sh
+superplane executions list --canvas-id <canvas_id> --node-id <node_id>
+```
+
+Cancel a node execution:
+
+```sh
+superplane executions cancel --canvas-id <canvas_id> --execution-id <execution_id>
+```
+
+List queue items for a node:
+
+```sh
+superplane queue list --canvas-id <canvas_id> --node-id <node_id>
+```
+
+Delete a queue item:
+
+```sh
+superplane queue delete --canvas-id <canvas_id> --node-id <node_id> --item-id <item_id>
+```
+
+## Updating SuperPlane
+
+To upgrade to the latest version, download the latest binary and replace
+the existing one:
+
+```bash
+curl -L https://install.superplane.com/superplane-cli-darwin-arm64 -o superplane
+chmod +x superplane
+sudo mv superplane /usr/local/bin/superplane
+```
+
+Replace `darwin-arm64` with your operating system and architecture
+(e.g., `linux-amd64`, `darwin-amd64`).

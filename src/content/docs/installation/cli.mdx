@@ -130,6 +130,55 @@ superplane canvases get <canvas_name> > my_canvas.yaml
 superplane canvases update -f my_canvas.yaml
 ```
 
+#### Check whether sandbox mode is enabled
+
+Use `whoami` output.
+
+```sh
+superplane whoami -o json | jq '.canvasSandboxModeEnabled'
+```
+
+Expected values:
+
+- `true`: sandbox mode enabled. Use `superplane canvases update -f ...` (no `--draft`), and do not use `publish`.
+- `false`: sandbox mode disabled. Use `superplane canvases update --draft -f ...` and then `publish`.
+- `null`: CLI could not determine it from organization metadata.
+
+Quick behavior-based check:
+
+- If `superplane canvases update --draft ...` returns `--draft cannot be used when canvas sandbox mode is enabled`,
+  sandbox mode is enabled.
+- If `superplane canvases publish ...` returns `canvas versioning is disabled while sandbox mode is enabled`,
+  sandbox mode is enabled.
+
+### Canvas versioning (drafts and publish)
+
+Canvas update behavior depends on your organization settings.
+
+- If canvas versioning is enabled, `superplane canvases update` must use `--draft`.
+- If canvas sandbox mode is enabled, do not use `--draft`; updates apply directly and `publish` is not available.
+
+Draft workflow (versioning enabled):
+
+```sh
+# Write changes to your draft version
+superplane canvases update --draft -f my_canvas.yaml
+
+# Publish your current draft as live
+superplane canvases publish <canvas_name_or_id>
+```
+
+You can include optional metadata when publishing:
+
+```sh
+superplane canvases publish <canvas_name_or_id> \
+  --title "Add incident routing path" \
+  --description "Introduces PagerDuty fallback and Slack notification branch."
+```
+
+If you already set an active canvas with `superplane canvases active <canvas_id>`, you can omit
+`<canvas_name_or_id>` in `superplane canvases publish`.
+
 ### Canvas YAML shape (minimal working example)
 
 When updating canvases via YAML, component nodes and edges must use the API field names.

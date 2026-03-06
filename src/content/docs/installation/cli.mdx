@@ -130,33 +130,36 @@ superplane canvases get <canvas_name> > my_canvas.yaml
 superplane canvases update -f my_canvas.yaml
 ```
 
-#### Check whether sandbox mode is enabled
+#### Check whether versioning is enabled
 
 Use `whoami` output.
 
 ```sh
-superplane whoami -o json | jq '.canvasSandboxModeEnabled'
+superplane whoami -o json | jq '.canvasVersioningEnabled'
 ```
 
 Expected values:
 
-- `true`: sandbox mode enabled. Use `superplane canvases update -f ...` (no `--draft`), and do not use `publish`.
-- `false`: sandbox mode disabled. Use `superplane canvases update --draft -f ...` and then `publish`.
+- `true`: versioning enabled. Use `superplane canvases update --draft -f ...` and then `publish`.
+- `false`: versioning disabled. Use `superplane canvases update -f ...` (no `--draft`), and do not use `publish`.
 - `null`: CLI could not determine it from organization metadata.
 
 Quick behavior-based check:
 
-- If `superplane canvases update --draft ...` returns `--draft cannot be used when canvas sandbox mode is enabled`,
-  sandbox mode is enabled.
-- If `superplane canvases publish ...` returns `canvas versioning is disabled while sandbox mode is enabled`,
-  sandbox mode is enabled.
+- If `superplane canvases update --draft ...` returns `--draft cannot be used when canvas versioning is disabled`,
+  versioning is disabled.
+- If `superplane canvases update ...` (without `--draft`) returns
+  `canvas versioning is enabled for this organization; use --draft ...`,
+  versioning is enabled.
+- If `superplane canvases publish ...` returns `canvas versioning is disabled for this organization`,
+  versioning is disabled.
 
 ### Canvas versioning (drafts and publish)
 
 Canvas update behavior depends on your organization settings.
 
 - If canvas versioning is enabled, `superplane canvases update` must use `--draft`.
-- If canvas sandbox mode is enabled, do not use `--draft`; updates apply directly and `publish` is not available.
+- If canvas versioning is disabled, do not use `--draft`; updates apply directly and `publish` is not available.
 
 Draft workflow (versioning enabled):
 

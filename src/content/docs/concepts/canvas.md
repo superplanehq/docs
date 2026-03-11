@@ -62,6 +62,45 @@ superplane canvases get <canvas_name> > my_canvas.yaml
 superplane canvases update -f my_canvas.yaml
 ```
 
+## Versioning and Change Requests
+
+Canvases can run in two modes:
+
+- **Versioning disabled**: updates apply directly to live.
+- **Versioning enabled**: you edit a draft, open a change request, collect approvals, then publish.
+
+Effective versioning is controlled by organization + canvas settings:
+
+- Organization-level versioning ON forces versioning ON for all canvases.
+- Organization-level versioning OFF allows each canvas to toggle versioning independently.
+
+In the UI, versioned canvases expose an **Edit** mode and a **Versioning** view:
+
+1. Enter **Edit** mode to work on your draft.
+2. Use **Propose Change** to open a change request.
+3. Review the request and run actions (`Approve`, `Unapprove`, `Reject`, `Reopen`, `Publish`).
+
+For CLI commands, see [SuperPlane CLI](/installation/cli).
+
+### Approval policy in Canvas Settings
+
+Canvas settings define who can approve change requests. Supported approver types:
+
+- **Any user**
+- **Specific user**
+- **Role**
+
+Publish is allowed only when approval requirements are satisfied.
+
+### Conflict resolution
+
+Two pull-request-style change requests can conflict when they edit overlapping nodes differently.
+When a request is conflicted:
+
+- It remains open, but cannot be approved/published.
+- You can resolve conflicts by updating the request with a resolved canvas version.
+- After resolve, the request can continue through normal review and publish.
+
 ## The Canvas Page
 
 ### Nodes and Connections

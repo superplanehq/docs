@@ -140,8 +140,10 @@ superplane canvases get <canvas_name_or_id> -o json | jq '.metadata.canvasVersio
 
 Expected values:
 
-- `true`: effective versioning enabled for this canvas. Use `superplane canvases update --draft -f ...` and then `publish`.
-- `false`: effective versioning disabled for this canvas. Use `superplane canvases update -f ...` (no `--draft`), and do not use `publish`.
+- `true`: effective versioning enabled for this canvas. Use
+  `superplane canvases update --draft -f ...`, then create a change request.
+- `false`: effective versioning disabled for this canvas. Use `superplane canvases update -f ...` (no `--draft`),
+  and do not use change-request commands.
 
 Quick behavior-based check:
 
@@ -150,10 +152,11 @@ Quick behavior-based check:
 - If `superplane canvases update ...` (without `--draft`) returns
   `effective canvas versioning is enabled for this canvas; use --draft`,
   versioning is enabled for this canvas.
-- If `superplane canvases publish ...` returns `effective canvas versioning is disabled for this canvas`,
+- If `superplane canvases change-requests create ...` returns
+  `effective canvas versioning is disabled for this canvas`,
   versioning is disabled for this canvas.
 
-### Canvas versioning (drafts and publish)
+### Canvas versioning (drafts and change requests)
 
 Canvas update behavior depends on effective canvas mode:
 
@@ -161,7 +164,8 @@ Canvas update behavior depends on effective canvas mode:
 - Organization-level versioning OFF allows each canvas to toggle versioning independently.
 
 - If canvas versioning is enabled, `superplane canvases update` must use `--draft`.
-- If canvas versioning is disabled, do not use `--draft`; updates apply directly and `publish` is not available.
+- If canvas versioning is disabled, do not use `--draft`; updates apply directly and change requests are not
+  available.
 
 Draft workflow (versioning enabled):
 
@@ -169,20 +173,74 @@ Draft workflow (versioning enabled):
 # Write changes to your draft version
 superplane canvases update --draft -f my_canvas.yaml
 
-# Publish your current draft as live
-superplane canvases publish <canvas_name_or_id>
+# Create a change request from your current draft version
+superplane canvases change-requests create <canvas_name_or_id>
 ```
 
-You can include optional metadata when publishing:
+You can include optional metadata when creating the change request:
 
 ```sh
-superplane canvases publish <canvas_name_or_id> \
+superplane canvases change-requests create <canvas_name_or_id> \
   --title "Add incident routing path" \
   --description "Introduces PagerDuty fallback and Slack notification branch."
 ```
 
 If you already set an active canvas with `superplane canvases active <canvas_id>`, you can omit
-`<canvas_name_or_id>` in `superplane canvases publish`.
+`<canvas_name_or_id>` in `superplane canvases change-requests create`.
+
+### Change request review actions
+
+When versioning is enabled, use `canvases change-requests` to review and publish:
+
+```sh
+# List requests for a canvas (or active canvas)
+superplane canvases change-requests list <canvas_name_or_id>
+
+# Create a change request
+superplane canvases change-requests create <canvas_name_or_id> \
+  --title "Add incident routing path" \
+  --description "Introduces PagerDuty fallback and Slack notification branch."
+
+# Review actions
+superplane canvases change-requests approve <change-request-id> <canvas_name_or_id>
+superplane canvases change-requests unapprove <change-request-id> <canvas_name_or_id>
+superplane canvases change-requests reject <change-request-id> <canvas_name_or_id>
+superplane canvases change-requests reopen <change-request-id> <canvas_name_or_id>
+superplane canvases change-requests publish <change-request-id> <canvas_name_or_id>
+```
+
+Useful filters:
+
+```sh
+# Open requests only
+superplane canvases change-requests list <canvas_name_or_id> --status open
+
+# Conflicted requests only
+superplane canvases change-requests list <canvas_name_or_id> --status conflicted
+
+# Requests created by you
+superplane canvases change-requests list <canvas_name_or_id> --mine
+```
+
+### Resolve conflicted change requests
+
+If two change requests edit overlapping nodes differently, one or both can become conflicted. Conflicted requests
+cannot be approved or published until resolved.
+
+Use a resolved canvas YAML and apply it to the change request:
+
+```sh
+superplane canvases change-requests resolve <change-request-id> <canvas_name_or_id> \
+  --file resolved_canvas.yaml
+```
+
+Optional auto-layout can be applied during resolve:
+
+```sh
+superplane canvases change-requests resolve <change-request-id> <canvas_name_or_id> \
+  --file resolved_canvas.yaml \
+  --auto-layout horizontal
+```
 
 ### Canvas YAML shape (minimal working example)
 

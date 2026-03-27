@@ -18,6 +18,7 @@ export const sidebar = [
       { label: "Secrets", slug: "concepts/secrets" },
       { label: "Access Control (RBAC)", slug: "concepts/access-control" },
       { label: "Service Accounts", slug: "concepts/service-accounts" },
+      { label: "Public API Reference", slug: "concepts/api-reference" },
       { label: "Glossary", slug: "concepts/glossary" },
     ],
   },

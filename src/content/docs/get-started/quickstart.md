@@ -72,7 +72,7 @@ This endpoint will fetch a random cat fact and return JSON like:
 
 For illustration purposes we will determine whether the cat fact can fit in an old-school tweet or not.
 
-Set the If expression to branch based on the API response:
+Set the If expression to branch based on the API response. The If field is a condition — write it without `{{ }}`:
 
 ```
 $['Get cat fact'].data.body.length <= 160
@@ -134,15 +134,11 @@ For the **HTTP Request** step (your `Get cat fact` node), open **Payload** and l
 
 For any step, you can also open **Details** to see metadata like the event type and when it was emitted.
 
+The **Config** tab shows the node's resolved settings for this run.
+
 ### 4) Understand the message chain
 
-As a run executes, each node’s output is added to a message chain. You can reference any upstream
-node by name in expressions:
-
-```
-$['Get cat fact'].data.body.length
-$['Get cat fact'].data.body.fact
-```
+Each node's output is added to a message chain. Reference upstream data with `$['Node Name'].field`. See [Expressions](/concepts/expressions).
 
 For a deeper explanation, see [Data Flow](/concepts/data-flow) and [Expressions](/concepts/expressions).
 

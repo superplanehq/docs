@@ -42,6 +42,8 @@ Viewer permissions:
 - `groups.read`
 - `members.read`
 - `canvases.read`
+- `service_accounts.read`
+- `agents.read`
 
 Admin permissions:
 - All Viewer permissions.
@@ -65,6 +67,10 @@ Admin permissions:
 - `roles.create`
 - `roles.update`
 - `roles.delete`
+- `service_accounts.create`
+- `service_accounts.update`
+- `service_accounts.delete`
+- `agents.create`
 
 Owner permissions:
 - All Admin permissions.
@@ -113,6 +119,16 @@ building custom roles.
 - `secrets.create` - Create new secrets.
 - `secrets.update` - Update secrets.
 - `secrets.delete` - Delete secrets from the organization
+
+**Service accounts**
+- `service_accounts.read` - View service accounts (not secret token values).
+- `service_accounts.create` - Create service accounts.
+- `service_accounts.update` - Update service accounts and rotate tokens.
+- `service_accounts.delete` - Delete service accounts.
+
+**Agents**
+- `agents.read` - View agent chats and messages.
+- `agents.create` - Start or resume agent chats.
 
 ## Roles
 Use **Organization Settings > Roles** to review roles and create custom roles.

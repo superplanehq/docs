@@ -4,8 +4,10 @@ description: Learn about components and component nodes, and how to add, configu
 ---
 
 **Components** are available building blocks that define capabilities in SuperPlane. A **component node**
-is one instance of a component on the Canvas. When you add a component to your canvas, it becomes a
+is one instance of a component on the canvas. When you add a component to your canvas, it becomes a
 node that can receive events, perform work, and emit payloads.
+
+**Widgets** are separate: they are visual-only (annotations, groups) and do not run or emit payloads. See [Canvas](/concepts/canvas#widgets).
 
 ## Components vs Component Nodes
 
@@ -14,12 +16,12 @@ node that can receive events, perform work, and emit payloads.
 - **Component Node**: A single instance of a component placed on your canvas with specific
   configuration
 
-Think of it like this: a component is like a blueprint, and a component node is the actual building
-you construct from that blueprint.
+Think of it like this: a component is the reusable definition, and a component node is one concrete
+instance with its own settings and name.
 
 ## Component Types
 
-There are two types of components:
+There are two types of **executable** components (nodes that participate in runs):
 
 ### Trigger Components
 
@@ -34,6 +36,10 @@ manually.
 perform operations, and emit payloads for downstream nodes.
 
 **Examples:** HTTP Request, Filter, Approval, GitHub runWorkflow, Slack sendMessage
+
+### Widgets (non-executable)
+
+**Widgets** are not triggers or actions: they do not subscribe, queue work, or emit payloads. Use them to annotate the canvas or group nodes visually. See [Canvas](/concepts/canvas#widgets).
 
 ## Adding Component Nodes to the Canvas
 
@@ -65,6 +71,10 @@ Each component node on the canvas displays key information and provides interact
 4. **Action menu** — On hover: manually emit, copy, collapse/expand, or delete.
 5. **Output channels** — Subscribe other nodes or drag to create new components.
 
+## Pausing and resuming nodes
+
+You can **pause** a component node so it stops dequeuing new work. Events can still arrive and **queue**; they are processed again after you **resume** the node. Use this for maintenance, incident response, or debugging. Paused nodes are skipped until resumed (from the node menu where available, or via the API).
+
 ## Component Node Sidebar
 
 Clicking on a component node selects it and opens a component node sidebar.
@@ -74,13 +84,9 @@ Clicking on a component node selects it and opens a component node sidebar.
 1. **Click to open** — You can click on a node to open the sidebar.
 2. **Resizable sidebar** — Sidebar is resizable and contains node details.
 3. **Latest runs section** — Recent executions with event ID, timestamp, and status.
-4. **Configuration tab** — Settings for setting up and updating the node's configuration. Each
-   component has its own configuration requirements (required fields, optional fields, and expression
-   support using `{{ }}` syntax).
+4. **Configuration tab** — Node settings. Fields support expressions — see [Expressions](/concepts/expressions).
 5. **Action menu for run item** — Cancel or push through running items.
 6. **Queue** — Items waiting to execute (FIFO order).
-
-See [Expressions](/concepts/expressions) for details on writing expressions.
 
 ## Single Run Chain
 
@@ -93,6 +99,7 @@ Select a run from the list to see the full chain of nodes it went through.
 3. **Expandable details** — Expand other nodes in the chain to view their payloads.
 4. **Details tab** — Execution info: start/finish time, result, duration.
 5. **Payload tab** — The data this node emitted for downstream nodes.
+6. **Config tab** — Resolved configuration for this run (same as `$['Node Name'].config` in expressions). See [Expressions](/concepts/expressions).
 
 ## Component Availability
 

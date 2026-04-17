@@ -28,9 +28,9 @@ Each secret can contain multiple key-value pairs.
 
 ## Using Secrets in Components
 
-Currently, secrets are available for the **SSH Command** component. When configuring the SSH Command component, select a secret and key from your organization's secrets for authentication credentials.
+In the **core** component set, organization secrets are used by the **SSH Command** component for authentication (SSH key or password). Select a secret and key from your organization's secrets when configuring SSH.
 
-Support for secrets in other components will be added in future releases.
+Integrations may store their own credentials separately from organization secrets. If a component supports organization secrets in the future, it will be called out in that component’s documentation.
 
 ## Secret Resolution
 

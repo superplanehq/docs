@@ -26,9 +26,9 @@ managing your workflows.
 
 The canvas consists of:
 
-1. **Nodes** — Instances of components, the core building blocks. See [Component Nodes](/concepts/component-nodes).
+1. **Nodes** — Triggers, components, and [widgets](#widgets). See [Component Nodes](/concepts/component-nodes).
 2. **Connections** — Indicate which node listens to which. See [Data Flow](/concepts/data-flow).
-3. **Add new elements** — Add annotations and new components to the canvas.
+3. **Add new elements** — Add widgets (annotations, groups) and new components to the canvas.
 4. **Helper toolbar** — Navigation tools, select/pan mode, search.
 5. **Console** — Warnings, errors, and log of changes and events.
 
@@ -62,44 +62,14 @@ superplane canvases get <canvas_name> > my_canvas.yaml
 superplane canvases update -f my_canvas.yaml
 ```
 
-## Versioning and Change Requests
+## Widgets
 
-Canvases can run in two modes:
+**Widgets** are visual-only elements on the canvas. They do not run in the workflow, emit payloads, or connect to subscriptions — they help you document and organize the graph.
 
-- **Versioning disabled**: updates apply directly to live.
-- **Versioning enabled**: you edit a draft, open a change request, collect approvals, then publish.
+- **Annotation** — A sticky note with markdown text (up to 5000 characters) for labels, reminders, or links.
+- **Group** — A labeled frame with optional description and color that groups related nodes visually.
 
-Effective versioning is controlled by organization + canvas settings:
-
-- Organization-level versioning ON forces versioning ON for all canvases.
-- Organization-level versioning OFF allows each canvas to toggle versioning independently.
-
-In the UI, versioned canvases expose an **Edit** mode and a **Versioning** view:
-
-1. Enter **Edit** mode to work on your draft.
-2. Use **Propose Change** to open a change request.
-3. Review the request and run actions (`Approve`, `Unapprove`, `Reject`, `Reopen`, `Publish`).
-
-For CLI commands, see [SuperPlane CLI](/installation/cli).
-
-### Approval policy in Canvas Settings
-
-Canvas settings define who can approve change requests. Supported approver types:
-
-- **Any user**
-- **Specific user**
-- **Role**
-
-Publish is allowed only when approval requirements are satisfied.
-
-### Conflict resolution
-
-Two pull-request-style change requests can conflict when they edit overlapping nodes differently.
-When a request is conflicted:
-
-- It remains open, but cannot be approved/published.
-- You can resolve conflicts by updating the request with a resolved canvas version.
-- After resolve, the request can continue through normal review and publish.
+To add an annotation, click the **sticky-note** button in the top-right toolbar. To create a group, select two or more nodes and click the **Group** button in the selection toolbar that appears.
 
 ## The Canvas Page
 
@@ -123,8 +93,7 @@ When configuring nodes, type `{{` in expression fields to access payload data fr
 
 ![Selecting payload data in expressions](../../../assets/canvas-overview-selecting-payload.png)
 
-Use `$['Node Name'].field` to reference data from any connected node. See [Data Flow](/concepts/data-flow)
-for more details.
+Use `{{` … `}}` to insert payload data into text fields, or write bare expressions in condition fields (If / Filter). See [Expressions](/concepts/expressions).
 
 ### Workflows and Runs
 

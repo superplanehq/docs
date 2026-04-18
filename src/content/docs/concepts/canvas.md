@@ -71,6 +71,17 @@ superplane canvases update -f my_canvas.yaml
 
 To add an annotation, click the **sticky-note** button in the top-right toolbar. To create a group, select two or more nodes and click the **Group** button in the selection toolbar that appears.
 
+## Versioning
+
+Canvases are versioned. You edit a draft and publish changes when you're ready to update live.
+
+In the UI, versioned canvases expose an **Edit** mode and a **Versioning** view:
+
+1. Enter **Edit** mode to work on your draft.
+2. Use **Versioning** to review your draft and publish it.
+
+For CLI commands, see [SuperPlane CLI](/installation/cli).
+
 ## The Canvas Page
 
 ### Nodes and Connections

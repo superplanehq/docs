@@ -86,6 +86,32 @@ superplane canvases get <canvas_name_or_id> -o yaml
 
 ## Managing canvases
 
+### Generate a starter canvas YAML
+
+Print a blank canvas YAML skeleton to stdout:
+
+```sh
+superplane canvases init
+```
+
+Start from an existing template:
+
+```sh
+superplane canvases init --template health-check-monitor
+```
+
+List available templates:
+
+```sh
+superplane canvases init --list-templates
+```
+
+Write directly to a file instead of stdout:
+
+```sh
+superplane canvases init --output-file canvas.yaml
+```
+
 ### Create a canvas
 
 ```sh

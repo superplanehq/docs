@@ -3,8 +3,7 @@ title: Public API Reference
 description: Explore the SuperPlane REST API using the interactive Swagger documentation.
 ---
 
-SuperPlane exposes a public REST API that lets you manage canvases, integrations,
-secrets, and runtime operations programmatically.
+SuperPlane exposes a REST API covering all resources (canvases, integrations, secrets, service accounts, and more). The interactive docs list every route and schema.
 
 The full API reference is available as an interactive Swagger document at:
 

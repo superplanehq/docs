@@ -16,7 +16,19 @@ A **workflow** is the behavior expressed by a canvas: what should happen when an
 
 ## Node
 
-A **node** is a single step on a canvas. Each node receives an event, performs some work, and emits an event to any downstream nodes that subscribe to it.
+A **node** is a single step on a canvas. Triggers and actions execute; widgets are visual only.
+
+## Widget
+
+A **widget** is a non-executable canvas element (annotation or group) for documentation and layout.
+
+## Canvas memory
+
+**Canvas memory** is persistent, canvas-scoped storage for JSON data, organized by namespace. Workflows can read and write it using the memory components. See [Canvas Memory](/concepts/canvas-memory).
+
+## Execution config (Config tab)
+
+The **execution config** is a snapshot of a node's resolved configuration at execution time. Shown in the **Config** tab and accessible as `.config` in expressions.
 
 ## Component
 

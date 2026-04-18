@@ -89,8 +89,7 @@ $['GitHub onPush'].ref           // "refs/heads/main"
 $['Filter'].passed               // true
 ```
 
-You can also use `root()` to access the original event that started the run, and `previous()` to access
-the immediate upstream node. See the [Expressions](/concepts/expressions) page for details.
+Wrap expressions in `{{ }}` to insert values into text fields; in condition fields (If / Filter) write them bare. Each node also exposes `.config` (resolved settings at run time). See [Expressions](/concepts/expressions).
 
 ## Exploring Runs on the Canvas
 
@@ -126,7 +125,7 @@ in the chain to explore its details and payload.
 
 ## Payloads
 
-Every node emits a **payload** — a JSON object containing data from its execution.
+Every node emits a **payload**. Each run item also records a `.config` snapshot (visible in the **Config** tab).
 
 ### Trigger Components
 
@@ -165,6 +164,6 @@ Subscribe to the `passed` channel to continue on success, or the `failed` channe
 | ----------------------- | ------------------------------- | ------------------------------------------- |
 | GitHub runWorkflow      | `passed`, `failed`              | Routes based on workflow success or failure |
 | Approval                | `approved`, `rejected`          | Routes based on approval decision           |
-| Merge                   | `success`, `stopped`, `timeout` | Routes based on merge outcome               |
+| Merge                   | `success`, `fail`, `timeout` | Routes based on merge outcome               |
 | Dash0 listIssues        | `clear`, `degraded`, `critical` | Routes based on issue severity              |
 | PagerDuty listIncidents | `clear`, `low`, `high`          | Routes based on incident urgency            |

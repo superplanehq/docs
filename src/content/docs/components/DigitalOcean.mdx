@@ -2172,7 +2172,7 @@ Spaces Access Key ID and Secret Access Key must be configured in the DigitalOcea
 
 - **Bucket**: The Spaces bucket to upload to. The dropdown lists all buckets — the region is determined automatically.
 - **File Path**: The full path including file name and extension (e.g. reports/2024/daily.csv). The content type is detected automatically from the extension.
-- **Body**: The text content to upload. Supports expressions to pass content from upstream components (e.g. `{{ $['HTTP Request'].body }}`). Only text-based formats are supported (JSON, CSV, YAML, plain text, XML, etc.)
+- **Body**: The text content to upload. Supports expressions to pass content from upstream components (e.g. `{{ $['HTTP Request'].data.body }}`). Only text-based formats are supported (JSON, CSV, YAML, plain text, XML, etc.)
 - **ACL**: Access control — `private` (default) restricts access to the owner, `public-read` makes the object publicly accessible.
 - **Metadata**: Optional key-value pairs stored as object metadata (x-amz-meta-* headers). Supports expressions.
 - **Tags**: Optional key-value tags applied to the object. Can be changed later without re-uploading. Supports expressions.

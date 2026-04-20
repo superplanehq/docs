@@ -164,7 +164,7 @@ The Expire Silence component expires an active silence in Alertmanager (`DELETE 
 
 ### Configuration
 
-- **Silence**: Required silence to expire. Supports expressions so users can reference `$['Create Silence'].silenceID`.
+- **Silence**: Required silence to expire. Supports expressions so users can reference `$['Create Silence'].data.silenceID`.
 
 ### Output
 
@@ -228,7 +228,7 @@ The Get Silence component retrieves a silence from Alertmanager (`GET /api/v2/si
 
 ### Configuration
 
-- **Silence**: Required silence to retrieve (supports expressions, e.g. `{{ $['Create Silence'].silenceID }}`)
+- **Silence**: Required silence to retrieve (supports expressions, e.g. `{{ $['Create Silence'].data.silenceID }}`)
 
 ### Output
 

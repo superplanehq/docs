@@ -10,9 +10,9 @@ SuperPlane uses [Expr](https://expr-lang.org) for expressions. Expressions let y
 As a run executes, each node's output is added to the message chain. Access it through `$`, referencing nodes by **display name**:
 
 ```
-{{$['Node Name'].field}}
-{{$['Node Name'].nested.field}}
-{{$['Node Name'].array[0].value}}
+{{$['Node Name'].data.field}}
+{{$['Node Name'].data.nested.field}}
+{{$['Node Name'].data.array[0].value}}
 ```
 
 Every entry also includes a **`.config`** property — the node's resolved configuration at run time:
@@ -46,7 +46,7 @@ Expressions appear in two contexts with slightly different syntax:
 **Text fields** (URLs, message bodies, labels) — wrap each expression in `{{ }}`:
 
 ```
-Deployment of {{$['Release'].data.name}} failed. See: {{$['Deploy'].workflow_run.html_url}}
+Deployment of {{$['Release'].data.name}} failed. See: {{$['Deploy'].data.workflow_run.html_url}}
 ```
 
 **Condition fields** (If, Filter) — the entire field is one bare expression that must return `true` or `false`:
@@ -65,7 +65,7 @@ Beyond standard arithmetic (`+`, `-`, `*`, `/`, `%`, `**`) and comparison (`==`,
 
 | Operator | What it does | Example |
 | -------- | ------------ | ------- |
-| `&&` `\|\|` `!` | Logical (aliases: `and`, `or`, `not`) | `{{$['a'].ok && !$['b'].failed}}` |
+| `&&` `\|\|` `!` | Logical (aliases: `and`, `or`, `not`) | `{{$['a'].data.ok && !$['b'].data.failed}}` |
 | `contains` | String contains substring | `{{$['node'].data.body contains "error"}}` |
 | `startsWith` | String prefix check | `{{$['node'].data.ref startsWith "refs/heads/"}}` |
 | `endsWith` | String suffix check | `{{$['node'].data.branch endsWith "-hotfix"}}` |

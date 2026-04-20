@@ -76,17 +76,17 @@ When the workflow executes, each node adds its output to `$`:
 
 ```json
 {
-  "GitHub onPush": { "ref": "refs/heads/main", "commit": "abc123" },
-  "Filter": { "passed": true },
-  "Deployment": { "status": "success", "url": "https://app.example.com" }
+  "GitHub onPush": { "type": "github.push", "timestamp": "...", "data": { "ref": "refs/heads/main", "commit": "abc123" } },
+  "Filter": { "type": "filter.passed", "timestamp": "...", "data": { "passed": true } },
+  "Deployment": { "type": "deployment.finished", "timestamp": "...", "data": { "status": "success", "url": "https://app.example.com" } }
 }
 ```
 
-From the Deployment node, you can access any upstream output:
+From the Deployment node, you can access any upstream output via `.data`:
 
 ```
-$['GitHub onPush'].ref           // "refs/heads/main"
-$['Filter'].passed               // true
+$['GitHub onPush'].data.ref           // "refs/heads/main"
+$['Filter'].data.passed               // true
 ```
 
 Wrap expressions in `{{ }}` to insert values into text fields; in condition fields (If / Filter) write them bare. Each node also exposes `.config` (resolved settings at run time). See [Expressions](/concepts/expressions).

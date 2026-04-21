@@ -20,7 +20,7 @@ A **node** is a single step on a canvas. Triggers and actions execute; widgets a
 
 ## Widget
 
-A **widget** is a non-executable canvas element (annotation or group) for documentation and layout.
+A **widget** is a non-executable canvas element (annotation) for documentation and layout.
 
 ## Canvas memory
 

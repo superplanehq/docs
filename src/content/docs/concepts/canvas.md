@@ -28,7 +28,7 @@ The canvas consists of:
 
 1. **Nodes** — Triggers, components, and [widgets](#widgets). See [Component Nodes](/concepts/component-nodes).
 2. **Connections** — Indicate which node listens to which. See [Data Flow](/concepts/data-flow).
-3. **Add new elements** — Add widgets (annotations, groups) and new components to the canvas.
+3. **Add new elements** — Add widgets (annotations) and new components to the canvas.
 4. **Helper toolbar** — Navigation tools, select/pan mode, search.
 5. **Console** — Warnings, errors, and log of changes and events.
 
@@ -67,9 +67,11 @@ superplane canvases update -f my_canvas.yaml
 **Widgets** are visual-only elements on the canvas. They do not run in the workflow, emit payloads, or connect to subscriptions — they help you document and organize the graph.
 
 - **Annotation** — A sticky note with markdown text (up to 5000 characters) for labels, reminders, or links.
-- **Group** — A labeled frame with optional description and color that groups related nodes visually.
 
-To add an annotation, click the **sticky-note** button in the top-right toolbar. To create a group, select two or more nodes and click the **Group** button in the selection toolbar that appears.
+> **Note**: Visual canvas groups (the "Group" frame element) have been removed. Any saved groups in existing
+> canvases are automatically removed during upgrades.
+
+To add an annotation, click the **sticky-note** button in the top-right toolbar.
 
 ## Versioning
 

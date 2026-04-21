@@ -62,6 +62,12 @@ superplane canvases get <canvas_name> > my_canvas.yaml
 superplane canvases update -f my_canvas.yaml
 ```
 
+:::caution[Strict YAML validation (unknown fields are errors)]
+When you update canvases via YAML, SuperPlane rejects **unknown fields** with an error (it does not ignore them).
+If you see an error like `unknown field "hello"`, check for typos and compare your file against
+[Canvas YAML](/reference/canvas-yaml).
+:::
+
 ## Widgets
 
 **Widgets** are visual-only elements on the canvas. They do not run in the workflow, emit payloads, or connect to subscriptions — they help you document and organize the graph.

@@ -13,6 +13,12 @@ For agent-first usage of the CLI (auth, canvases, secrets, runs), use the
 `superplane-cli` skill: `npx skills add superplanehq/skills --skill superplane-cli`.
 </Aside>
 
+<Aside type="caution" title="Strict YAML validation (unknown fields are errors)">
+When you run CLI commands that read YAML (for example `canvases create --file` or `canvases update --file`),
+SuperPlane rejects **unknown fields** with an error (it does not ignore them). If you see an error like
+`unknown field "hello"`, check for typos and compare your file against the documented schema.
+</Aside>
+
 ## Installation
 
 Download the latest binary for your operating system and architecture:
@@ -158,6 +164,12 @@ superplane canvases update -f my_canvas.yaml
 
 `superplane canvases update` applies auto layout by default. Use explicit auto-layout flags only when you
 need to control scope or seed nodes.
+
+#### Troubleshooting
+
+- **Error: `unknown field "..."`**: Your YAML contains a key that SuperPlane does not recognize. This is
+  often a typo or a field from an older example. Compare your file to the schema and examples in
+  [Canvas YAML](/reference/canvas-yaml).
 
 #### Check whether versioning is enabled
 

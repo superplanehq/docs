@@ -1,0 +1,77 @@
+---
+title: Canvas YAML
+description: Reference for authoring canvas YAML files used by the SuperPlane CLI and API.
+---
+
+import { Aside } from "@astrojs/starlight/components";
+
+<Aside type="caution" title="Strict validation (unknown fields are errors)">
+Canvas YAML files are parsed strictly. **Unknown fields are rejected with an error** (they are not ignored).
+Typos or extra keys will cause CLI commands like `superplane canvases create --file` / `update --file` to fail.
+</Aside>
+
+This page describes the **shape** of a Canvas YAML file and the most common schema expectations.
+
+For a complete, always-up-to-date schema (including every field), use the interactive API docs linked from
+[Public API Reference](/concepts/api-reference).
+
+## Validation behavior
+
+SuperPlane validates YAML by decoding it into the same request models used by the API.
+
+- **Unknown keys fail fast**: you’ll see an error containing `unknown field "…"`.
+- **API field names apply**: fields in `spec` use **camelCase API names** (for example `sourceId`, not `source_id`).
+
+## Minimal Canvas YAML (example)
+
+```yaml
+apiVersion: v1
+kind: Canvas
+metadata:
+  id: <canvas_id>
+  name: Store app
+spec:
+  edges:
+    - sourceId: schedule-schedule-w3mak1
+      targetId: http-keepalive-ping
+      channel: default
+  nodes:
+    - id: schedule-schedule-w3mak1
+      name: schedule
+      type: TYPE_TRIGGER
+      trigger:
+        name: schedule
+      paused: false
+      position:
+        x: 144
+        y: 0
+      configuration:
+        type: minutes
+        minutesInterval: 1
+        customName: Keepalive {{ now() }}
+    - id: http-keepalive-ping
+      name: http
+      type: TYPE_COMPONENT
+      component:
+        name: http
+      paused: false
+      position:
+        x: 456
+        y: 0
+      configuration:
+        method: GET
+        url: https://store-app-c6nr.examplepaas.com/
+        customName: PaaS keepalive
+```
+
+## Common causes of `unknown field` errors
+
+- **Typos**: for example `targetID` vs `targetId`.
+- **Wrong naming style**: for example `source_id` instead of `sourceId`.
+- **Copying older examples**: fields may have been renamed over time.
+
+If you’re not sure which fields are accepted, export an existing canvas and edit that file:
+
+```sh
+superplane canvases get <canvas_name_or_id> -o yaml > my_canvas.yaml
+```

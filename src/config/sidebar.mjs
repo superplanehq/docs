@@ -45,6 +45,10 @@ export const sidebar = [
     ],
   },
   {
+    label: "Reference",
+    items: [{ label: "Canvas YAML", slug: "reference/canvas-yaml" }],
+  },
+  {
     label: "Components",
     autogenerate: { directory: "components" },
   },

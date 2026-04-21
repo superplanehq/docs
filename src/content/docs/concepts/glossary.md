@@ -22,6 +22,11 @@ A **node** is a single step on a canvas. Triggers and actions execute; widgets a
 
 A **widget** is a non-executable canvas element (annotation or group) for documentation and layout.
 
+## Change management
+
+**Change management** is an optional approval layer for canvas versioning. When enabled, draft changes must be submitted
+as a change request and approved before they can be published. See [Canvas — Change management](/concepts/canvas#change-management).
+
 ## Canvas memory
 
 **Canvas memory** is persistent, canvas-scoped storage for JSON data, organized by namespace. Workflows can read and write it using the memory components. See [Canvas Memory](/concepts/canvas-memory).

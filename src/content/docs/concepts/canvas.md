@@ -73,12 +73,25 @@ To add an annotation, click the **sticky-note** button in the top-right toolbar.
 
 ## Versioning
 
-Canvases are versioned. You edit a draft and publish changes when you're ready to update live.
+Canvases are always versioned. You edit a draft and publish changes when you're ready to update
+the live canvas.
 
-In the UI, versioned canvases expose an **Edit** mode and a **Versioning** view:
+In the UI, canvases expose an **Edit** mode and a **Versioning** view:
 
 1. Enter **Edit** mode to work on your draft.
 2. Use **Versioning** to review your draft and publish it.
+
+### Change management
+
+Change management is an optional layer on top of versioning. When enabled, publishing requires a
+change request to be submitted and approved before changes go live.
+
+- **Change management off** (default): edit your draft and publish directly with the **Publish**
+  button.
+- **Change management on**: edit your draft and submit a change request with the **Propose Change**
+  button. Approvers review and approve the request before it can be published.
+
+Change management can be enabled at the organization level (applies to all canvases) or per canvas.
 
 For CLI commands, see [SuperPlane CLI](/installation/cli).
 

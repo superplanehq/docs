@@ -159,44 +159,37 @@ superplane canvases update -f my_canvas.yaml
 `superplane canvases update` applies auto layout by default. Use explicit auto-layout flags only when you
 need to control scope or seed nodes.
 
-#### Check whether versioning is enabled
+### Canvas versioning (drafts and publishing)
+
+Canvases are always versioned. Every update writes to a draft, and you publish when ready.
+
+```sh
+# Write changes to your draft version
+superplane canvases update --draft -f my_canvas.yaml
+
+# Publish the draft directly (when change management is off)
+superplane canvases change-requests publish <change-request-id> <canvas_name_or_id>
+```
+
+#### Check whether change management is enabled
 
 Check the canvas metadata directly:
 
 ```sh
-superplane canvases get <canvas_name_or_id> -o json | jq '.metadata.versioningEnabled'
+superplane canvases get <canvas_name_or_id> -o json | jq '.metadata.changeManagementEnabled'
 ```
 
 Expected values:
 
-- `true`: effective versioning enabled for this canvas. Use
-  `superplane canvases update --draft -f ...`, then create a change request.
-- `false`: effective versioning disabled for this canvas. Use `superplane canvases update -f ...` (no `--draft`),
-  and do not use change-request commands.
+- `true`: change management is enabled. After editing a draft, submit a change request for
+  approval before publishing.
+- `false`: change management is disabled. Edit your draft and publish directly.
 
-Quick behavior-based check:
+Change management can be enabled at the organization level (applies to all canvases) or per canvas.
 
-- If `superplane canvases update --draft ...` returns `--draft cannot be used when effective canvas versioning is disabled`,
-  versioning is disabled for this canvas.
-- If `superplane canvases update ...` (without `--draft`) returns
-  `effective canvas versioning is enabled for this canvas; use --draft`,
-  versioning is enabled for this canvas.
-- If `superplane canvases change-requests create ...` returns
-  `effective canvas versioning is disabled for this canvas`,
-  versioning is disabled for this canvas.
+#### Workflow with change management enabled
 
-### Canvas versioning (drafts and change requests)
-
-Canvas update behavior depends on effective canvas mode:
-
-- Organization-level versioning ON forces effective versioning ON for all canvases.
-- Organization-level versioning OFF allows each canvas to toggle versioning independently.
-
-- If canvas versioning is enabled, `superplane canvases update` must use `--draft`.
-- If canvas versioning is disabled, do not use `--draft`; updates apply directly and change requests are not
-  available.
-
-Draft workflow (versioning enabled):
+When change management is enabled, submit a change request from your draft for approval:
 
 ```sh
 # Write changes to your draft version
@@ -219,7 +212,7 @@ If you already set an active canvas with `superplane canvases active <canvas_id>
 
 ### Change request review actions
 
-When versioning is enabled, use `canvases change-requests` to review and publish:
+When change management is enabled, use `canvases change-requests` to review and publish:
 
 ```sh
 # List requests for a canvas (or active canvas)

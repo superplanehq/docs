@@ -120,6 +120,12 @@ superplane canvases create <canvas_name>
 
 You can also create from a file:
 
+<Aside type="caution" title="Strict YAML validation (unknown fields are errors)">
+Any CLI command that reads a resource from a YAML file (for example `canvases create --file`, `canvases update -f`,
+or `change-requests resolve --file`) validates that YAML strictly. **Unknown fields cause an error** instead of being
+silently ignored.
+</Aside>
+
 ```sh
 superplane canvases create --file my_canvas.yaml
 ```
@@ -149,6 +155,27 @@ This allows you to not have to specify `--canvas-id` on commands that require it
 ### Update a canvas
 
 Export the existing canvas, edit it, then apply your changes:
+
+<Aside type="caution" title="Strict YAML validation (unknown fields are errors)">
+Canvas YAML files are now **strictly validated**. If your YAML contains a field that SuperPlane doesn’t recognize
+(for example a typo, a deprecated key, or an extra key produced by automation), the command will **fail with an
+error** instead of silently ignoring the field.
+
+Example:
+
+```text
+failed to parse canvas yaml: invalid yaml: json: unknown field "hello"
+```
+
+This strict validation applies to any canvas command that reads YAML from a file (for example `canvases create --file`,
+`canvases update -f`, and `canvases change-requests resolve --file`).
+
+Troubleshooting:
+
+- Check for typos (including casing) and deprecated keys.
+- Ensure you are using the **API field names** (camelCase) used in the Canvas YAML example below.
+- If you're generating YAML with automation or coding agents, validate the output before applying it.
+</Aside>
 
 ```sh
 superplane canvases get <canvas_name> > my_canvas.yaml
@@ -324,6 +351,7 @@ Notes:
 - For trigger nodes, use `type: TYPE_TRIGGER` and `trigger.name`.
 - Edge fields are `sourceId`, `targetId`, and optional `channel`.
 - Use `superplane index components` to find component keys (for example, `http`, `if`, `noop`).
+- If you receive an **unknown field** error, check for typos and remove any keys not present in the current API schema.
 - Positioning guideline for agents:
   - Keep downstream nodes on the same row by default (`y` unchanged).
   - Use `x = upstream.x + 480` as the default spacing for new connected nodes.

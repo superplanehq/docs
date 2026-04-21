@@ -3,6 +3,8 @@ title: Canvas
 description: Learn about canvases and how to use the canvas page to design and manage workflows.
 ---
 
+import { Aside } from "@astrojs/starlight/components";
+
 A **canvas** is the workspace where you design and run workflows in SuperPlane. It's a visual
 graph of nodes connected by subscriptions that define how events flow between steps.
 
@@ -50,6 +52,14 @@ Changes are saved automatically, and you can see your workflow update in real-ti
 ### Command Line (CLI)
 
 Use the SuperPlane CLI to manage canvases programmatically:
+
+<Aside type="caution" title="Strict YAML validation (unknown fields are errors)">
+When you update a canvas via YAML, SuperPlane validates the file strictly. **Unknown fields cause an error** (for
+example: typos, deprecated keys, or extra keys produced by automation) instead of being silently ignored.
+
+If you see an error like `unknown field "..."`, check your YAML for unrecognized keys and ensure you’re using the API
+field names (camelCase).
+</Aside>
 
 ```sh
 # Export a canvas

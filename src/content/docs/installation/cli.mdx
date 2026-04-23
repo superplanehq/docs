@@ -467,10 +467,21 @@ Delete a queue item:
 superplane queue delete --canvas-id <canvas_id> --node-id <node_id> --item-id <item_id>
 ```
 
-## Updating SuperPlane
+## Updating the CLI
 
-To upgrade to the latest version, download the latest binary and replace
-the existing one:
+If a newer version is available the CLI prints an upgrade notice after
+every command. You can update in place with:
+
+```sh
+superplane upgrade
+```
+
+`superplane self-update` is an alias for the same command. Self-update is
+available on macOS and Linux for release-built binaries; dev builds and
+Windows are not supported.
+
+Alternatively, download the latest binary manually and replace the
+existing one:
 
 ```bash
 curl -L https://install.superplane.com/superplane-cli-darwin-arm64 -o superplane

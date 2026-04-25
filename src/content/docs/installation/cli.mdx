@@ -374,6 +374,19 @@ Describe one trigger:
 superplane index triggers --name <trigger_name>
 ```
 
+Download the full registry (integrations, components, and triggers) to a local JSON file:
+
+```sh
+superplane index dump
+```
+
+By default the file is written to `/tmp/superplane-index.json`. Use `--file` to choose a
+different path:
+
+```sh
+superplane index dump --file registry.json
+```
+
 ## Managing integrations
 
 List connected integrations:

@@ -23,6 +23,7 @@ import { CardGrid, LinkCard } from "@astrojs/starlight/components";
   <LinkCard title="Approval" href="#approval" description="Collect approvals on events" />
   <LinkCard title="Delete Memory" href="#delete-memory" description="Delete values from canvas memory by namespace and field matches" />
   <LinkCard title="Filter" href="#filter" description="Filter events based on their content" />
+  <LinkCard title="GraphQL Request" href="#graphql-request" description="Send a GraphQL query to an HTTP endpoint" />
   <LinkCard title="HTTP Request" href="#http-request" description="Make HTTP requests" />
   <LinkCard title="If" href="#if" description="Route events based on expression" />
   <LinkCard title="Merge" href="#merge" description="Merge multiple upstream inputs and forward" />
@@ -392,6 +393,67 @@ The expression has access to:
   "data": {},
   "timestamp": "2026-01-16T17:56:16.680755501Z",
   "type": "filter.executed"
+}
+```
+
+<a id="graphql-request"></a>
+
+## GraphQL Request
+
+The GraphQL component sends a GraphQL document to an HTTP endpoint using the standard
+**GraphQL over HTTP** JSON body shape (`POST` with `Content-Type: application/json`).
+
+### Use Cases
+
+- **GraphQL API integration**: Query or mutate data on any GraphQL endpoint
+- **Service orchestration**: Combine GraphQL calls with other workflow steps
+- **Data fetching**: Retrieve structured data from GraphQL services
+
+### Request Configuration
+
+- **URL**: GraphQL HTTP endpoint (supports expressions)
+- **Query**: Multi-line GraphQL document (no JSON escaping needed in the canvas)
+- **Variables**: Optional key/value pairs merged into the request `variables` object
+- **Headers**: Custom HTTP headers to send with the request
+- **Authorization**: Optional bearer token stored in an organization Secret
+- **Success codes**: Comma-separated status codes (e.g. `200, 2xx`). Defaults to `2xx`
+- **Timeout (seconds)**: Request timeout (1–30 s, default 10)
+
+### Output Channels
+
+- **Success**: HTTP status matches the success codes **and** the response body contains no
+  top-level GraphQL `errors` array
+- **Failure**: Non-success HTTP status, a top-level `errors` array is present, or the
+  request could not be completed
+
+### Response Data
+
+The component emits:
+- **status**: HTTP status code
+- **headers**: Response headers
+- **body**: Response body parsed as JSON (falls back to a string if parsing fails)
+
+### Example Output
+
+```json
+{
+  "data": {
+    "body": {
+      "data": {
+        "viewer": {
+          "login": "octocat"
+        }
+      }
+    },
+    "headers": {
+      "Content-Type": [
+        "application/json"
+      ]
+    },
+    "status": 200
+  },
+  "timestamp": "2026-01-16T17:56:16.680755501Z",
+  "type": "graphql.request.finished"
 }
 ```
 

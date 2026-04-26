@@ -273,9 +273,9 @@ superplane canvases change-requests resolve <change-request-id> <canvas_name_or_
 
 ### Canvas YAML shape (minimal working example)
 
-When updating canvases via YAML, component nodes and edges must use the API field names.
+When updating canvases via YAML, action nodes and edges must use the API field names.
 
-This example connects a `schedule` trigger to an `http` component that sends a keepalive
+This example connects a `schedule` trigger to an `http` action that sends a keepalive
 request every minute:
 
 ```yaml
@@ -305,8 +305,8 @@ spec:
         customName: Keepalive {{ now() }}
     - id: http-keepalive-ping
       name: http
-      type: TYPE_COMPONENT
-      component:
+      type: TYPE_ACTION
+      action:
         name: http
       paused: false
       position:
@@ -320,10 +320,10 @@ spec:
 
 Notes:
 
-- For component nodes, `type` must be `TYPE_COMPONENT` and `component.name` is required.
+- For action nodes, `type` must be `TYPE_ACTION` and `action.name` is required.
 - For trigger nodes, use `type: TYPE_TRIGGER` and `trigger.name`.
 - Edge fields are `sourceId`, `targetId`, and optional `channel`.
-- Use `superplane index components` to find component keys (for example, `http`, `if`, `noop`).
+- Use `superplane index actions` to find action keys (for example, `http`, `if`, `noop`).
 - Positioning guideline for agents:
   - Keep downstream nodes on the same row by default (`y` unchanged).
   - Use `x = upstream.x + 480` as the default spacing for new connected nodes.
@@ -332,7 +332,7 @@ Notes:
 
 ## Discovery index
 
-Use `index` to discover available integration definitions, triggers, and components.
+Use `index` to discover available integration definitions, triggers, and actions.
 
 ```sh
 superplane index integrations
@@ -344,22 +344,22 @@ Describe one integration definition:
 superplane index integrations --name <integration_name>
 ```
 
-List core components:
+List core actions:
 
 ```sh
-superplane index components
+superplane index actions
 ```
 
-List components from an integration definition:
+List actions from an integration definition:
 
 ```sh
-superplane index components --from <integration_name>
+superplane index actions --from <integration_name>
 ```
 
-Describe one component:
+Describe one action:
 
 ```sh
-superplane index components --name <component_name>
+superplane index actions --name <action_name>
 ```
 
 List triggers from an integration definition:
@@ -374,7 +374,7 @@ Describe one trigger:
 superplane index triggers --name <trigger_name>
 ```
 
-Download the full registry (integrations, components, and triggers) to a local JSON file:
+Download the full registry (integrations, actions, and triggers) to a local JSON file:
 
 ```sh
 superplane index dump

@@ -293,8 +293,7 @@ spec:
     - id: schedule-schedule-w3mak1
       name: schedule
       type: TYPE_TRIGGER
-      trigger:
-        name: schedule
+      component: schedule
       paused: false
       position:
         x: 144
@@ -306,8 +305,7 @@ spec:
     - id: http-keepalive-ping
       name: http
       type: TYPE_ACTION
-      action:
-        name: http
+      component: http
       paused: false
       position:
         x: 456
@@ -320,8 +318,8 @@ spec:
 
 Notes:
 
-- For action nodes, `type` must be `TYPE_ACTION` and `action.name` is required.
-- For trigger nodes, use `type: TYPE_TRIGGER` and `trigger.name`.
+- For action nodes, `type` must be `TYPE_ACTION` and `component` is required.
+- For trigger nodes, use `type: TYPE_TRIGGER` and `component`.
 - Edge fields are `sourceId`, `targetId`, and optional `channel`.
 - Use `superplane index actions` to find action keys (for example, `http`, `if`, `noop`).
 - Positioning guideline for agents:

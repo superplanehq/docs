@@ -9,12 +9,56 @@ import { CardGrid, LinkCard } from "@astrojs/starlight/components";
 ## Actions
 
 <CardGrid>
+  <LinkCard title="Run Claude Agent" href="#run-claude-agent" description="Run a Claude Managed Agent session and wait for it to complete" />
   <LinkCard title="Text Prompt" href="#text-prompt" description="Generate a response using Anthropic's Claude models via the Messages API" />
 </CardGrid>
 
 ## Instructions
 
 To get new Claude API key, go to [platform.claude.com](https://platform.claude.com).
+
+<a id="run-claude-agent"></a>
+
+## Run Claude Agent
+
+The Run Claude Agent component uses
+[Claude Managed Agents](https://platform.claude.com/docs/en/managed-agents/overview) to start a
+session with a configured agent and environment, sends your task as a user message, and waits
+until the session reaches a terminal state (`idle` or `terminated`) by polling.
+
+### Prerequisites
+
+- A **Claude API key** configured on the integration.
+- An **agent** and **environment** already created in the Anthropic API or Console. This action
+  references them by ID.
+
+### Configuration
+
+- **Agent ID**: The Managed Agent to run. Uses the latest version unless **Version** is set.
+- **Version** (optional): Pins the session to a specific agent version.
+- **Environment ID**: The environment (container) the session runs in.
+- **Prompt**: The user message (task) sent to the agent.
+- **Vault IDs** (optional): For MCP tools that need vault-backed credentials.
+
+### Output
+
+Emits a finished payload with session **status**, **session ID**, and the final **agent message**
+when available. Downstream steps can branch or consume the result. For failure cases the status is
+still emitted when the session is terminated or the step times out.
+
+### Example Output
+
+```json
+{
+  "data": {
+    "lastMessage": "Finished the requested task.",
+    "sessionId": "sess_01ExampleManagedSession",
+    "status": "idle"
+  },
+  "timestamp": "2026-04-26T12:00:00Z",
+  "type": "claude.runAgent.finished"
+}
+```
 
 <a id="text-prompt"></a>
 

@@ -28,7 +28,12 @@ Each secret can contain multiple key-value pairs.
 
 ## Using Secrets in Components
 
-In the **core** component set, organization secrets are used by the **SSH Command** component for authentication (SSH key or password). Select a secret and key from your organization's secrets when configuring SSH.
+In the **core** component set, organization secrets are used by:
+
+- **SSH Command** — authentication via SSH key or password.
+- **HTTP Request** — optional Authorization field (Bearer Token, Basic Auth, or Custom Header).
+
+Select a secret and key from your organization's secrets when configuring these components.
 
 Integrations may store their own credentials separately from organization secrets. If a component supports organization secrets in the future, it will be called out in that component’s documentation.
 

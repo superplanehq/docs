@@ -463,6 +463,11 @@ The HTTP component allows you to make HTTP requests to external APIs and service
 - **Method**: HTTP method to use
 - **Query Parameters**: Optional URL query parameters
 - **Headers**: Custom HTTP headers (header names cannot use expressions)
+- **Authorization** (optional): Authenticate requests using an organization
+  [Secret](/concepts/secrets). Three modes are available:
+  - **Bearer Token**: Sends `Authorization: Bearer <token>` using a secret key
+  - **Basic Auth**: Sends HTTP Basic authentication with a username and a secret-backed password
+  - **Custom Header**: Sets any header (e.g. `X-API-Key`) to a secret-backed value
 - **Body**: Request body in various formats:
   - **JSON**: Structured JSON payload
   - **Form Data**: URL-encoded form data

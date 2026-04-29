@@ -45,7 +45,8 @@ Use the visual editor to build and modify canvases interactively:
 - **Configure nodes**: Click on any node to edit its configuration
 - **Delete elements**: Remove nodes or connections as needed
 
-Changes are saved automatically, and you can see your workflow update in real-time.
+Changes are saved automatically, and you can see your workflow update in real-time. All changes —
+including name, description, and change management settings — go through the versioning system.
 
 ### Command Line (CLI)
 
@@ -73,6 +74,9 @@ To add an annotation, click the **sticky-note** button in the top-right toolbar.
 ## Versioning
 
 Canvases are versioned. You edit a draft and publish changes when you're ready to update live.
+All canvas properties are tracked per version — nodes, edges, name, description, and
+[change management](/installation/cli#canvas-versioning-drafts-and-change-requests) settings.
+Every update produces a versioned change with traceable history.
 
 In the UI, versioned canvases expose an **Edit** mode and a **Versioning** view:
 

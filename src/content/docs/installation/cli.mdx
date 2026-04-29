@@ -196,6 +196,11 @@ Canvas update behavior depends on effective canvas mode:
 - If canvas versioning is disabled, do not use `--draft`; updates apply directly and change requests are not
   available.
 
+Change management settings (`changeManagement.enabled` and approver lists) are part of the
+canvas version. Toggling change management on or off goes through the same draft/publish
+flow as any other canvas update. When the live version has change management enabled, all
+updates — including ones that disable it — require `--draft`.
+
 Draft workflow (versioning enabled):
 
 ```sh
@@ -318,6 +323,8 @@ spec:
 
 Notes:
 
+- All fields — `metadata.name`, `metadata.description`, `spec.changeManagement`, nodes, and edges — are
+  versioned together. Changing any of them creates a new version.
 - For action nodes, `type` must be `TYPE_ACTION` and `component` is required.
 - For trigger nodes, use `type: TYPE_TRIGGER` and `component`.
 - Edge fields are `sourceId`, `targetId`, and optional `channel`.

@@ -15,9 +15,11 @@ For agent-first usage of the CLI (auth, canvases, secrets, runs), use the
 
 ## Installation
 
+### Direct download
+
 Download the latest binary for your operating system and architecture:
 
-```
+```sh
 curl -L https://install.superplane.com/superplane-cli-darwin-arm64 -o superplane
 chmod +x superplane
 sudo mv superplane /usr/local/bin/superplane
@@ -25,11 +27,33 @@ sudo mv superplane /usr/local/bin/superplane
 
 Or download a specific version:
 
-```
-curl -L https://install.superplane.com/v0.1.6/superplane-cli-darwin-arm64 -o superplane
+```sh
+curl -L https://install.superplane.com/v0.20.0/superplane-cli-darwin-arm64 -o superplane
 chmod +x superplane
 sudo mv superplane /usr/local/bin/superplane
 ```
+
+Replace `darwin-arm64` with your platform (`darwin-amd64`, `linux-amd64`, `linux-arm64`).
+
+### APT (Debian and Ubuntu)
+
+On Debian-based distributions you can install and upgrade the CLI through `apt`.
+
+Trust the SuperPlane signing key, add the repository, and install:
+
+```sh
+sudo install -d -m 0755 /etc/apt/keyrings
+curl -fsSL https://s3.amazonaws.com/apt.superplane.com/gpg.key \
+  | sudo gpg --dearmor -o /etc/apt/keyrings/superplane.gpg
+
+echo "deb [signed-by=/etc/apt/keyrings/superplane.gpg] https://s3.amazonaws.com/apt.superplane.com stable main" \
+  | sudo tee /etc/apt/sources.list.d/superplane.list
+
+sudo apt-get update
+sudo apt-get install -y superplane-cli
+```
+
+The repo serves both `amd64` and `arm64` packages; `apt` picks the right one automatically.
 
 ## Authentication
 
@@ -490,6 +514,13 @@ superplane upgrade
 `superplane self-update` is an alias for the same command. Self-update is
 available on macOS and Linux for release-built binaries; dev builds and
 Windows are not supported.
+
+If you installed via `apt`, upgrade through the package manager instead:
+
+```sh
+sudo apt-get update
+sudo apt-get install --only-upgrade superplane-cli
+```
 
 Alternatively, download the latest binary manually and replace the
 existing one:

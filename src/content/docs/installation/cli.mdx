@@ -17,23 +17,13 @@ For agent-first usage of the CLI (auth, canvases, secrets, runs), use the
 
 ### Direct download
 
-Download the latest binary for your operating system and architecture:
+Get the latest binary for your operating system and architecture:
 
 ```sh
-curl -L https://install.superplane.com/superplane-cli-darwin-arm64 -o superplane
-chmod +x superplane
-sudo mv superplane /usr/local/bin/superplane
+curl -fsSL https://install.superplane.com/install.sh | sh
 ```
 
-Or download a specific version:
-
-```sh
-curl -L https://install.superplane.com/v0.20.0/superplane-cli-darwin-arm64 -o superplane
-chmod +x superplane
-sudo mv superplane /usr/local/bin/superplane
-```
-
-Replace `darwin-arm64` with your platform (`darwin-amd64`, `linux-amd64`, `linux-arm64`).
+Older versions can be found in our [GitHub Releases page](https://github.com/superplanehq/superplane/releases).
 
 ### APT (Debian and Ubuntu)
 
@@ -78,7 +68,7 @@ superplane whoami
 
 ### Multiple organizations
 
-You can connect to multiple SuperPlane organizations at the same. Each connection will become a CLI context. You can list contexts and switch interactively:
+You can connect to multiple SuperPlane organizations at the same time. Each connection will become a CLI context. You can list contexts and switch interactively:
 
 ```sh
 superplane contexts
@@ -522,14 +512,5 @@ sudo apt-get update
 sudo apt-get install --only-upgrade superplane-cli
 ```
 
-Alternatively, download the latest binary manually and replace the
-existing one:
-
-```bash
-curl -L https://install.superplane.com/superplane-cli-darwin-arm64 -o superplane
-chmod +x superplane
-sudo mv superplane /usr/local/bin/superplane
-```
-
-Replace `darwin-arm64` with your operating system and architecture
-(e.g., `linux-amd64`, `darwin-amd64`).
+First-time install uses `install.sh` or a manual binary from [Installation](#installation). To reinstall or pin a
+version, run `install.sh` again.

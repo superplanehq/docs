@@ -167,3 +167,18 @@ Subscribe to the `passed` channel to continue on success, or the `failed` channe
 | Merge                   | `success`, `fail`, `timeout` | Routes based on merge outcome               |
 | Dash0 listIssues        | `clear`, `degraded`, `critical` | Routes based on issue severity              |
 | PagerDuty listIncidents | `clear`, `low`, `high`          | Routes based on incident urgency            |
+
+### Execution result vs. output channel
+
+Each execution carries **two independent** outcome fields. They report different things and should not be conflated:
+
+| Field | What it means | Values |
+| --- | --- | --- |
+| `result` | **Runtime health** — did the action run to completion without crashing? | `RESULT_PASSED`, `RESULT_FAILED`, `RESULT_CANCELLED`, `RESULT_UNKNOWN` |
+| `outputs` (keys) | **Semantic routing** — which logical output the action chose | Component-defined channel names (`success`, `failure`, `approved`, `rejected`, `true`, `false`, `not_found`, …) |
+
+**Example.** An HTTP node that receives a `500` status records `result: RESULT_PASSED` (the request was made, the response was parsed, the node finished cleanly) **and** emits on its `failure` channel (the response was a 5xx, so it routed onto the failure output). Both fields are correct.
+
+**Failure-class channels.** Only these channel names — case-insensitive — denote a semantic failure: `failure`, `failed`, `fail`, `timeout`. Other channels such as `rejected` (Approval), `not_found` (Memory), `false` (If), `degraded`, `low`, etc. are normal alternate routing outcomes, not failures.
+
+**Querying "failed runs".** If you want every run that did not take the happy path, filter on **both** axes — `result == RESULT_FAILED` **or** `outputs` contains a key in the failure-class set. `result` alone misses semantic failures routed via channels; channel alone misses runtime crashes that never emitted any output.

@@ -26,9 +26,9 @@ managing your workflows.
 
 The canvas consists of:
 
-1. **Nodes** — Triggers, components, and [widgets](#widgets). See [Component Nodes](/concepts/component-nodes).
+1. **Nodes** — Triggers and components. See [Component Nodes](/concepts/component-nodes).
 2. **Connections** — Indicate which node listens to which. See [Data Flow](/concepts/data-flow).
-3. **Add new elements** — Add widgets (annotations) and new components to the canvas.
+3. **Add new elements** — Add [notes](#notes) and new components to the canvas.
 4. **Helper toolbar** — Navigation tools, select/pan mode, search.
 
 ## Editing and Updating Canvases
@@ -61,13 +61,13 @@ superplane canvases get <canvas_name> > my_canvas.yaml
 superplane canvases update -f my_canvas.yaml
 ```
 
-## Widgets
+## Notes
 
-**Widgets** are visual-only elements on the canvas. They do not run in the workflow, emit payloads, or connect to subscriptions — they help you document and organize the graph.
+**Notes** are sticky notes on the canvas for labels, reminders, or links. They do not run in the workflow, emit payloads, or connect to subscriptions.
 
-- **Annotation** — A sticky note with markdown text (up to 5000 characters) for labels, reminders, or links.
+Each note supports markdown text (up to 5000 characters).
 
-To add an annotation, click the **sticky-note** button in the top-right toolbar.
+To add a note, click the **sticky-note** button in the top-right toolbar.
 
 ## Versioning
 

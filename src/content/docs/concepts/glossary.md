@@ -16,11 +16,11 @@ A **workflow** is the behavior expressed by a canvas: what should happen when an
 
 ## Node
 
-A **node** is a single step on a canvas. Triggers and actions execute; widgets are visual only.
+A **node** is a single step on a canvas. Triggers and actions execute.
 
-## Widget
+## Note
 
-A **widget** is a non-executable canvas element (such as an annotation) for documentation and layout.
+A **note** is a sticky note on the canvas for documentation. Notes do not run in workflows or emit payloads.
 
 ## Canvas memory
 

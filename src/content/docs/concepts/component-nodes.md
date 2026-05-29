@@ -7,8 +7,6 @@ description: Learn about components and component nodes, and how to add, configu
 is one instance of a component on the canvas. When you add a component to your canvas, it becomes a
 node that can receive events, perform work, and emit payloads.
 
-**Widgets** are separate: they are visual-only (annotations) and do not run or emit payloads. See [Canvas](/concepts/canvas#widgets).
-
 ## Components vs Component Nodes
 
 - **Component**: The building block definition — what it does, what configuration it needs, what it
@@ -36,10 +34,6 @@ manually.
 perform operations, and emit payloads for downstream nodes.
 
 **Examples:** HTTP Request, Filter, Approval, GitHub runWorkflow, Slack sendMessage
-
-### Widgets (non-executable)
-
-**Widgets** are not triggers or actions: they do not subscribe, queue work, or emit payloads. Use them to annotate the canvas. See [Canvas](/concepts/canvas#widgets).
 
 ## Adding Component Nodes to the Canvas
 

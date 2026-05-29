@@ -28,11 +28,11 @@ A **note** is a sticky note on the canvas for documentation. Notes do not run in
 
 ## Console
 
-A **console** is a per-canvas operational view: a grid of panels for status, runbooks, and live data from memory, executions, or runs. See [Console](/concepts/console).
+A **console** is a per-app operational view: a grid of panels for status, runbooks, and live data from memory, executions, or runs. See [Console](/concepts/console).
 
-## Canvas memory
+## Memory
 
-**Canvas memory** is persistent, canvas-scoped storage for JSON data, organized by namespace. Workflows can read and write it using the memory components. See [Memory](/concepts/canvas-memory).
+**Memory** is persistent, app-scoped storage for JSON data, organized by namespace. Workflows can read and write it using the memory components. See [Memory](/concepts/canvas-memory).
 
 ## Execution config (Config tab)
 

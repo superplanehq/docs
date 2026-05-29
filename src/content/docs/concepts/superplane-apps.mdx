@@ -1,0 +1,34 @@
+---
+title: Overview
+description: A SuperPlane app is a control plane for long-lived, event-driven DevOps workflows across your existing tools.
+---
+
+import appOverviewCanvas from "../../../assets/app-overview-canvas.png";
+import { Image } from "astro:assets";
+
+A **SuperPlane app** is a workspace where you design and run long-lived, event-driven DevOps workflows.
+It consists of an execution engine, git repository, management console and memory.
+
+<div class="big-image">
+  <figure class="sp-canvas-figure">
+    <Image src={appOverviewCanvas} alt="" />
+  </figure>
+</div>
+
+Each app brings together:
+
+- **[Canvas](/concepts/canvas)** — The workflow engine of the app
+- **[Console](/concepts/console)** — The operational console for the app
+- **[Memory](/concepts/canvas-memory)** — Persistent storage for the app
+- **[Files](/concepts/files)** — Git repository backing the app
+
+## Getting started
+
+To get started, click the **New App** button in the top-right corner of the page:
+
+1. Click the **New App** button in the top-right corner of the page
+1. Select a prebuilt app template or create a blank app
+1. Click the **Create** button
+
+This will create a new app with a blank canvas, console, memory, and git repository.
+You can then start designing your workflows on the canvas, and manage your app in the console.

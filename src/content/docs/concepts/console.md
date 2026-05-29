@@ -1,15 +1,15 @@
 ---
 title: Console
-description: Per-canvas operational view for status, runbooks, and live workflow data.
+description: Per-app operational view for status, runbooks, and live workflow data.
 ---
 
-The **console** is a per-canvas view for day-to-day operations: release status, preview environments, incident summaries, and other cases where the workflow graph is not the right surface.
+The **console** is the operational view for an app: release status, preview environments, incident summaries, and other cases where the workflow graph is not the right surface.
 
-It uses the same canvas as the graph editor but replaces the graph with a **12-column grid** of panels you can drag and resize.
+It is part of the same app as the graph editor. When you open it, the graph is replaced by a **12-column grid** of panels you can drag and resize.
 
 ## Opening the console
 
-From a canvas, open the **Console** tab in the header (or use `?view=console` in the URL). Other views on the same canvas include **Canvas** (graph), **Memory**, and **Files**.
+From an app, open the **Console** tab in the header (or use `?view=console` in the URL). Other views on the same app include **Canvas** (graph), **Memory**, and **Files**.
 
 **Templates** do not include an editable console.
 
@@ -20,13 +20,13 @@ From a canvas, open the **Console** tab in the header (or use `?view=console` in
 | **Markdown** | Runbooks, notes, and status copy (GFM markdown) |
 | **Node** | One pinned node with live status; optional **Run** |
 | **Key Nodes** | Multiple pinned nodes with live status |
-| **Table** | Rows from canvas memory, executions, or runs |
+| **Table** | Rows from memory, executions, or runs |
 | **Chart** | Bar, stacked bar, line, area, or donut charts |
 | **Number** | A single KPI (count, sum, average, and similar) |
 
-Table panels can filter rows and define **row actions** that trigger nodes on the canvas (for example destroy or retry).
+Table panels can filter rows and define **row actions** that trigger workflow nodes (for example destroy or retry).
 
-Data panels read from **canvas memory**, **executions**, or **runs**. See [Memory](/concepts/canvas-memory) for the memory model and memory components.
+Data panels read from **memory**, **executions**, or **runs**. See [Memory](/concepts/canvas-memory) for the memory model and memory components.
 
 ## Console vs canvas notes
 
@@ -36,13 +36,13 @@ Data panels read from **canvas memory**, **executions**, or **runs**. See [Memor
 
 Users with `canvases:update` can add, move, resize, edit, delete, import, and export console layout. Viewers can read the console and export YAML.
 
-Console changes are part of the canvas **draft** and publish with canvas versions, together with graph and memory edits. A dot on the **Console** tab indicates unpublished console changes.
+Console changes are part of the app **draft** and publish with app versions, together with graph and memory edits. A dot on the **Console** tab indicates unpublished console changes.
 
 Importing console YAML **replaces** all panels and layout in one update. See [Files](/concepts/files) for `canvas.yaml`, `console.yaml`, and CLI workflows.
 
 ## Permissions
 
-- **View** — Same as reading the canvas.
+- **View** — Same as reading the app.
 - **Edit layout** — `canvases:update`.
 - **Run** (node panels, table row actions) — `canvases:update`.
 

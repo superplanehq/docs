@@ -16,8 +16,13 @@ export const sidebar = [
       { label: "Console", slug: "concepts/console" },
       { label: "Memory", slug: "concepts/canvas-memory" },
       { label: "Files", slug: "concepts/files" },
+    ],
+  },
+  {
+    label: "Workflow Orchestration",
+    items: [
+      { label: "Overview", slug: "concepts/data-flow" },
       { label: "Component Nodes", slug: "concepts/component-nodes" },
-      { label: "Data flow", slug: "concepts/data-flow" },
       { label: "Expressions", slug: "concepts/expressions" },
       { label: "Expression Functions", slug: "concepts/expression-functions" },
     ],

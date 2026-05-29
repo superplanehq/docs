@@ -30,6 +30,33 @@
   opacity: 0.85;
 }
 
+/* Big image: blurred gradient backdrop + floating screenshot. */
+.big-image {
+  margin: 1.5rem 0;
+  padding: 20px 10px 12px;
+  border-radius: 8px;
+  overflow: hidden;
+  background-color: #1a3d32;
+  background-image: url("https://superplane.com/images/workflow-bg-2.png");
+  background-size: cover;
+  background-position: center;
+}
+
+.big-image .sp-canvas-figure {
+  margin: 0 auto;
+  max-width: 920px;
+}
+
+.big-image .sp-canvas-figure img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 6px;
+  box-shadow:
+    0 0px 16px rgba(0, 0, 0, 0.2),
+    0 0px 16px rgba(0, 0, 0, 0.2);
+}
+
 /* Thumbnail crop for “wide canvas” previews. */
 .sp-thumb {
   width: 100%;

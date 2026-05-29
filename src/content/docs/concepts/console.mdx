@@ -3,9 +3,21 @@ title: Console
 description: Per-app operational view for status, runbooks, and live workflow data.
 ---
 
+import consoleOverview from "../../../assets/console-overview.png";
+import { Image } from "astro:assets";
+
 The **console** is the operational view for an app: release status, preview environments, incident summaries, and other cases where the workflow graph is not the right surface.
 
 It is part of the same app as the graph editor. When you open it, the graph is replaced by a **12-column grid** of panels you can drag and resize.
+
+<div class="big-image">
+  <figure class="sp-canvas-figure">
+    <Image
+      src={consoleOverview}
+      alt="Openclaw Manager console with KPI panels, agent table, charts, and quick start controls"
+    />
+  </figure>
+</div>
 
 ## Opening the console
 

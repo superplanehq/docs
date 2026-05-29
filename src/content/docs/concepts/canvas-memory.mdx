@@ -5,7 +5,19 @@ sidebar:
   label: Memory
 ---
 
+import memoryOverview from "../../../assets/memory-overview.png";
+import { Image } from "astro:assets";
+
 **Memory** stores structured JSON data on an app, scoped by **namespace**. It persists across runs so workflows can keep state, pass data between branches, or look up records by matching fields.
+
+<div class="big-image">
+  <figure class="sp-canvas-figure">
+    <Image
+      src={memoryOverview}
+      alt="Openclaw Manager memory view showing openclawAgents namespace with agent rows and JSON fields"
+    />
+  </figure>
+</div>
 
 ## How it works
 

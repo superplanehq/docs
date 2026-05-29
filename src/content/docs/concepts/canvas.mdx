@@ -3,6 +3,9 @@ title: Canvas
 description: Learn about canvases and how to use the canvas page to design and manage workflows.
 ---
 
+import canvasOverview from "../../../assets/canvas-overview.png";
+import { Image } from "astro:assets";
+
 A **canvas** is the workspace where you design and run workflows in SuperPlane. It's a visual
 graph of nodes connected by subscriptions that define how events flow between steps.
 
@@ -11,24 +14,25 @@ Think of a canvas as:
 - **A workspace** for designing workflows visually
 - **A live system** where multiple runs can execute simultaneously
 - **A graph** that defines all possible execution paths
-- **A unified view** of your automation logic
 
 A single canvas can represent multiple possible workflows, depending on which paths events take
 through the graph. The canvas provides a place to model complex, event-driven workflows that span
 multiple tools, wait for human input, and run over extended periods of time.
 
-## Visual Layout
-
-The canvas page displays nodes, connections, status indicators, and provides tools for building and
-managing your workflows.
-
-![Canvas interface](../../../assets/canvas-overview-canvas.png)
+<div class="big-image">
+  <figure class="sp-canvas-figure">
+    <Image
+      src={canvasOverview}
+      alt="Hello World canvas with start, if, and action nodes connected on the workflow graph"
+    />
+  </figure>
+</div>
 
 The canvas consists of:
 
 1. **Nodes** — Triggers and components. See [Component Nodes](/concepts/component-nodes).
 2. **Connections** — Indicate which node listens to which. See [Data Flow](/concepts/data-flow).
-3. **Add new elements** — Add [notes](#notes) and new components to the canvas.
+3. **Edit** — Edit the canvas nodes and connections.
 4. **Helper toolbar** — Navigation tools, select/pan mode, search.
 
 ## Editing and Updating Canvases

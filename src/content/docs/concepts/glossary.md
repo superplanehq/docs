@@ -5,6 +5,10 @@ description: Definitions for key SuperPlane concepts and terms.
 
 This page defines the core terms used throughout the SuperPlane documentation.
 
+## SuperPlane Apps
+
+A **SuperPlane app** is a control plane for long-lived, event-driven DevOps workflows across your existing tools. See [Overview](/concepts/superplane-apps).
+
 ## Canvas
 
 A **canvas** is the workspace where you design and run workflows. It is a graph of nodes connected by
@@ -22,9 +26,13 @@ A **node** is a single step on a canvas. Triggers and actions execute.
 
 A **note** is a sticky note on the canvas for documentation. Notes do not run in workflows or emit payloads.
 
-## Canvas memory
+## Console
 
-**Canvas memory** is persistent, canvas-scoped storage for JSON data, organized by namespace. Workflows can read and write it using the memory components. See [Canvas Memory](/concepts/canvas-memory).
+A **console** is a per-app operational view: a grid of panels for status, runbooks, and live data from memory, executions, or runs. See [Console](/concepts/console).
+
+## Memory
+
+**Memory** is persistent, app-scoped storage for JSON data, organized by namespace. Workflows can read and write it using the memory components. See [Memory](/concepts/canvas-memory).
 
 ## Execution config (Config tab)
 

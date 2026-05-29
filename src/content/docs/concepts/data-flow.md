@@ -1,9 +1,11 @@
 ---
-title: Data Flow
+title: Overview
 description: How events and payloads flow between nodes in SuperPlane workflows.
+sidebar:
+  label: Overview
 ---
 
-SuperPlane is an event-driven workflow engine. Every node on the canvas emits a payload, and other nodes
+SuperPlane has an event-driven workflow model. Every node on the canvas emits a payload, and other nodes
 subscribe to these events to create workflows. This model enables flexible, composable automation pipelines.
 
 ## How It Works

@@ -9,19 +9,30 @@ export const sidebar = [
     ],
   },
   {
-    label: "Concepts",
+    label: "SuperPlane Apps",
     items: [
+      { label: "Overview", slug: "concepts/superplane-apps" },
       { label: "Canvas", slug: "concepts/canvas" },
+      { label: "Console", slug: "concepts/console" },
+      { label: "Memory", slug: "concepts/canvas-memory" },
+      { label: "Files", slug: "concepts/files" },
+    ],
+  },
+  {
+    label: "Workflow Orchestration",
+    items: [
+      { label: "Overview", slug: "concepts/data-flow" },
       { label: "Component Nodes", slug: "concepts/component-nodes" },
-      { label: "Data flow", slug: "concepts/data-flow" },
-      { label: "Canvas Memory", slug: "concepts/canvas-memory" },
       { label: "Expressions", slug: "concepts/expressions" },
       { label: "Expression Functions", slug: "concepts/expression-functions" },
+    ],
+  },
+  {
+    label: "Security",
+    items: [
       { label: "Secrets", slug: "concepts/secrets" },
-      { label: "Access Control (RBAC)", slug: "concepts/access-control" },
+      { label: "RBAC", slug: "concepts/access-control" },
       { label: "Service Accounts", slug: "concepts/service-accounts" },
-      { label: "Public API Reference", slug: "concepts/api-reference" },
-      { label: "Glossary", slug: "concepts/glossary" },
     ],
   },
   {
@@ -47,5 +58,12 @@ export const sidebar = [
   {
     label: "Components",
     autogenerate: { directory: "components" },
+  },
+  {
+    label: "Reference",
+    items: [
+      { label: "Public API Reference", slug: "concepts/api-reference" },
+      { label: "Glossary", slug: "concepts/glossary" },
+    ],
   },
 ];

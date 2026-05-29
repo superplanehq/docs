@@ -1,0 +1,55 @@
+---
+title: Console
+description: Per-app operational view for status, runbooks, and live workflow data.
+---
+
+import consoleOverview from "../../../assets/console-overview.png";
+import { Image } from "astro:assets";
+
+The **console** is the management console for an app. This is where you
+operate your app, view status, and manage data.
+
+<div class="big-image">
+  <figure class="sp-canvas-figure">
+    <Image
+      src={consoleOverview}
+      alt="Openclaw Manager console with KPI panels, agent table, charts, and quick start controls"
+    />
+  </figure>
+</div>
+
+## How it works
+
+The console is a grid of panels. Each panel can be configured to manage different data sources and display different types of data.
+
+The console is configured by editing the `console.yaml` file in the app's git repository. See [Files](/concepts/files) for more details.
+
+## Editing the console
+
+You can edit the console by clicking the **Edit** button in the top-right corner of the console.
+
+In the editor, you can add, remove, and configure panels.
+
+## Available panels
+
+| Panel         | Purpose                                         |
+| ------------- | ----------------------------------------------- |
+| **Markdown**  | Runbooks, notes, and status copy (GFM markdown) |
+| **Table**     | Rows from memory, executions, or runs           |
+| **Chart**     | Bar, stacked bar, line, area, or donut charts   |
+| **Number**    | A single KPI (count, sum, average, and similar) |
+| **Node**      | One pinned node with live status                |
+| **Key Nodes** | Multiple pinned nodes with live status          |
+
+## Data sources
+
+Data panels read from **memory**, **executions**, or **runs**.
+
+- **Memory** — JSON data from the app's memory. See [Memory](/concepts/canvas-memory).
+- **Executions** — Execution history from the app's executions.
+- **Runs** — Run history from the app's runs.
+
+## Best practices
+
+- Combine panels to create a dashboard that provides a holistic view of your app's status and data.
+- Use AI agents to generate the console panels and data sources.

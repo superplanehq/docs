@@ -1,20 +1,34 @@
 ---
-title: Canvas Memory
-description: Persistent, canvas-scoped storage you can read and write from workflows using dedicated components.
+title: Memory
+description: Persistent, app-scoped storage you can read and write from workflows using dedicated components.
+sidebar:
+  label: Memory
 ---
 
-**Canvas memory** stores structured JSON data on a canvas, scoped by **namespace**. It persists across runs so workflows can keep state, pass data between branches, or look up records by matching fields.
+import memoryOverview from "../../../assets/memory-overview.png";
+import { Image } from "astro:assets";
+
+**Memory** stores structured JSON data on an app, scoped by **namespace**. It persists across runs so workflows can keep state, pass data between branches, or look up records by matching fields.
+
+<div class="big-image">
+  <figure class="sp-canvas-figure">
+    <Image
+      src={memoryOverview}
+      alt="Openclaw Manager memory view showing openclawAgents namespace with agent rows and JSON fields"
+    />
+  </figure>
+</div>
 
 ## How it works
 
-- **Canvas-scoped** — Data belongs to one canvas.
+- **App-scoped** — Data belongs to one app.
 - **Namespaces** — You choose a namespace string per use case (for example `deployments` or `incidents`).
 - **Rows** — Each write can add or update rows; each row holds JSON **values** (object).
 - **Matching** — Read, update, delete, and upsert operations can match rows by field values (JSON containment).
 
 ## Persisting data across runs
 
-Runs on the same canvas are independent: payloads from one run do not automatically appear in the next. Canvas memory is where you **store facts that should survive** until a later run needs them.
+Runs on the same app are independent: payloads from one run do not automatically appear in the next. Memory is where you **store facts that should survive** until a later run needs them.
 
 | Pattern | How |
 | ------- | --- |
@@ -25,7 +39,7 @@ Runs on the same canvas are independent: payloads from one run do not automatica
 
 ## Components
 
-SuperPlane provides five components for canvas memory:
+SuperPlane provides five memory components:
 
 | Component | Purpose |
 | --------- | ------- |
@@ -44,4 +58,4 @@ See the [Components](/components/core) reference for field-level configuration.
 
 ## API
 
-Canvas memory can also be listed or cleared via the REST API (see [Public API Reference](/concepts/api-reference)). Managing memory records requires canvas permissions that allow reading or updating the canvas as appropriate.
+Memory can also be listed or cleared via the REST API (see [Public API Reference](/concepts/api-reference)). Managing memory records requires permissions to read or update the app.

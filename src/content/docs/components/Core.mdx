@@ -19,9 +19,9 @@ import { CardGrid, LinkCard } from "@astrojs/starlight/components";
 ## Actions
 
 <CardGrid>
-  <LinkCard title="Add Memory" href="#add-memory" description="Add a namespaced JSON value to app memory" />
+  <LinkCard title="Add Memory" href="#add-memory" description="Add a namespaced JSON value to canvas memory" />
   <LinkCard title="Approval" href="#approval" description="Collect approvals on events" />
-  <LinkCard title="Delete Memory" href="#delete-memory" description="Delete values from app memory by namespace and field matches" />
+  <LinkCard title="Delete Memory" href="#delete-memory" description="Delete values from canvas memory by namespace and field matches" />
   <LinkCard title="Display" href="#display" description="Display a debug message from the latest execution" />
   <LinkCard title="Filter" href="#filter" description="Filter events based on their content" />
   <LinkCard title="GraphQL Request" href="#graph-ql-request" description="Send a GraphQL query to an HTTP endpoint (GraphQL over JSON POST)" />
@@ -29,12 +29,12 @@ import { CardGrid, LinkCard } from "@astrojs/starlight/components";
   <LinkCard title="If" href="#if" description="Route events based on expression" />
   <LinkCard title="Merge" href="#merge" description="Merge multiple upstream inputs and forward" />
   <LinkCard title="No Operation" href="#no-operation" description="Just pass events through without any additional processing" />
-  <LinkCard title="Read Memory" href="#read-memory" description="Find values from app memory by namespace and field matches" />
+  <LinkCard title="Read Memory" href="#read-memory" description="Find values from canvas memory by namespace and field matches" />
   <LinkCard title="Runner" href="#runner" description="Runs shell commands on a fleet runner (host or Docker container)" />
   <LinkCard title="Send Email Notification" href="#send-email-notification" description="Send an email notification using the system email provider" />
   <LinkCard title="SSH Command" href="#ssh-command" description="Run one or more commands on a remote host via SSH. Authenticate using an organization Secret (SSH key or password)." />
   <LinkCard title="Time Gate" href="#time-gate" description="Route events based on active days and time windows, with optional excluded dates" />
-  <LinkCard title="Update Memory" href="#update-memory" description="Update values in app memory by namespace and field matches" />
+  <LinkCard title="Update Memory" href="#update-memory" description="Update values in canvas memory by namespace and field matches" />
   <LinkCard title="Upsert Memory" href="#upsert-memory" description="Update matching memory rows, or create one when no match exists" />
   <LinkCard title="Wait" href="#wait" description="Wait for a certain amount of time" />
 </CardGrid>
@@ -226,7 +226,7 @@ Send a POST request to the webhook URL with your payload. The workflow will rece
 
 **Component key:** `addMemory`
 
-The Add Memory component appends one or more items to app-level memory storage.
+The Add Memory component appends one or more items to canvas-level memory storage.
 
 ### Use Cases
 
@@ -343,7 +343,7 @@ The Approval component pauses workflow execution and waits for manual approval f
 
 **Component key:** `deleteMemory`
 
-The Delete Memory component removes memory rows from app-level memory storage.
+The Delete Memory component removes memory rows from canvas-level memory storage.
 
 ### Use Cases
 
@@ -710,7 +710,7 @@ When executed, the No Operation component immediately emits the incoming event d
 
 **Component key:** `readMemory`
 
-The Read Memory component looks up values from app-level memory storage.
+The Read Memory component looks up values from canvas-level memory storage.
 
 ### Use Cases
 
@@ -936,7 +936,7 @@ The Time Gate component delays event processing until the next valid day and tim
 
 **Component key:** `updateMemory`
 
-The Update Memory component updates matching rows in app-level memory storage.
+The Update Memory component updates matching rows in canvas-level memory storage.
 
 ### Use Cases
 
@@ -1000,7 +1000,7 @@ The `matchList` is evaluated once (same matches for every iteration), while each
 
 **Component key:** `upsertMemory`
 
-The Upsert Memory component updates matching rows in app-level memory storage, and creates a new row when no matches are found.
+The Upsert Memory component updates matching rows in canvas-level memory storage, and creates a new row when no matches are found.
 
 ### Use Cases
 

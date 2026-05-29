@@ -1,6 +1,8 @@
 ---
-title: Canvas Memory
-description: Persistent, canvas-scoped storage you can read and write from workflows using dedicated components.
+title: Memory
+description: Persistent, app-scoped storage you can read and write from workflows using dedicated components.
+sidebar:
+  label: Memory
 ---
 
 **Canvas memory** stores structured JSON data on a canvas, scoped by **namespace**. It persists across runs so workflows can keep state, pass data between branches, or look up records by matching fields.

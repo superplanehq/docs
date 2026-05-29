@@ -3,6 +3,9 @@ title: Canvas
 description: Learn about canvases and how to use the canvas page to design and manage workflows.
 ---
 
+import canvasOverview from "../../../assets/canvas-overview.png";
+import { Image } from "astro:assets";
+
 A **canvas** is the workspace where you design and run workflows in SuperPlane. It's a visual
 graph of nodes connected by subscriptions that define how events flow between steps.
 
@@ -15,6 +18,12 @@ Think of a canvas as:
 A single canvas can represent multiple possible workflows, depending on which paths events take
 through the graph. The canvas provides a place to model complex, event-driven workflows that span
 multiple tools, wait for human input, and run over extended periods of time.
+
+<div class="big-image">
+  <figure class="sp-canvas-figure">
+    <Image src={canvasOverview} alt="Hello World canvas with start, if, and action nodes connected on the workflow graph" />
+  </figure>
+</div>
 
 The canvas consists of:
 

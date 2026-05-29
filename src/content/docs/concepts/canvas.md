@@ -30,7 +30,6 @@ The canvas consists of:
 2. **Connections** — Indicate which node listens to which. See [Data Flow](/concepts/data-flow).
 3. **Add new elements** — Add widgets (annotations) and new components to the canvas.
 4. **Helper toolbar** — Navigation tools, select/pan mode, search.
-5. **Console** — Warnings, errors, and log of changes and events.
 
 ## Editing and Updating Canvases
 
@@ -114,23 +113,12 @@ execute, with each node showing its current or most recent status.
 Click any node to view its run history. Select a run item to see the full run chain showing all
 nodes that executed as part of that run.
 
-### Console
-
-The console tracks errors, warnings, and provides a log of all changes and events on the canvas.
-
-![Console showing logs and errors](../../../assets/canvas-overview-console.png)
-
-- **Errors and warnings** — Count indicators show issues needing attention
-- **Canvas changes** — Logs when components or connections are added, updated, or removed
-- **Run details** — Execution logs for each run
-- **Search** — Filter through logs to find specific events
-
 ## Best Practices
 
 - **Organize logically**: Arrange related nodes together visually
 - **Use clear node names**: Make it easy to understand what each node does
 - **Test incrementally**: Build and test workflows step by step
-- **Monitor the console**: Check for errors and review run history regularly
+- **Check for errors**: Review run history and node status regularly
 
 For more details on data flow, see [Data Flow](/concepts/data-flow). For component details, see [Component
 Nodes](/concepts/component-nodes).

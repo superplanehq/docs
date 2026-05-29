@@ -11,18 +11,10 @@ Think of a canvas as:
 - **A workspace** for designing workflows visually
 - **A live system** where multiple runs can execute simultaneously
 - **A graph** that defines all possible execution paths
-- **A unified view** of your automation logic
 
 A single canvas can represent multiple possible workflows, depending on which paths events take
 through the graph. The canvas provides a place to model complex, event-driven workflows that span
 multiple tools, wait for human input, and run over extended periods of time.
-
-## Visual Layout
-
-The canvas page displays nodes, connections, status indicators, and provides tools for building and
-managing your workflows.
-
-![Canvas interface](../../../assets/canvas-overview-canvas.png)
 
 The canvas consists of:
 

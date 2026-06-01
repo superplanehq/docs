@@ -1,6 +1,6 @@
 ---
 title: SuperPlane CLI
-description: Install the SuperPlane CLI and manage canvases, integrations, and runtime operations.
+description: Install the SuperPlane CLI and manage apps, integrations, and runtime operations.
 ---
 
 import { Aside } from "@astrojs/starlight/components";
@@ -8,7 +8,7 @@ import { Aside } from "@astrojs/starlight/components";
 Use the SuperPlane CLI to connect to your organization and manage workflows from your terminal.
 
 <Aside type="tip" title="AI agents">
-For agent-first usage of the CLI (auth, canvases, secrets, runs), use the
+For agent-first usage of the CLI (auth, apps, secrets, runs), use the
 [SuperPlane skills repository](https://github.com/superplanehq/skills) and install the
 `superplane-cli` skill: `npx skills add superplanehq/skills --skill superplane-cli`.
 </Aside>
@@ -93,84 +93,99 @@ Possible values are:
 Examples:
 
 ```sh
-superplane canvases list --output text
-superplane canvases list -o json
-superplane canvases get <canvas_name_or_id> -o yaml
+superplane apps list --output text
+superplane apps list -o json
+superplane apps canvas get <app_name_or_id> -o yaml
 ```
 
-## Managing canvases
+## Managing apps
+
+An app is the unit you manage from the CLI. Each app contains a canvas, console, and files.
 
 ### Generate a starter canvas YAML
 
 Print a blank canvas YAML skeleton to stdout:
 
 ```sh
-superplane canvases init
+superplane apps canvas init
 ```
 
 Start from an existing template:
 
 ```sh
-superplane canvases init --template health-check-monitor
+superplane apps canvas init --template health-check-monitor
 ```
 
 List available templates:
 
 ```sh
-superplane canvases init --list-templates
+superplane apps canvas init --list-templates
 ```
 
 Write directly to a file instead of stdout:
 
 ```sh
-superplane canvases init --output-file canvas.yaml
+superplane apps canvas init --output-file canvas.yaml
 ```
 
-### Create a canvas
+### Create an app
 
 ```sh
-superplane canvases create <canvas_name>
+superplane apps create <app_name>
 ```
 
-You can also create from a file:
+You can also create an app from a canvas YAML file:
 
 ```sh
-superplane canvases create --file my_canvas.yaml
+superplane apps create --canvas-file my_canvas.yaml
 ```
 
-### Describe a canvas
+`superplane apps create` accepts canvas-specific auto-layout flags when creating from a file:
 
 ```sh
-superplane canvases get <canvas_name_or_id>
+superplane apps create --canvas-file my_canvas.yaml --canvas-auto-layout horizontal
 ```
 
-### List canvases
+### Describe an app canvas
 
 ```sh
-superplane canvases list
+superplane apps canvas get <app_name_or_id>
 ```
 
-### Set active canvas
-
-Since you're mostly working on a single canvas at a time, you can set the active canvas with:
+### List apps
 
 ```sh
-superplane canvases active <canvas_id>
+superplane apps list
 ```
 
-This allows you to not have to specify `--canvas-id` on commands that require it.
+### Delete an app
 
-### Update a canvas
+```sh
+superplane apps delete <app_name_or_id>
+```
+
+### Set active app
+
+Since you're mostly working on a single app at a time, you can set the active app with:
+
+```sh
+superplane apps active <app_id>
+```
+
+This allows you to omit the app argument on app-scoped commands. Runtime commands that require an explicit
+identifier use `--app-id`. The older `--canvas-id` flag is still accepted as a deprecated alias.
+
+### Update an app canvas
 
 Export the existing canvas, edit it, then apply your changes:
 
 ```sh
-superplane canvases get <canvas_name> > my_canvas.yaml
+superplane apps canvas get <app_name> > my_canvas.yaml
 # update your YAML to reflect the changes you want to make
-superplane canvases update -f my_canvas.yaml
+superplane apps canvas update -f my_canvas.yaml
 ```
 
-`superplane canvases update` applies auto layout by default. Use explicit auto-layout flags only when you
+`superplane apps canvas update` applies auto layout by default. Use explicit auto-layout flags only when you
 need to control scope or seed nodes.
 
 #### Check whether versioning is enabled
@@ -178,91 +193,89 @@ need to control scope or seed nodes.
 Check the canvas metadata directly:
 
 ```sh
-superplane canvases get <canvas_name_or_id> -o json | jq '.metadata.versioningEnabled'
+superplane apps canvas get <app_name_or_id> -o json | jq '.metadata.versioningEnabled'
 ```
 
 Expected values:
 
-- `true`: effective versioning enabled for this canvas. Use
-  `superplane canvases update --draft -f ...`, then create a change request.
-- `false`: effective versioning disabled for this canvas. Use `superplane canvases update -f ...` (no `--draft`),
+- `true`: effective versioning enabled for this app. Use
+  `superplane apps canvas update --draft -f ...`, then create a change request.
+- `false`: effective versioning disabled for this app. Use `superplane apps canvas update -f ...` (no `--draft`),
   and do not use change-request commands.
 
 Quick behavior-based check:
 
-- If `superplane canvases update --draft ...` returns `--draft cannot be used when effective canvas versioning is disabled`,
-  versioning is disabled for this canvas.
-- If `superplane canvases update ...` (without `--draft`) returns
-  `effective canvas versioning is enabled for this canvas; use --draft`,
-  versioning is enabled for this canvas.
-- If `superplane canvases change-requests create ...` returns
-  `effective canvas versioning is disabled for this canvas`,
-  versioning is disabled for this canvas.
+- If `superplane apps canvas update --draft ...` returns
+  `--draft cannot be used when effective canvas versioning is disabled`, versioning is disabled for this app.
+- If `superplane apps canvas update ...` (without `--draft`) returns
+  `effective canvas versioning is enabled for this canvas; use --draft`, versioning is enabled for this app.
+- If `superplane apps change-requests create ...` returns
+  `effective canvas versioning is disabled for this canvas`, versioning is disabled for this app.
 
-### Canvas versioning (drafts and change requests)
+### App versioning (drafts and change requests)
 
-Canvas update behavior depends on effective canvas mode:
+Canvas update behavior depends on effective app mode:
 
-- Organization-level versioning ON forces effective versioning ON for all canvases.
-- Organization-level versioning OFF allows each canvas to toggle versioning independently.
+- Organization-level versioning ON forces effective versioning ON for all apps.
+- Organization-level versioning OFF allows each app to toggle versioning independently.
 
-- If canvas versioning is enabled, `superplane canvases update` must use `--draft`.
-- If canvas versioning is disabled, do not use `--draft`; updates apply directly and change requests are not
+- If app versioning is enabled, `superplane apps canvas update` must use `--draft`.
+- If app versioning is disabled, do not use `--draft`; updates apply directly and change requests are not
   available.
 
 Draft workflow (versioning enabled):
 
 ```sh
 # Write changes to your draft version
-superplane canvases update --draft -f my_canvas.yaml
+superplane apps canvas update --draft -f my_canvas.yaml
 
 # Create a change request from your current draft version
-superplane canvases change-requests create <canvas_name_or_id>
+superplane apps change-requests create <app_name_or_id>
 ```
 
 You can include optional metadata when creating the change request:
 
 ```sh
-superplane canvases change-requests create <canvas_name_or_id> \
+superplane apps change-requests create <app_name_or_id> \
   --title "Add incident routing path" \
   --description "Introduces PagerDuty fallback and Slack notification branch."
 ```
 
-If you already set an active canvas with `superplane canvases active <canvas_id>`, you can omit
-`<canvas_name_or_id>` in `superplane canvases change-requests create`.
+If you already set an active app with `superplane apps active <app_id>`, you can omit
+`<app_name_or_id>` in `superplane apps change-requests create`.
 
 ### Change request review actions
 
-When versioning is enabled, use `canvases change-requests` to review and publish:
+When versioning is enabled, use `apps change-requests` to review and publish:
 
 ```sh
-# List requests for a canvas (or active canvas)
-superplane canvases change-requests list <canvas_name_or_id>
+# List requests for an app (or active app)
+superplane apps change-requests list <app_name_or_id>
 
 # Create a change request
-superplane canvases change-requests create <canvas_name_or_id> \
+superplane apps change-requests create <app_name_or_id> \
   --title "Add incident routing path" \
   --description "Introduces PagerDuty fallback and Slack notification branch."
 
 # Review actions
-superplane canvases change-requests approve <change-request-id> <canvas_name_or_id>
-superplane canvases change-requests unapprove <change-request-id> <canvas_name_or_id>
-superplane canvases change-requests reject <change-request-id> <canvas_name_or_id>
-superplane canvases change-requests reopen <change-request-id> <canvas_name_or_id>
-superplane canvases change-requests publish <change-request-id> <canvas_name_or_id>
+superplane apps change-requests approve <change-request-id> <app_name_or_id>
+superplane apps change-requests unapprove <change-request-id> <app_name_or_id>
+superplane apps change-requests reject <change-request-id> <app_name_or_id>
+superplane apps change-requests reopen <change-request-id> <app_name_or_id>
+superplane apps change-requests publish <change-request-id> <app_name_or_id>
 ```
 
 Useful filters:
 
 ```sh
 # Open requests only
-superplane canvases change-requests list <canvas_name_or_id> --status open
+superplane apps change-requests list <app_name_or_id> --status open
 
 # Conflicted requests only
-superplane canvases change-requests list <canvas_name_or_id> --status conflicted
+superplane apps change-requests list <app_name_or_id> --status conflicted
 
 # Requests created by you
-superplane canvases change-requests list <canvas_name_or_id> --mine
+superplane apps change-requests list <app_name_or_id> --mine
 ```
 
 ### Resolve conflicted change requests
@@ -273,14 +286,14 @@ cannot be approved or published until resolved.
 Use a resolved canvas YAML and apply it to the change request:
 
 ```sh
-superplane canvases change-requests resolve <change-request-id> <canvas_name_or_id> \
+superplane apps change-requests resolve <change-request-id> <app_name_or_id> \
   --file resolved_canvas.yaml
 ```
 
 Optional auto-layout can be applied during resolve:
 
 ```sh
-superplane canvases change-requests resolve <change-request-id> <canvas_name_or_id> \
+superplane apps change-requests resolve <change-request-id> <app_name_or_id> \
   --file resolved_canvas.yaml \
   --auto-layout horizontal
 ```
@@ -296,7 +309,7 @@ request every minute:
 apiVersion: v1
 kind: Canvas
 metadata:
-  id: <canvas_id>
+  id: <app_id>
   name: Store app
 spec:
   edges:
@@ -341,6 +354,45 @@ Notes:
   - Use `x = upstream.x + 480` as the default spacing for new connected nodes.
   - Avoid changing positions of existing nodes unless explicitly requested.
   - If overlap still appears in UI, apply a small horizontal nudge (`x +/- 80..120`) before changing `y`.
+
+## Managing console YAML
+
+The console is part of an app. Use `apps console` to read or replace its YAML.
+
+```sh
+# Print the live console
+superplane apps console get <app_name_or_id> -o yaml
+
+# Print your draft console
+superplane apps console get <app_name_or_id> --draft -o yaml
+
+# Replace the console from a file
+superplane apps console set <app_name_or_id> console.yaml
+
+# Replace the draft console when versioning is enabled
+superplane apps console set <app_name_or_id> console.yaml --draft
+```
+
+If you already set an active app with `superplane apps active <app_id>`, omit `<app_name_or_id>` and pass the
+file with `--file`:
+
+```sh
+superplane apps console set --file console.yaml
+```
+
+## Reading app files
+
+Use `apps files` to inspect the git repository attached to an app.
+
+```sh
+# List files for an app
+superplane apps files tree <app_name_or_id>
+
+# Print one file
+superplane apps files show canvas.yaml <app_name_or_id>
+```
+
+If you already set an active app, the app argument is optional.
 
 ## Discovery index
 
@@ -459,37 +511,37 @@ superplane secrets delete <secret_name_or_id>
 List root events:
 
 ```sh
-superplane events list --canvas-id <canvas_id>
+superplane events list --app-id <app_id>
 ```
 
 List executions for a root event:
 
 ```sh
-superplane events list-executions --canvas-id <canvas_id> --event-id <event_id>
+superplane events list-executions --app-id <app_id> --event-id <event_id>
 ```
 
 List node executions:
 
 ```sh
-superplane executions list --canvas-id <canvas_id> --node-id <node_id>
+superplane executions list --app-id <app_id> --node-id <node_id>
 ```
 
 Cancel a node execution:
 
 ```sh
-superplane executions cancel --canvas-id <canvas_id> --execution-id <execution_id>
+superplane executions cancel --app-id <app_id> --execution-id <execution_id>
 ```
 
 List queue items for a node:
 
 ```sh
-superplane queue list --canvas-id <canvas_id> --node-id <node_id>
+superplane queue list --app-id <app_id> --node-id <node_id>
 ```
 
 Delete a queue item:
 
 ```sh
-superplane queue delete --canvas-id <canvas_id> --node-id <node_id> --item-id <item_id>
+superplane queue delete --app-id <app_id> --node-id <node_id> --item-id <item_id>
 ```
 
 ## Updating the CLI

@@ -238,21 +238,22 @@ Every task runs in one of two execution modes:
 
 Use **Docker** when you need an isolated environment or a specific toolchain image.
 
-## Host environment
+## Pre-installed software on the host machine
 
-Runner machines run **Ubuntu 24.04 LTS**. The following tools are pre-installed for **Host** mode
-tasks:
+The runner machine comes with the following pre-installed software.
 
-| Tool        | Notes                                             |
-| ----------- | ------------------------------------------------- |
-| **Bash**    | Default shell for shell commands and Bash scripts |
-| **Docker**  | Docker CE, buildx, and Compose plugin             |
-| **Node.js** | 22                                                |
-| **Python**  | 3                                                 |
-| **AWS CLI** | v2                                                |
+| Software       | Version   |
+| -------------- | --------- |
+| Ubuntu         | 24.04 LTS |
+| Bash           | 5.2       |
+| Docker CE      | 29.5.3    |
+| Docker Buildx  | 0.34.1    |
+| Docker Compose | 5.1.4     |
+| Node.js        | 22.22     |
+| Python         | 3.12.3    |
+| AWS CLI        | 2.34      |
 
-You can use these directly in shell commands, Bash scripts, and setup commands. **Run JavaScript**
-and **Run Python** in host mode use the pre-installed Node.js and Python runtimes.
+Use these directly in shell commands, Bash scripts, and setup commands.
 
 ## When to use runners
 

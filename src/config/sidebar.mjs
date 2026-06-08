@@ -25,6 +25,7 @@ export const sidebar = [
       { label: "Component Nodes", slug: "concepts/component-nodes" },
       { label: "Expressions", slug: "concepts/expressions" },
       { label: "Expression Functions", slug: "concepts/expression-functions" },
+      { label: "Runners", slug: "concepts/runners" },
     ],
   },
   {

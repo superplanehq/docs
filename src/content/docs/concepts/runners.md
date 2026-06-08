@@ -238,6 +238,22 @@ Every task runs in one of two execution modes:
 
 Use **Docker** when you need an isolated environment or a specific toolchain image.
 
+## Host environment
+
+Runner machines run **Ubuntu 24.04 LTS**. The following tools are pre-installed for **Host** mode
+tasks:
+
+| Tool        | Notes                                             |
+| ----------- | ------------------------------------------------- |
+| **Bash**    | Default shell for shell commands and Bash scripts |
+| **Docker**  | Docker CE, buildx, and Compose plugin             |
+| **Node.js** | 22                                                |
+| **Python**  | 3                                                 |
+| **AWS CLI** | v2                                                |
+
+You can use these directly in shell commands, Bash scripts, and setup commands. **Run JavaScript**
+and **Run Python** in host mode use the pre-installed Node.js and Python runtimes.
+
 ## When to use runners
 
 Use runner components when a workflow step needs code or shell that SuperPlane integrations do not cover:

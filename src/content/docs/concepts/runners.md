@@ -1,121 +1,249 @@
 ---
 title: Runners
-description: How SuperPlane runs shell commands and scripts on remote runner fleets as part of workflows.
+description: How SuperPlane runs shell commands and scripts on remote machines as part of workflows.
 ---
 
-**Runners** are worker machines that execute custom workloads from your workflows. When a canvas node
-needs to run shell commands or scripts outside SuperPlane, it sends the work to a runner fleet you select.
+**Runners** are worker machines that execute custom scripts from your workflows. SuperPlane provides components for
+executing shell commands, bash scripts, JavaScript, and Python scripts.
 
-## How it works
+- [Running Shell Commands](#running-shell-commands)
+- [Running Bash Scripts](#running-bash-scripts)
+- [Running JavaScript](#running-javascript)
+- [Running Python](#running-python)
 
-Runner components are action nodes. They subscribe to upstream events, submit work to the task broker,
-and wait for completion before emitting a payload downstream.
+## Running Shell Commands
 
-```mermaid
-flowchart LR
-    Upstream[Upstream node] -->|event| RunnerNode["Runner component<br/>(Run Shell Commands / Run JavaScript)"]
-    RunnerNode -->|POST /v1/tasks| Broker[task-broker]
-    Broker -->|claim task| Worker[Runner worker]
-    Worker -->|complete| Broker
-    Broker -->|webhook| SuperPlane[SuperPlane]
-    SuperPlane -->|passed or failed| Downstream[Downstream nodes]
+Runs shell commands on a runner machine. Commands execute in order. The task succeeds when the last
+command exits with code **0**, or fails if any command exits with a non-zero code.
+
+Example:
+
+```sh
+git clone https://github.com/example/repo.git
+cd repo
+docker build -t example-image .
+docker push example-image
 ```
 
-Each task carries the script or commands to run, an **execution mode** (host or Docker), environment
-variables, and a webhook URL. SuperPlane also polls the broker as a fallback if a webhook is delayed.
+### Passing output to the next node
 
-Runners connect to the task broker, not to SuperPlane directly. That separation lets fleets scale,
-change regions, or use disposable VMs without changing how workflows are modeled on the canvas.
+To pass output from the commands to the next node on the canvas, write valid JSON to the
+**`$SUPERPLANE_RESULT_FILE`** file — the path the runner sets for your task.
 
-## Machine types and fleets
+```sh
+git clone https://github.com/example/repo.git
+cd repo
 
-Each runner belongs to a **fleet** — a homogeneous pool of machines with the same architecture and
-capacity. On the canvas, you choose a fleet via **Machine type** (stored as `fleet_id` on the broker).
+export IMAGE_TAG=example-image-$(git rev-parse HEAD)
+docker build -t $IMAGE_TAG .
+docker push $IMAGE_TAG
 
-| Machine type | Fleet ID |
-| ------------ | -------- |
-| `e1-large-amd64` | `aws-standard-1` |
-| `e1-large-arm64` | `aws-arm64-1` |
-| `e1-tiny-amd64` | `e1-tiny-amd64` |
-| `e1-tiny-arm64` | `e1-tiny-arm64` |
+echo "{\"image\": \"$IMAGE_TAG\"}" > $SUPERPLANE_RESULT_FILE
+```
 
-Pick a machine type that matches the architecture and size your workload needs. Fleets are registered
-on the task broker before runners can claim work from them.
+## Running Bash Scripts
 
-## Runner components
+Runs a Bash script on a runner machine. The task succeeds when the script exits with code **0**, or fails if the
+script exits with a non-zero code.
 
-SuperPlane provides two core components that enqueue work on runners:
+Example:
 
-| Component | Key | What it runs |
-| --------- | --- | ------------ |
-| **Run Shell Commands** | `runner` | One or more shell commands (one per line) |
-| **Run JavaScript** | `runnerJS` | A Node.js script with a `main()` function |
+```sh
+#!/bin/bash
 
-Both components share the same task lifecycle and output channels. See the [Core components](/components/core)
-reference for field-level configuration.
+set -euo pipefail
 
-### Run Shell Commands
+for i in {1..10}; do
+  echo "Hello, world! $i"
+done
+```
 
-Runs arbitrary shell on a fleet runner. Commands execute in order; the task succeeds when the last
-command exits with code **0**.
+### Passing output to the next node
 
-- **Host mode**: Bash with a PTY on the runner machine.
-- **Docker mode**: Commands run inside a container via `docker exec`. The runner pulls the image,
-  starts a long-lived container, and executes your script. The image must include `sleep`.
+To pass output from the script to the next node on the canvas, write valid JSON to the
+**`$SUPERPLANE_RESULT_FILE`** file — the path the runner sets for your task.
 
-### Run JavaScript
+```sh
+#!/bin/bash
 
-Runs a Node.js script on a fleet runner. Your script must define `function main()`. The runner injects
-upstream canvas data as the global `$` object (same shape as workflow [expressions](/concepts/expressions)).
-Return a JSON-serializable value from `main()`; it appears in the finished payload as **result**.
+set -euo pipefail
 
-Optional **setup commands** run before the script in the same environment and working directory.
+git clone https://github.com/example/repo.git
+cd repo
 
-## Execution modes
+docker build -t example-image .
+docker push example-image
 
-Every runner task uses one of two execution modes:
+export IMAGE_TAG=example-image-$(git rev-parse HEAD)
+docker build -t $IMAGE_TAG .
+docker push $IMAGE_TAG
 
-| Mode | Where work runs | Notes |
-| ---- | --------------- | ----- |
-| **Host** | Directly on the runner machine | Default. Shell uses Bash with a PTY; scripts use Node.js on the host. |
-| **Docker** | Inside a container on the runner | Pull image → start container → `docker exec` → stop. Choose a base image or enter a custom OCI reference. Private registries require registry credentials on the runner. |
+echo "{\"message\":\"Hello, world!\"}" > $SUPERPLANE_RESULT_FILE
+```
 
-Host and Docker behave differently for shell workloads. Host mode uses Bash with a TTY; Docker mode
-bundles multi-line commands into a single `sh -c` script without a TTY. Prefer Docker when you need
-an isolated environment or a specific toolchain image.
+## Running JavaScript
 
-## Tasks, results, and routing
+Runs a JavaScript script on a runner machine.
 
-A **task** is one execution of a runner component node. When the task reaches a terminal state,
-SuperPlane emits a `runner.finished` or `runnerJS.finished` payload and routes to an output channel:
+Example:
 
-| Channel | When |
-| ------- | ---- |
-| **Passed** | Task status is `succeeded` and exit code is **0** |
-| **Failed** | Any other outcome, including non-zero exit code or cancellation |
+```javascript
+function main() {
+  return { message: "Hello, world!" };
+}
+```
 
-### Structured results
+### Reading payloads from previous nodes
 
-Runner tasks can return structured JSON beyond exit codes. If the completed task includes valid JSON
-in **result**, SuperPlane includes it on the finished event payload next to **status** and
-**exit_code**. Downstream nodes can reference this data in expressions like any other payload field.
+The script can read payloads from previous nodes using the `$` object.
 
-### Timeouts and cancellation
+Example:
 
-Set an optional **execution timeout** (1–86400 seconds; default **3600** when unset). You can cancel
-a running task from the node sidebar or API; the cancel propagates through the broker to the runner.
+```javascript
+function main() {
+  const commitSHA = $["On Git Push"].data.after;
+  const commitMessage = $["On Git Push"].data.message;
 
-### Logs
+  const imageTag = `example-image-${commitSHA}`;
 
-When CloudWatch logging is configured, task stdout and stderr stream to CloudWatch. You can follow live
-logs from the run item details in the UI while a task is running.
+  return { imageTag: imageTag };
+}
+```
+
+### Passing output to the next node
+
+The script returns a JSON object that is passed to the next node on the canvas.
+
+```javascript
+function main() {
+  return { message: "Hello, world!" };
+}
+```
+
+### Installing node packages
+
+Before executing the script, the runner can install node packages using the `npm install` command as part
+of the setup commands.
+
+Setup commands:
+
+```bash
+npm install @octokit/rest
+```
+
+Script:
+
+```javascript
+function main() {
+  const octokit = new Octokit({
+    auth: process.env.GITHUB_TOKEN,
+  });
+
+  const response = await octokit.request('GET /repos/{owner}/{repo}/contents/{path}', {
+    owner: 'octokit',
+    repo: 'octokit.js',
+    path: 'README.md',
+  });
+
+  return { contents: response.data };
+}
+```
+
+## Running Python
+
+Runs a Python script on a runner machine.
+
+Example:
+
+```python
+def main():
+  return { message: "Hello, world!" }
+```
+
+### Reading payloads from previous nodes
+
+The script can read payloads from previous nodes using the `$` object.
+
+Example:
+
+```python
+def main():
+  const commitSHA = $["On Git Push"].data.after;
+  const commitMessage = $["On Git Push"].data.message;
+
+  const imageTag = `example-image-${commitSHA}`;
+
+  return { imageTag: imageTag };
+}
+```
+
+### Passing output to the next node
+
+The script returns a JSON object that is passed to the next node on the canvas.
+
+```python
+def main():
+  return { message: "Hello, world!" }
+```
+
+### Installing Python packages
+
+Before executing the script, the runner can install Python packages using the `pip install` command as part
+of the setup commands.
+
+Setup commands:
+
+```bash
+pip install @octokit/rest
+```
+
+Script:
+
+```python
+import octokit
+def main():
+  octokit = octokit.Octokit({
+    auth: process.env.GITHUB_TOKEN,
+  })
+
+  response = await octokit.request('GET /repos/{owner}/{repo}/contents/{path}', {
+    owner: 'octokit',
+    repo: 'octokit.js',
+    path: 'README.md',
+  })
+
+  return { contents: response.data }
+```
+
+## Machine types
+
+Every runner node requires a **machine type** that will run your script. Pick one
+that matches the architecture and size your workload needs.
+
+| Machine type     | Architecture | vCPUs | Memory |
+| ---------------- | ------------ | ----- | ------ |
+| `e1-large-amd64` | AMD64        | 4     | 16GB   |
+| `e1-large-arm64` | ARM64        | 4     | 16GB   |
+| `e1-tiny-amd64`  | AMD64        | 0.5   | 1GB    |
+| `e1-tiny-arm64`  | ARM64        | 0.5   | 1GB    |
+
+## Host and Docker modes
+
+Every task runs in one of two execution modes:
+
+| Execution mode | Where work runs                          |
+| -------------- | ---------------------------------------- |
+| **Host**       | Directly on the runner machine (default) |
+| **Docker**     | Inside a container image you choose      |
+
+Use **Docker** when you need an isolated environment or a specific toolchain image.
 
 ## When to use runners
 
 Use runner components when a workflow step needs code or shell that SuperPlane integrations do not cover:
 
 - Run build scripts, linters, or custom tooling on dedicated machines
-- Transform upstream payload data with JavaScript and pass structured output downstream
+- Transform upstream payload data with JavaScript or Python and pass structured output downstream
 - Execute in a specific container image without managing SSH or long-lived hosts
 
 For remote commands on a host you manage directly, consider [SSH Command](/components/core/#ssh-command)

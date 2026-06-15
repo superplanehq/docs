@@ -50,41 +50,71 @@ description: Brief description of the page content
 ---
 ```
 
-### Voice, tone, and conventions
+### Writing spec
 
-Aim for the “classic devtool docs” voice: clear, direct, and pragmatic, with a little personality — but not
-inside-baseball.
+Concise rules for developer-facing docs. Use MUST/SHOULD/NEVER. When in doubt, read an exemplar page first.
 
-- Prefer **plain language over clever phrasing**. Avoid idioms that require shared context (e.g., “do the thing”).
-- Write like **Stripe-style docs / good OSS docs**: short sentences, specific claims, strong structure.
-- Keep marketing minimal. When describing value, anchor it in **what the user can do** and **what problem it solves**.
+#### Before you write
 
-#### Examples and positioning
+- MUST: Pick one content type and stick to it: **Tutorial**, **How-to**, **Reference**, **Conceptual**, or
+  **Troubleshooting**. One page, one job.
+- MUST: Read a similar existing page before writing (see [Exemplar pages](#exemplar-pages)).
+- SHOULD: State the page goal in one line (verb: configure, explain, debug).
 
-- Use examples to **spark imagination**: focus on outcomes and cross-tool workflows.
-- Avoid overly specific “demo numbers” or sequences unless the doc is a step-by-step tutorial.
+#### Voice
 
-### Writing Style
+Classic devtool docs: clear, direct, pragmatic. Minimal marketing; anchor value in what the reader can do.
 
-- Write clear, concise documentation
-- Limit markdown files to 120 characters width
-- Use code blocks with appropriate language tags
-- Include prerequisites when relevant
-- Link to related documentation when helpful
-- Use relative paths for internal links
+- MUST: Active voice, direct `you`, present tense.
+- MUST: Imperative for steps: "Click **Save**", not "You will need to click **Save**".
+- SHOULD: Short sentences. Contractions are fine (`you'll`, `it's`).
+- NEVER: `easy`, `simple`, `quick`, `just`, `simply`, `really`, `very`, `obviously`, `clearly`.
+- NEVER: Rhetorical questions, filler (`typically`, `generally`, `often` without a number), or `we` as a stand-in
+  for `you`.
+- NEVER: Words like `utilize`, `facilitate`, `commence`. Use `use`, `help`, `start`.
+
+#### Anti-slop (AI tells)
+
+- NEVER: Recap transitions ("With this setup complete…", "Now that we've covered…").
+- NEVER: Spec-sheet voice ("provides", "is configurable", "is designed to").
+- NEVER: Choppy fragments that split one idea into three sentences.
+- NEVER: Generic openers ("In today's world…", "The question teams face is whether…").
+- NEVER: Personified systems ("hand the browser a URL" → "the browser fetches the URL").
+
+#### Structure
+
+- MUST: Open every page with a one-paragraph TL;DR (what this page is for, who it's for).
+- MUST: Sentence case headings: `## Configure environment variables`, not title case.
+- MUST: Descriptive section headings; the reader should guess the section from the title alone.
+- SHOULD: Keep paragraphs to 2–4 sentences. Use lists when you have 3+ parallel items.
+- SHOULD: Spell out acronyms on first use: `Content Security Policy (CSP)`.
+- MUST: Link the first mention of a SuperPlane term to [glossary](/concepts/glossary/) when a page exists.
+
+#### Formatting
+
+- MUST: **Bold** UI elements (buttons, tabs, menu items). Don't quote them.
+- MUST: Inline code for paths, flags, identifiers: `canvas`, `/api/v1`, `.yaml`.
+- MUST: Descriptive link text. Never "click here" or bare URLs in prose.
+- MUST: Internal links use site-root paths (`/concepts/glossary`, `/installation/local`).
+- DON'T: Hard-wrap prose in source (one line per paragraph). Cap code at ~80 columns.
+- DON'T: Bold for emphasis in prose. Use callouts (`**Note:**`, `**Warning:**`) when needed.
+
+#### Code
+
+- MUST: Language tag on every fenced block. Explain what each block does in prose before or after.
+- MUST: Runnable, realistic examples. Placeholders in `snake_case` (`your_access_token_here`).
+- SHOULD: Minimal comments in code; explain non-obvious steps in prose.
+- SHOULD: Specify versions or image tags when relevant (e.g., `stable`, `v0.4`).
 
 #### Terminology
 
-- Use the same core terms consistently: **canvas**, **node**, **component**, **run**, **run item**, **payload**,
-  **channel**, **subscription**, **expression**.
-- When introducing a term for the first time on a page, consider linking to the glossary.
+Use consistently: **canvas**, **node**, **component**, **run**, **run item**, **payload**, **channel**,
+**subscription**, **expression**. Link to the glossary on first use per page.
 
-### Code Examples
+#### Examples
 
-- Use appropriate syntax highlighting
-- Include complete, runnable examples when possible
-- Add comments to explain complex steps
-- Specify version numbers or tags when relevant (e.g., Docker image tags)
+- Focus on outcomes and cross-tool workflows.
+- Avoid fake demo numbers unless the page is a step-by-step tutorial.
 
 ### Images
 
@@ -151,16 +181,25 @@ When making content or navigation changes, run `npm run build` to catch:
 3. **Completeness**: Include all necessary steps and prerequisites
 4. **Accuracy**: Ensure code examples and commands are correct and tested
 5. **Organization**: Place content in the appropriate directory based on topic
-6. **Links**: Use relative paths for internal documentation links
+6. **Links**: Use site-root paths for internal links (`/concepts/...`); relative paths for images
 7. **Versioning**: When mentioning versions or tags, be specific (e.g., `v0.4`, `stable`, `beta`)
 
 ## Notes for AI Agents
 
-- Always read existing documentation files to understand the style and structure before making changes
-- When adding new content, check similar existing files for patterns to follow
+- Follow the [Writing spec](#writing-spec) for all content changes
+- Read an exemplar page in the same category before writing or editing
 - Maintain the hierarchical organization of documentation
 - Update the sidebar source in `src/config/sidebar.mjs` if adding new top-level sections
 - Test that relative paths for images and links are correct based on file location
 - Preserve frontmatter structure when editing files
-- When in doubt, follow the patterns established in existing documentation
+- Run `npm run build` after content or navigation changes
 - Treat `public/llms.txt` and `public/llms-full.txt` as generated artifacts (do not edit manually)
+
+### Exemplar pages
+
+| Type | Example |
+| --- | --- |
+| Tutorial | `src/content/docs/get-started/quickstart.md` |
+| Conceptual | `src/content/docs/concepts/data-flow.md` |
+| Installation | `src/content/docs/installation/local.md` |
+| Landing | `src/content/docs/index.md` |

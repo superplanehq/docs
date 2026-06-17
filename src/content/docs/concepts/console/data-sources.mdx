@@ -1,0 +1,349 @@
+---
+title: Data sources
+description: The three console data sources — memory, executions, and runs — plus the variable system that powers markdown and HTML widgets.
+---
+
+Console widgets that show live data — [tables, charts,
+numbers](/concepts/console/widgets), and the variables embedded in markdown and
+HTML widgets — all read from the same three **data sources**: `memory`,
+`executions`, and `runs`.
+
+This page covers the shape of each source, what fields are available, how to
+address per-node outputs across a run, and how to declare named variables for
+prose widgets.
+
+## At a glance
+
+| Source | Best for | What it returns |
+| --- | --- | --- |
+| [`memory`](#memory) | Long-lived facts: open PRs, environments, incidents, costs. | Rows from a canvas [memory](/concepts/canvas-memory) namespace. |
+| [`executions`](#executions) | Per-node history: every run of "Deploy", every webhook fire. | Flattened execution rows, optionally filtered to one node. |
+| [`runs`](#runs) | End-to-end runs: workflow-level dashboards, run-level KPIs. | Run rows with the initial trigger payload and per-node outputs. |
+
+All three are valid for the `dataSource` field on table, chart, and number
+widgets. The `memory` and `run` shapes also drive the [variable
+system](#variables).
+
+## Memory
+
+The `memory` source reads rows from a canvas memory namespace. Memory is
+persistent JSON storage scoped to the app — see [Memory](/concepts/canvas-memory)
+for how it's written.
+
+```ts
+{
+  kind: "memory",
+  namespace: string,
+  fieldPath?: string,
+}
+```
+
+- `namespace` — the memory namespace to read from. The editor suggests
+  namespaces it sees in live memory.
+- `fieldPath` — optional dot path that flattens a nested value or list. Useful
+  when a row stores `{ items: [...] }` and you want one row per item rather than
+  one row per memory entry.
+
+Each row exposes the JSON it was stored with, plus the memory metadata: `id`,
+`namespace`, `createdAt`, and `updatedAt`.
+
+### Use case
+
+A memory-backed table is the recommended pattern for ephemeral-environment
+consoles — one row per pull request, one row per preview, one row per incident.
+Writes from the workflow (via memory components) show up in the console on the
+next render.
+
+## Executions
+
+The `executions` source returns one row per node execution. Use it when you care
+about per-step history rather than end-to-end runs.
+
+```ts
+{
+  kind: "executions",
+  node?: string,
+  limit?: number,
+}
+```
+
+- `node` — optional node id or name. When set, only executions of that node are
+  returned.
+- `limit` — number of execution rows to fetch.
+
+Execution widgets eager-load extra event pages until they reach the configured
+`limit` or hit a bounded page cap. This avoids count widgets flashing an
+intermediate value when the first event page has few executions.
+
+### Row shape
+
+| Field | Meaning |
+| --- | --- |
+| `status` | Normalized status (`passed`, `failed`, `running`, `pending`, …). |
+| `nodeName` | Display name of the executing node. |
+| `durationMs` | How long the execution took, in **milliseconds**. Pair with `format: duration`. |
+| `payload` | The data the node received from its root event. |
+| `state` | Raw execution state. |
+| `result` | Raw execution result. |
+| `resultReason` | Reason code when the result is set. |
+| `resultMessage` | Human-readable result message. |
+| `id` | Execution id. |
+| `nodeId` | Internal node id. |
+| `canvasId` | Canvas id. |
+| `parentExecutionId` | Parent execution id, when this row is a child execution. |
+| `previousExecutionId` | Previous execution id in the chain. |
+| `createdAt` / `updatedAt` | Timestamps in ISO-8601. |
+
+## Runs
+
+The `runs` source returns one row per run — an end-to-end workflow execution
+from the initial trigger through every downstream node. Use it for run-level
+dashboards (deploys per day, runs per service, cost per workflow).
+
+```ts
+{
+  kind: "runs",
+  limit?: number,
+}
+```
+
+- `limit` — number of run rows to fetch. Number widgets can use the API's
+  `totalCount` for count KPIs without loading every row.
+
+### Row shape
+
+Run rows include the raw run object plus a set of derived fields the console
+adds for ergonomics:
+
+| Field | Meaning |
+| --- | --- |
+| `status` | Normalized run status (`passed`, `failed`, `cancelled`, `running`, `unknown`). |
+| `state` | Raw run state. |
+| `result` | Raw run result. |
+| `nodeName` | Display name of the node that initiated the run (resolved from `rootEvent.nodeId`). |
+| `payload` | Alias for `rootEvent.data` — the initial payload that started the run. |
+| `durationMs` | Created-to-finished elapsed time in **milliseconds**. Pair with `format: duration`. |
+| `$` | Map of per-node outputs keyed by node display name. See [Addressing per-node outputs](#addressing-per-node-outputs). |
+| `id` | Run id. |
+| `canvasId` | Canvas id. |
+| `versionId` | Canvas version id this run executed against. |
+| `createdAt` / `updatedAt` / `finishedAt` | Timestamps in ISO-8601. |
+| `rootEvent.nodeId` | Internal node id of the root trigger. |
+| `rootEvent.customName` | Custom name attached to the root event, when set. |
+
+## Field catalogs
+
+The table editor populates column dropdowns, filter / sort field datalists, and
+row-action payload chips from a **field catalog** derived from the data source.
+
+| Data source | Field catalog |
+| --- | --- |
+| `memory` | Discovered live from canvas memory entries in the chosen namespace. |
+| `executions` | Static catalog matching the execution row shape above. |
+| `runs` | Static catalog matching the run row shape above, including the derived fields and `$`. |
+
+When suggestions are available, the column header bar exposes an **Add all
+fields** button and quick-add chips. Each chip inserts a column with a sensible
+default `format` (for example `status` → `status`, `createdAt` → `relative`).
+
+The column, filter, row-style, and sort field inputs are free text — type any
+nested dot path (`payload.user_id`, `rootEvent.customName`) or `{{ CEL }}`
+template. Catalog entries surface as autocomplete suggestions, and when the
+typed value matches a known catalog field the column's `label` and `format`
+autofill (only when the author hasn't already set them).
+
+## Addressing per-node outputs
+
+The `runs` source exposes a `$` map keyed by **node display name**, so widgets
+can address the outputs of any node within that run. The shape mirrors the
+canvas-side expression syntax (`$['Node Name'].data` — see
+[Expressions](/concepts/expressions)).
+
+| Path | Resolves to |
+| --- | --- |
+| `$["deploy-prod"].outputs` | The raw outputs map (`{ channel: [event, ...] }`) for that node's execution. |
+| `$["deploy-prod"].outputs.default[0]` | The first event emitted on the `default` channel. |
+| `$["deploy-prod"].data` | Convenience shortcut for the **last** event on the `default` channel (or the first available channel), with one `data` envelope unwrapped. Matches what canvas-side `$['Node'].data` resolves to. |
+| `$["deploy-prod"].state` | Raw per-node state. Useful for row styling. |
+| `$["deploy-prod"].result` | Raw per-node result. Useful for row styling. |
+
+The same syntax works in literal field paths and in `{{ CEL }}` templates:
+
+```yaml
+columns:
+  - field: $["deploy-prod"].data.url
+    label: URL
+    format: link
+  - field: '{{ $["deploy-prod"].data.url }}'
+    label: URL (template form)
+    format: link
+```
+
+**Missing nodes resolve to `undefined`.** When a given node didn't run for a row
+(the workflow forked and only one branch executed, or the run hasn't reached
+that node yet), `$["other-node"].outputs` returns `undefined` and the widget
+cell renders as `-`. This is intentional and matches how missing dot paths
+behave elsewhere.
+
+### Performance note
+
+Run-level outputs are not part of the initial `runs` payload — executions come
+back as lightweight references. The widget side-loads outputs for each visible
+run, capped by the panel's `limit`. The response is cached per `(canvas, run)`,
+so the same data backs the widget and the run detail modal.
+
+Widgets with very large `limit` values issue one extra request per run on first
+load.
+
+## Durations
+
+`durationMs` is **always milliseconds**, on both execution rows and run rows.
+Pair it with `format: duration` to render `5m 30s` style values:
+
+```yaml
+columns:
+  - field: durationMs
+    label: Duration
+    format: duration
+```
+
+Watch out for two pitfalls:
+
+- `format: duration` always reads its input as milliseconds. If your source
+  emits seconds, convert with CEL first: `{{ value * 1000 }}`.
+- `field: finishedAt - createdAt` does **not** work directly. Both timestamps
+  are ISO-8601 strings, and CEL does not subtract strings. Either use the
+  derived `durationMs`, or compute it explicitly with `epochMs` — see
+  [Expressions: durations](/concepts/console/expressions#durations).
+
+## Variables
+
+[Markdown](/concepts/console/widgets#markdown) and
+[HTML](/concepts/console/widgets#html) widgets don't have a `dataSource`
+themselves. Instead, they declare named **variables** that resolve from `memory`
+or `runs`, and then reference them in the body or title with `{{ }}`
+templates:
+
+```yaml
+- id: deploy-summary
+  type: markdown
+  content:
+    title: "Latest deploy of {{ release.service }}"
+    body: |
+      ## {{ release.service }}
+
+      - Status: **{{ lastRun.status }}**
+      - Triggered by: {{ lastRun.nodeName }}
+      - Output URL: {{ lastRun.$["Deploy"].data.url }}
+    variables:
+      - name: release
+        source:
+          kind: memory
+          namespace: releases
+          orderBy: createdAt
+          direction: desc
+          matches:
+            - field: env
+              value: production
+      - name: lastRun
+        source:
+          kind: run
+          select: latest_passed
+```
+
+Variables resolve to `null` when no row matches (or `[]` in [list
+mode](#list-mode)). CEL access on `null` renders as an empty string, so a
+partial template never throws.
+
+The in-card editor surfaces a per-variable preview with one-click **insert**
+buttons, plus a live rendered preview that mirrors what the saved panel will
+display.
+
+### Source kinds
+
+Two source kinds are supported.
+
+#### `memory`
+
+Picks the first row from a memory namespace (default), or the full sorted array
+when `mode: list` is set. The exposed object spreads the memory row's `values`
+together with `id`, `namespace`, `createdAt`, and `updatedAt`.
+
+| Field | Meaning |
+| --- | --- |
+| `namespace` | Memory namespace. Required. |
+| `matches` | Optional list of `{ field, value }` filters. AND-combined. The namespace `id` is queryable here too. |
+| `orderBy` | Sort key. Defaults to `createdAt`. |
+| `direction` | `asc` or `desc`. Defaults to `desc` (most recent first). |
+| `mode` | `single` (default) or `list`. See [List mode](#list-mode). |
+| `limit` | Positive integer cap when `mode: list` is set. |
+
+#### `run`
+
+Picks the most recent run matching a selector.
+
+| Field | Meaning |
+| --- | --- |
+| `select` | `latest`, `latest_passed`, or `latest_failed`. |
+
+The exposed object spreads the run row and adds the same convenience fields the
+table widget surfaces:
+
+- `status` — normalized to `passed | failed | cancelled | running | unknown`.
+- `nodeName`, `payload`, `durationMs`.
+- `$` — the per-node outputs map. Use it as
+  `{{ run.$["Node Name"].data.field }}` for run-level output references.
+
+`run` variables always resolve to a single row in this iteration. To iterate
+over runs, use `mode: list` on a memory namespace instead.
+
+### List mode
+
+Add `mode: list` to a memory source to resolve the variable to **every matching
+row** instead of just the first. This unlocks CEL list macros (`map`, `filter`,
+`all`, `exists`, `size`) inside `{{ }}` so authors can render the rows as a
+markdown / HTML list, count or filter them inline, etc. An optional `limit`
+(positive integer) caps the array; omit it to include every match.
+
+```yaml
+variables:
+  - name: deploys
+    source:
+      kind: memory
+      namespace: deployments
+      orderBy: createdAt
+      direction: desc
+      mode: list
+      limit: 20
+```
+
+A bare `{{ deploys }}` renders the array as JSON for inspection — useful when
+you're still figuring out the shape. To splice a mapped list into the output,
+wrap it in `join(list, sep)`:
+
+```markdown
+- Total deploys: {{ size(deploys) }}
+- Passed: {{ size(deploys.filter(d, d.status == "passed")) }}
+
+{{ join(deploys.map(d, "- " + d.name + " @ " + d.createdAt), "\n") }}
+```
+
+For HTML widgets, use `""` as the separator for seamless concatenation:
+
+```html
+<div>{{ join(deploys.map(d, "<p>" + d.name + "</p>"), "") }}</div>
+```
+
+cel-js does not allow `.method()` postfix after a function-call result, so chain
+macros directly off the bound variable (`deploys.filter(...).map(...)`) rather
+than after a parenthesized call. See [Expressions:
+limitations](/concepts/console/expressions#limitations) for the broader
+constraint.
+
+## Where to go next
+
+- [Widgets](/concepts/console/widgets) — every panel type and its content
+  fields.
+- [Expressions & CEL](/concepts/console/expressions) — `{{ }}` templates, the
+  full builtins catalog, and the differences from canvas
+  [Expr](/concepts/expressions).

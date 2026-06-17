@@ -1,0 +1,259 @@
+---
+title: Expressions and CEL
+description: How console expressions differ from canvas expressions, the CEL builtins available to widgets, and the limitations to watch for.
+---
+
+The [console](/concepts/console) and the [canvas](/concepts/canvas) both let you
+weave live data into configuration with `{{ }}` templates — but they use
+different expression languages under the hood. This page explains the
+differences, the CEL builtins available to console widgets, and the limitations
+to watch for when authoring widget configuration.
+
+## Console CEL vs canvas Expr
+
+Canvas nodes evaluate expressions with [Expr](https://expr-lang.org)
+(`expr-lang`). Console widgets evaluate expressions with **CEL** ([Common
+Expression Language](https://github.com/google/cel-spec)) via `cel-js`. The two
+languages look alike for most everyday cases, but they have different syntax,
+different builtins, and different data in scope.
+
+| Aspect | Canvas (Expr) | Console widgets (CEL) |
+| --- | --- | --- |
+| Engine | `expr-lang` (Go) | `cel-js` (browser) |
+| Template syntax | `{{ ... }}` in text fields; bare expression in condition fields. | `{{ ... }}` everywhere — column `field`, `label`, `href`, row-action `payload` / `confirm`, markdown / HTML body, etc. |
+| Per-row data | N/A — runs are evaluated server-side. | Row fields are top-level identifiers (e.g. `status`, `payload.user_id`). |
+| Time helper | `now()` returns a date value. | `now` is a top-level identifier — **Unix seconds** as an integer. |
+| Per-node outputs | `$['Node'].data.field` | `$["Node"].data.field`, `.outputs`, `.state`, `.result` — see [data sources](/concepts/console/data-sources#addressing-per-node-outputs). |
+| Closures | `filter(items, # > 10)` with `#` for the current element, `#acc` for the accumulator. | List macros: `items.filter(x, x > 10)`, `items.map(x, x.name)`, `items.exists(x, ...)`, `items.all(x, ...)`, `size(items)`. |
+| String contains | `s contains "x"` | `contains(s, "x")` — see [Builtins](#builtins). |
+| Regex match | `s matches "..."` | `matches(s, "...")` |
+| Membership | `"prod" in items` | Iterate with a macro: `items.exists(x, x == "prod")`. |
+| Nil coalescing | `value ?? "default"` | No `??`. Use a ternary: `value != null ? value : "default"`. |
+| Ternary | `cond ? a : b` | `cond ? a : b` |
+| Optional chaining | `data?.user?.name` | No `?.`. Guard with conditionals or with safe traversal. |
+
+For the canvas-side reference, see [Expressions](/concepts/expressions) and
+[Expression functions](/concepts/expression-functions).
+
+## Where each language runs
+
+Console widgets accept CEL in two related styles:
+
+- **`{{ CEL }}` templates** — anywhere a string is rendered: column `field` and
+  `label`, row-action `payload` and `confirm` text, markdown and HTML widget
+  bodies, panel titles. Use these for interpolation and rich expressions.
+- **Legacy bare expressions** — supported in `show` (row visibility, cell
+  visibility, action visibility) and inside some filters. Authors can still
+  write `status == "running"` without wrapping it in `{{ }}`.
+
+Use structured `where` filters when the condition is simple enough to validate
+ahead of time. Use `{{ CEL }}` when you need expression power.
+
+```yaml
+columns:
+  - field: pr_number
+    label: PR
+  - field: '{{ "PR #" + string(pr_number) }}'
+    label: PR label
+    show: 'status != "destroyed"'
+where:
+  - field: status
+    op: neq
+    value: destroyed
+```
+
+## The row environment
+
+Inside a `{{ ... }}` template, every field on the current row is a top-level
+identifier. With a `runs` row, for example, `status`, `nodeName`, `payload`,
+`durationMs`, `$`, and the rest are addressable directly.
+
+Two additional identifiers are always available:
+
+- `now` — current time as **Unix seconds** (integer). Use `now * 1000` when you
+  need milliseconds, or pair with `epochMs` for arithmetic on timestamp fields.
+- `$` — the per-node outputs map for the current run row. See [Addressing
+  per-node outputs](/concepts/console/data-sources#addressing-per-node-outputs).
+
+The CEL compiler internally rewrites `$` to a safe identifier (cel-js does not
+accept `$` as an identifier on its own), but authors don't need to be aware of
+the rewrite. String literals are preserved verbatim, so a `$` inside `"..."` or
+`'...'` is left alone.
+
+## Builtins
+
+In addition to the standard CEL operators and macros (`map`, `filter`, `all`,
+`exists`, `size`, etc.), the console exposes these helpers in every
+expression's environment:
+
+### Type coercions
+
+| Function | Returns |
+| --- | --- |
+| `int(v)` | Integer coercion. Sensible fallbacks for nullish input. |
+| `float(v)` | Float coercion. |
+| `string(v)` | String coercion. |
+
+### Strings and regex
+
+| Function | Returns |
+| --- | --- |
+| `contains(s, sub)` | `true` when `s` contains `sub`. |
+| `startsWith(s, p)` | `true` when `s` starts with `p`. |
+| `endsWith(s, p)` | `true` when `s` ends with `p`. |
+| `matches(s, regex)` | `true` when `regex` matches `s`. |
+| `lower(s)` | Lowercased copy. |
+| `upper(s)` | Uppercased copy. |
+| `trim(s, chars?)` | Strip leading / trailing whitespace, or — when `chars` is supplied — characters that appear in `chars`. |
+| `replace(s, old, new)` | Replace every occurrence of `old` with `new`. Empty `old` returns `s` unchanged. |
+| `indexOf(s, sub)` | First index of `sub` in `s`, or `-1` when missing. |
+
+### Truncating long strings
+
+These all return a scalar — see [Limitations](#limitations) for why.
+
+| Function | Returns |
+| --- | --- |
+| `firstLine(s)` | Text before the first line break. Treats `\r\n` and bare `\r` the same as `\n`. Returns `""` for `null`/`undefined`. Use it to keep multi-line run outputs from blowing up table cells: `{{ firstLine(payload.message) }}`. |
+| `substring(s, start, end?)` | Slice from `start` (inclusive) to `end` (exclusive). When `end` is omitted, returns everything from `start` onward. Negative `start` counts from the end (`-3` = last 3). Indices are clamped to the string length, and `end <= start` returns `""`. |
+| `truncate(s, n, suffix?)` | First `n` characters, with `suffix` appended only when truncation actually happened. Use it for "show first 80 chars with `…`" cells: `{{ truncate(payload.message, 80, "…") }}`. |
+| `splitIndex(s, sep, i)` | Nth segment of `split(s, sep)`. Negative `i` counts from the end (`-1` = last). Returns `""` for out-of-range / non-numeric `i`. The separator is unescaped (`\n`, `\r`, `\t`, `\\`). A `"\n"` separator also matches `\r\n` and bare `\r`, so it agrees with `firstLine` on Windows line endings. |
+
+### Dates and durations
+
+| Function | Returns |
+| --- | --- |
+| `duration(seconds)` | Format a number of seconds as `5m 30s` / `1h 5m`. |
+| `timestamp(seconds)` | Format epoch seconds as an ISO-8601 string. |
+| `formatDate(value, pattern)` | Render any date-like value (ISO string, Date, epoch number) with tokens `yyyy yy MM M dd d HH H mm m ss s`. Renders in the viewer's local time. |
+| `epochMs(value)` | Convert any date-like value (ISO-8601 string, Date instance, epoch seconds, epoch ms) to **milliseconds since epoch**. Returns `0` for unparseable input so arithmetic stays defined. |
+
+### Structural
+
+| Function | Returns |
+| --- | --- |
+| `parseJson(s)` | Parse a JSON-encoded string into a structured value (list, map, scalar). Non-string inputs pass through unchanged; invalid JSON or `null` input returns `null`. |
+| `join(list, sep)` | Concatenate the elements of a list into a string with an explicit separator. Non-array `list` returns `""`; non-string `sep` collapses to `""`; `null`/`undefined` elements render as `""`. |
+
+## Common patterns
+
+**Truncating a multi-line payload field for a table cell:**
+
+```yaml
+columns:
+  - field: '{{ firstLine(payload.message) }}'
+    label: Message
+  - field: '{{ truncate(payload.message, 80, "…") }}'
+    label: Message (single line)
+```
+
+**Conditional badge label:**
+
+```yaml
+columns:
+  - field: '{{ status == "passed" ? "OK" : status }}'
+    label: Status
+    format: badge
+```
+
+**Splicing a list of memory rows into markdown:**
+
+```markdown
+{{ join(deploys.map(d, "- " + d.name + " @ " + d.createdAt), "\n") }}
+```
+
+**Cost summary with a fallback:**
+
+```yaml
+columns:
+  - field: '{{ cost != null ? cost : 0 }}'
+    label: Cost
+    format: number
+```
+
+## Durations
+
+`format: duration` always interprets its input as **milliseconds**. The most
+common pitfall on console widgets is trying to subtract two ISO-8601 timestamps
+directly — CEL does not subtract strings. Pick the form that fits your data:
+
+- **Use the derived `durationMs` field** — easiest for the standard "how long
+  did this take" cell on `runs` or `executions` rows. The field is already
+  there:
+
+  ```yaml
+  - field: durationMs
+    label: Duration
+    format: duration
+  ```
+
+- **Compute it explicitly in CEL** when you're comparing arbitrary timestamp
+  fields (e.g. trigger time vs finish time):
+
+  ```yaml
+  - field: '{{ duration((epochMs(finishedAt) - epochMs(createdAt)) / 1000) }}'
+    label: Duration
+  ```
+
+- **Render the raw ms** when you want the column formatter to do the formatting
+  and downstream filters to compare against a number:
+
+  ```yaml
+  - field: '{{ epochMs(finishedAt) - epochMs(createdAt) }}'
+    label: Duration
+    format: duration
+  ```
+
+When the underlying data is in seconds, multiply by `1000` before passing it
+in: `{{ value * 1000 }}`.
+
+## Limitations
+
+### No postfix after a function-call result
+
+cel-js does not support postfix `.field`, `[i]`, or `.method(...)` after a
+function-call result. Expressions like `parseJson(blob).items[0].id` or
+`parseJson(tags).map(t, t)` will fail to parse.
+
+To work around it:
+
+- **Iterate or dot-access parsed data** by shaping it as a real list/map
+  upstream. Canvas memory values are JSON-typed, so storing
+  `{"tags": ["a","b"]}` lets you write `tags.map(t, t)` natively.
+- **Compose with macros** that take the parsed value as an argument: `size`,
+  `string`, etc.
+
+The string-trimming helpers (`firstLine`, `substring`, `truncate`,
+`splitIndex`) all return scalars for the same reason — authors can't write
+`split(s, "\n")[0]` or `s.substring(0, 80)` against cel-js. The single-call
+form (`firstLine(s)`, `substring(s, 0, 80)`) sidesteps the parser limitation.
+
+Equivalent expressions like `value[:80]` work in expr-lang at node-config /
+write time, but **not** in widget cells.
+
+### No `??` or `?.`
+
+CEL does not have nil-coalescing (`??`) or optional chaining (`?.`). Use a
+ternary when you need a fallback:
+
+```yaml
+field: '{{ name != null ? name : "unknown" }}'
+```
+
+### `$` rewrite
+
+The CEL compiler rewrites `$` to a safe identifier internally because cel-js
+does not accept `$` as a top-level identifier. This is transparent to authors —
+write `$["Deploy"].data.url` and it works the same way it does on the canvas
+side. String literals are preserved verbatim, so a `$` inside `"..."` or `'...'`
+is left alone.
+
+## Where to go next
+
+- [Widgets](/concepts/console/widgets) — every panel type and where templates
+  show up in their content.
+- [Data sources](/concepts/console/data-sources) — what rows look like, what
+  fields are available, and the variable system that markdown and HTML widgets
+  use.
+- [Canvas Expressions](/concepts/expressions) — the canvas-side reference for
+  comparison.

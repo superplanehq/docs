@@ -6,8 +6,10 @@ description: Per-app operational view for status, runbooks, and live workflow da
 import consoleOverview from "../../../assets/console-overview.png";
 import { Image } from "astro:assets";
 
-The **console** is the management console for an app. This is where you
-operate your app, view status, and manage data.
+The **console** is the per-app operational surface. It turns workflow state into an
+at-a-glance view: notes and runbooks, pinned nodes, tables of live data, KPIs, and
+charts. Every app has one console, configured from the UI or from `console.yaml` in
+the app's git repository.
 
 <div class="big-image">
   <figure class="sp-canvas-figure">
@@ -18,38 +20,168 @@ operate your app, view status, and manage data.
   </figure>
 </div>
 
+## When to use a console
+
+The [canvas](/concepts/canvas) shows the graph of nodes and connections — it's where
+you design workflows and debug a specific run. The console answers a different
+question: **what is the state of this system right now?**
+
+Reach for a console when you want:
+
+- **Release dashboards** — current build, last deploy, error rate, and a Run button to
+  promote.
+- **Preview environments** — one row per open pull request, with health status and a
+  Destroy action.
+- **Incident views** — open incidents, active responders, recent runbooks, links to
+  related tools.
+- **Operational status surfaces** — anything where the day-to-day reader cares about
+  outcomes, not topology.
+
+A console belongs to one canvas. Templates do not have editable consoles.
+
 ## How it works
 
-The console is a grid of panels. Each panel can be configured to manage different data sources and display different types of data.
+A console is a **12-column draggable grid**. Each cell holds a **panel** (also called
+a widget) — Markdown notes, pinned nodes, tables, charts, KPIs, or custom HTML.
+Panels read live data from canvas [memory](/concepts/canvas-memory), executions, or
+[runs](/concepts/glossary#run), and re-render as new data lands.
 
-The console is configured by editing the `console.yaml` file in the app's git repository. See [Files](/concepts/files) for more details.
+Open the console from the app header (alongside **Canvas**, **Memory**, and
+**Files**). The canvas graph is hidden while console mode is active, and the panel
+grid takes over the main area.
+
+{/* TODO(image): screenshot of an app with console mode active, header tabs visible */}
 
 ## Editing the console
 
-You can edit the console by clicking the **Edit** button in the top-right corner of the console.
+Click **Edit** in the top-right of the console to enter edit mode. In edit mode you
+can:
 
-In the editor, you can add, remove, and configure panels.
+- **Add panels** from the panel picker.
+- **Move and resize** panels by dragging their header or bottom-right corner.
+- **Configure** a panel by clicking its edit icon — each panel type has its own form.
+- **Delete** panels.
+- **Import / export** the console as YAML.
 
-## Available panels
+{/* TODO(image): screenshot of the console in edit mode with the panel picker open */}
 
-| Panel         | Purpose                                         |
-| ------------- | ----------------------------------------------- |
-| **Markdown**  | Runbooks, notes, and status copy (GFM markdown) |
-| **Table**     | Rows from memory, executions, or runs           |
-| **Chart**     | Bar, stacked bar, line, area, or donut charts   |
-| **Number**    | A single KPI (count, sum, average, and similar) |
-| **Node**      | One pinned node with live status                |
-| **Key Nodes** | Multiple pinned nodes with live status          |
+Changes follow the same **draft and publish** flow as the canvas: edits stay in your
+draft until you publish them. See [Files](/concepts/files) for the underlying YAML
+and how it relates to canvas versioning.
 
-## Data sources
+### Permissions
 
-Data panels read from **memory**, **executions**, or **runs**.
+| Action | Required permission |
+| --- | --- |
+| View the console and export YAML | Canvas read access |
+| Add, move, resize, edit, or delete panels | `canvases:update` |
+| Import YAML | `canvases:update` |
+| Run a node from a node panel or table row action | `canvases:update` |
 
-- **Memory** — JSON data from the app's memory. See [Memory](/concepts/canvas-memory).
-- **Executions** — Execution history from the app's executions.
-- **Runs** — Run history from the app's runs.
+Read-only viewers see the console and can export the YAML, but the **Edit** button
+and any runtime Run buttons are disabled with a tooltip explaining why. Server-side
+authorization is the source of truth — UI state mirrors it.
 
-## Best practices
+## Panel types at a glance
 
-- Combine panels to create a dashboard that provides a holistic view of your app's status and data.
-- Use AI agents to generate the console panels and data sources.
+The console ships with seven panel types. See [Widgets](/concepts/console/widgets)
+for the full reference.
+
+| Panel | Purpose |
+| --- | --- |
+| **Markdown** | Notes, runbooks, and status copy with GitHub-flavored markdown and live variables. |
+| **HTML** | Custom HTML with scoped `<style>` blocks and a Tailwind utility safelist. |
+| **Node** | Pin one canvas node with live status and an optional Run button. |
+| **Key Nodes** | Pin several nodes in one card with short purpose lines. |
+| **Table** | Render rows from memory, executions, or runs, with filters and row actions. |
+| **Chart** | Bar, stacked-bar, line, area, or donut chart over the same data sources. |
+| **Number** | One KPI, several KPIs side-by-side, or an aggregate combined across namespaces. |
+
+Tables, charts, and numbers all draw from the same three [data
+sources](/concepts/console/data-sources): **memory**, **executions**, and **runs**.
+
+## `console.yaml`
+
+Every console is stored as YAML. You can edit it from the UI, or from the **Files**
+tab as `console.yaml` in the app's git repository. The canonical shape is:
+
+```yaml
+apiVersion: v1
+kind: Console
+metadata:
+  canvasId: 00000000-0000-0000-0000-000000000000
+  name: Example canvas
+spec:
+  panels:
+    - id: envs
+      type: table
+      content:
+        dataSource:
+          kind: memory
+          namespace: environments
+        render:
+          kind: table
+          columns:
+            - field: service
+              label: Service
+  layout:
+    - i: envs
+      x: 0
+      y: 0
+      w: 12
+      h: 6
+```
+
+Two top-level lists drive everything:
+
+- `spec.panels[]` — the panel definitions. Each panel has an `id`, a `type`, and a
+  typed `content` object. Panel types and their content shapes are documented in
+  [Widgets](/concepts/console/widgets).
+- `spec.layout[]` — the grid placement for each panel. The `i` field references a
+  panel `id`; `x` and `y` are column/row positions, `w` and `h` are the width and
+  height in grid units.
+
+### Rules
+
+- `apiVersion` must be `v1`.
+- `kind` must be `Console`.
+- Unknown top-level, metadata, panel, or layout fields are rejected.
+- `metadata.canvasId` and `metadata.name` are informational on export.
+- Missing `spec.panels` or `spec.layout` means an empty list.
+- Maximum panel count is **50**.
+- Maximum panel payload size is **1 MiB**.
+
+## Importing and exporting
+
+Export is available to everyone with read access — open **Edit** mode and use the
+YAML modal, or pull the file from the **Files** tab.
+
+**Import is replace-all.** When you import a YAML file, every panel and every layout
+item is replaced in a single update. There is no merge, no patch, and no per-panel
+import.
+
+## Bundling a console with an installable app
+
+Apps installed from a public GitHub repository can ship an optional `console.yaml`
+alongside `canvas.yaml`. When present, the install flow reads both files from the
+same ref and writes the console into the new canvas.
+
+- The file lives at `console.yaml` in the repo root, on the same branch as
+  `canvas.yaml` (typically `main` or `master`).
+- It uses the same `apiVersion: v1`, `kind: Console` shape documented above.
+- A malformed file aborts the install before any canvas is created — fix the YAML
+  and re-run install.
+- A missing file is fine. The new canvas starts with an empty console you can fill
+  in later.
+- `metadata.canvasId` is ignored on install. The panels and layout become the new
+  canvas's full console.
+
+## Where to go next
+
+- [Widgets](/concepts/console/widgets) — every panel type, its configuration fields,
+  and a YAML example.
+- [Data sources](/concepts/console/data-sources) — `memory`, `executions`, and
+  `runs`, plus the markdown / HTML **variable** system.
+- [Expressions & CEL](/concepts/console/expressions) — how console expressions
+  differ from canvas [Expr](/concepts/expressions), with the full CEL builtins
+  catalog.

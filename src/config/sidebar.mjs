@@ -13,7 +13,15 @@ export const sidebar = [
     items: [
       { label: "Overview", slug: "concepts/superplane-apps" },
       { label: "Canvas", slug: "concepts/canvas" },
-      { label: "Console", slug: "concepts/console" },
+      {
+        label: "Console",
+        items: [
+          { label: "Overview", slug: "concepts/console" },
+          { label: "Widgets", slug: "concepts/console/widgets" },
+          { label: "Data sources", slug: "concepts/console/data-sources" },
+          { label: "Expressions & CEL", slug: "concepts/console/expressions" },
+        ],
+      },
       { label: "Memory", slug: "concepts/canvas-memory" },
       { label: "Files", slug: "concepts/files" },
     ],

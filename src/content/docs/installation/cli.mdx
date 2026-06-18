@@ -199,103 +199,76 @@ superplane apps canvas get <app_name_or_id> -o json | jq '.metadata.versioningEn
 Expected values:
 
 - `true`: effective versioning enabled for this app. Use
-  `superplane apps canvas update --draft -f ...`, then create a change request.
-- `false`: effective versioning disabled for this app. Use `superplane apps canvas update -f ...` (no `--draft`),
-  and do not use change-request commands.
+  `superplane apps canvas update --draft-id <draft_id> -f ...`.
+- `false`: effective versioning disabled for this app. Use `superplane apps canvas update -f ...` (no `--draft-id`).
 
 Quick behavior-based check:
 
-- If `superplane apps canvas update --draft ...` returns
-  `--draft cannot be used when effective canvas versioning is disabled`, versioning is disabled for this app.
-- If `superplane apps canvas update ...` (without `--draft`) returns
-  `effective canvas versioning is enabled for this canvas; use --draft`, versioning is enabled for this app.
-- If `superplane apps change-requests create ...` returns
-  `effective canvas versioning is disabled for this canvas`, versioning is disabled for this app.
+- If `superplane apps canvas update --draft-id ...` returns
+  `--draft-id cannot be used when effective canvas versioning is disabled`, versioning is disabled for this app.
+- If `superplane apps canvas update ...` (without `--draft-id`) returns
+  `effective canvas versioning is enabled for this canvas; use --draft-id`, versioning is enabled for this app.
 
-### App versioning (drafts and change requests)
+### App versioning (drafts)
 
 Canvas update behavior depends on effective app mode:
 
 - Organization-level versioning ON forces effective versioning ON for all apps.
 - Organization-level versioning OFF allows each app to toggle versioning independently.
 
-- If app versioning is enabled, `superplane apps canvas update` must use `--draft`.
-- If app versioning is disabled, do not use `--draft`; updates apply directly and change requests are not
-  available.
+- If app versioning is enabled, `superplane apps canvas update` must use `--draft-id`.
+- If app versioning is disabled, do not use `--draft-id`; updates apply directly.
 
 Draft workflow (versioning enabled):
 
 ```sh
-# Write changes to your draft version
-superplane apps canvas update --draft -f my_canvas.yaml
+# List available drafts
+superplane apps drafts list <app_name_or_id>
 
-# Create a change request from your current draft version
-superplane apps change-requests create <app_name_or_id>
-```
-
-You can include optional metadata when creating the change request:
-
-```sh
-superplane apps change-requests create <app_name_or_id> \
-  --title "Add incident routing path" \
-  --description "Introduces PagerDuty fallback and Slack notification branch."
+# Write changes to a specific draft version
+superplane apps canvas update --draft-id <draft_id> -f my_canvas.yaml
 ```
 
 If you already set an active app with `superplane apps active <app_id>`, you can omit
-`<app_name_or_id>` in `superplane apps change-requests create`.
+`<app_name_or_id>` in `superplane apps drafts list`.
 
-### Change request review actions
+### Draft lifecycle actions
 
-When versioning is enabled, use `apps change-requests` to review and publish:
+When versioning is enabled, use `apps drafts` to manage your drafts:
 
 ```sh
-# List requests for an app (or active app)
-superplane apps change-requests list <app_name_or_id>
+# List drafts for an app (or active app)
+superplane apps drafts list <app_name_or_id>
 
-# Create a change request
-superplane apps change-requests create <app_name_or_id> \
-  --title "Add incident routing path" \
-  --description "Introduces PagerDuty fallback and Slack notification branch."
+# Create a new draft
+superplane apps drafts create <app_name_or_id> --name "Add incident routing path"
 
-# Review actions
-superplane apps change-requests approve <change-request-id> <app_name_or_id>
-superplane apps change-requests unapprove <change-request-id> <app_name_or_id>
-superplane apps change-requests reject <change-request-id> <app_name_or_id>
-superplane apps change-requests reopen <change-request-id> <app_name_or_id>
-superplane apps change-requests publish <change-request-id> <app_name_or_id>
+# Delete a draft
+superplane apps drafts delete <draft_id> <app_name_or_id>
 ```
 
-Useful filters:
+### Repository-backed staging
+
+When versioning is enabled, edits to `canvas.yaml` and `console.yaml` are written to a **staging** layer on your draft. These staged changes must be committed before they become part of the draft version.
 
 ```sh
-# Open requests only
-superplane apps change-requests list <app_name_or_id> --status open
+# Stage changes to canvas.yaml
+superplane apps canvas update --draft-id <draft_id> -f my_canvas.yaml
 
-# Conflicted requests only
-superplane apps change-requests list <app_name_or_id> --status conflicted
+# View visual diff of staged changes (UI only) or check status
+# Then commit the staged changes
+superplane apps drafts commit <draft_id> <app_name_or_id>
 
-# Requests created by you
-superplane apps change-requests list <app_name_or_id> --mine
+# Or discard staged changes to reset to the last commit
+superplane apps drafts discard <draft_id> <app_name_or_id>
 ```
 
-### Resolve conflicted change requests
+### Publish a draft
 
-If two change requests edit overlapping nodes differently, one or both can become conflicted. Conflicted requests
-cannot be approved or published until resolved.
-
-Use a resolved canvas YAML and apply it to the change request:
+Once your draft is ready and all changes are committed, publish it to make it the live version:
 
 ```sh
-superplane apps change-requests resolve <change-request-id> <app_name_or_id> \
-  --file resolved_canvas.yaml
-```
-
-Optional auto-layout can be applied during resolve:
-
-```sh
-superplane apps change-requests resolve <change-request-id> <app_name_or_id> \
-  --file resolved_canvas.yaml \
-  --auto-layout horizontal
+superplane apps drafts publish <draft_id> <app_name_or_id>
 ```
 
 ### Canvas YAML shape (minimal working example)
@@ -364,13 +337,13 @@ The console is part of an app. Use `apps console` to read or replace its YAML.
 superplane apps console get <app_name_or_id> -o yaml
 
 # Print your draft console
-superplane apps console get <app_name_or_id> --draft -o yaml
+superplane apps console get <app_name_or_id> --draft-id <draft_id> -o yaml
 
 # Replace the console from a file
 superplane apps console set <app_name_or_id> console.yaml
 
 # Replace the draft console when versioning is enabled
-superplane apps console set <app_name_or_id> console.yaml --draft
+superplane apps console set <app_name_or_id> console.yaml --draft-id <draft_id>
 ```
 
 If you already set an active app with `superplane apps active <app_id>`, omit `<app_name_or_id>` and pass the

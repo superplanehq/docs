@@ -3,20 +3,20 @@ title: Built-in App Agent
 description: How to use the built-in AI agent to build and operate SuperPlane apps.
 ---
 
-SuperPlane includes a built-in AI agent that helps you build workflows, debug executions, and manage repository files. The agent is context-aware, persistent, and operates safely within your app's permission boundaries.
+SuperPlane includes a built-in AI agent that helps you build workflows and console UI, debug executions, and manage repository files. The agent is context-aware, persistent, and operates safely within your app's permission boundaries.
 
 ## Agent modes
 
 The agent adapts to your current task using different modes:
 
-- **Build**: Helps you design workflows, configure [nodes](/concepts/component-nodes), and make changes to the canvas.
-- **Ask**: A read-only mode to help you monitor runs, inspect memory, and troubleshoot failed executions.
+- **Build**: Helps you design workflows on the [canvas](/concepts/canvas), configure [nodes](/concepts/component-nodes), design [console](/concepts/console) UI, and make changes to the app.
+- **Ask**: A read-only mode to help you monitor runs, analyze data, and troubleshoot apps.
 
 You can switch modes in the chat interface to focus the agent's tools and context on your immediate goal.
 
 ## Chat persistence and streaming
 
-Each [canvas](/concepts/canvas) has a single, permanent chat session. Your conversation history persists across browser reloads and sessions.
+Each canvas has a single, permanent chat session. Your conversation history persists across browser reloads and sessions.
 
 When you send a message, the agent's responses stream back asynchronously. Because the agent performs actions in the background, you can continue working on the canvas while it processes your request.
 
@@ -26,9 +26,11 @@ If the agent is heading in the wrong direction or taking too long, you can inter
 
 ## Outcomes and rubrics
 
-For complex tasks, you can define an outcome instead of sending a single message. An outcome provides the agent with a specific goal, a grading rubric, and a maximum number of iterations.
+For complex tasks, the agent uses a **rubric** to confirm its plan before building. 
 
-The agent works autonomously toward the rubric, evaluating its own progress after each step. It continues iterating until it meets the rubric's criteria or hits the iteration limit.
+When you ask the agent to build something broad or ambiguous (like "add health checking"), it will first ask you questions to clarify the requirements. Once it has enough information, it presents a rubric — a clear specification of what it intends to build, including the flow, components, and integrations needed.
+
+You can review the rubric and either request changes or click **Start Building** to approve the plan. The agent will not modify your canvas until you approve the rubric.
 
 ## Tools and capabilities
 
@@ -69,7 +71,7 @@ To ensure performance and stability, the agent operates with specific limits:
 
 ## Provider setup
 
-The built-in agent is powered by Anthropic's Claude. To enable the agent in a self-hosted SuperPlane deployment, an administrator must configure the following environment variables:
+The built-in agent is powered by Anthropic's Claude Managed Agents. To enable the agent in a self-hosted SuperPlane deployment, an administrator must configure the following environment variables:
 
 - `ANTHROPIC_API_KEY`: Your Anthropic API key.
 - `ANTHROPIC_AGENT_ID`: The ID of your managed Anthropic agent.

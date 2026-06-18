@@ -75,12 +75,17 @@ To add a note, click the **sticky-note** button in the top-right toolbar.
 
 ## Versioning
 
-Canvases are versioned. You edit a draft and publish changes when you're ready to update live.
+Canvases are versioned using a Git repository in the background. You edit a draft, commit your changes, and publish when you're ready to update the live app.
 
 In the UI, versioned canvases expose an **Edit** mode and a **Versioning** view:
 
-1. Enter **Edit** mode to work on your draft.
-2. Use **Versioning** to review your draft and publish it.
+1. **Live vs Draft versions**: The live version is what currently runs in production. A draft is an isolated workspace where you can safely make changes. You can have multiple drafts active at the same time (a multi-draft lifecycle).
+2. **Repository-backed staging**: When you edit a draft, your changes are written to a staging layer. You can view a visual diff of your staged changes before committing them.
+3. **Commit vs Publish**: 
+   - **Commit**: Saves your staged changes to the draft's branch in the repository.
+   - **Publish**: Merges your draft's branch into the live version, making your changes active.
+4. **Discard/Reset**: If you don't like your staged changes, you can discard them to reset the draft back to its last commit. If a draft has conflicts with the live version, you can reset the draft to match the live version.
+5. **Permanent versions sidebar**: The UI provides a sidebar to manage your drafts, view commit history, and switch between versions.
 
 For CLI commands, see [SuperPlane CLI](/installation/cli).
 

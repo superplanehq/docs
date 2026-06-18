@@ -9,8 +9,8 @@ SuperPlane includes a built-in AI agent that helps you build workflows, debug ex
 
 The agent adapts to your current task using different modes:
 
-- **Builder**: Helps you design workflows, configure [nodes](/concepts/component-nodes), and write code.
-- **Operator**: Helps you monitor runs, inspect memory, and troubleshoot failed executions.
+- **Build**: Helps you design workflows, configure [nodes](/concepts/component-nodes), and make changes to the canvas.
+- **Ask**: A read-only mode to help you monitor runs, inspect memory, and troubleshoot failed executions.
 
 You can switch modes in the chat interface to focus the agent's tools and context on your immediate goal.
 

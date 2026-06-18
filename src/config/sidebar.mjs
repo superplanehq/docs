@@ -24,6 +24,7 @@ export const sidebar = [
       },
       { label: "Memory", slug: "concepts/canvas-memory" },
       { label: "Files", slug: "concepts/files" },
+      { label: "Agent", slug: "concepts/agent" },
     ],
   },
   {
@@ -57,9 +58,18 @@ export const sidebar = [
       { label: "Hetzner", slug: "installation/single-host/hetzner" },
       { label: "DigitalOcean", slug: "installation/single-host/digitalocean" },
       { label: "Linode", slug: "installation/single-host/linode" },
-      { label: "Generic server", slug: "installation/single-host/generic-server" },
-      { label: "Google Kubernetes Engine", slug: "installation/kubernetes/gke" },
-      { label: "Amazon Kubernetes (EKS)", slug: "installation/kubernetes/amazon-eks" },
+      {
+        label: "Generic server",
+        slug: "installation/single-host/generic-server",
+      },
+      {
+        label: "Google Kubernetes Engine",
+        slug: "installation/kubernetes/gke",
+      },
+      {
+        label: "Amazon Kubernetes (EKS)",
+        slug: "installation/kubernetes/amazon-eks",
+      },
       { label: "Beacon", slug: "installation/beacon" },
       { label: "CLI", slug: "installation/cli" },
     ],

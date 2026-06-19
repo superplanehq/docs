@@ -1,0 +1,73 @@
+---
+title: Organizations, Integrations & Secrets
+description: Manage organizations, connected integrations, and secrets via the CLI.
+---
+
+## Managing organizations
+
+Get details for the current organization:
+
+```sh
+superplane organizations get
+```
+
+Update the current organization's name or description:
+
+```sh
+superplane organizations update --name "New Name" --description "New description"
+```
+
+## Managing integrations
+
+List connected integrations:
+
+```sh
+superplane integrations list
+```
+
+Get details for one connected integration:
+
+```sh
+superplane integrations get <connected_integration_id>
+```
+
+List resources available from a connected integration:
+
+```sh
+superplane integrations list-resources --id <connected_integration_id> --type <resource_type>
+```
+
+You can pass additional query parameters when needed:
+
+```sh
+superplane integrations list-resources \
+  --id <connected_integration_id> \
+  --type <resource_type> \
+  --parameters key=value,key2=value2
+```
+
+## Managing secrets
+
+List secrets:
+
+```sh
+superplane secrets list
+```
+
+Create a secret from a file:
+
+```sh
+superplane secrets create --file my_secret.yaml
+```
+
+Update a secret from a file:
+
+```sh
+superplane secrets update --file my_secret.yaml
+```
+
+Delete a secret:
+
+```sh
+superplane secrets delete <secret_name_or_id>
+```

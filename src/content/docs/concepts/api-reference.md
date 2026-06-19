@@ -31,5 +31,5 @@ curl -s https://app.superplane.com/api/v1/canvases \
 
 ## Using with the CLI
 
-The [SuperPlane CLI](/installation/cli) wraps the same API. If you prefer a
+The [SuperPlane CLI](/cli/overview) wraps the same API. If you prefer a
 terminal-based workflow, the CLI handles authentication and formatting for you.

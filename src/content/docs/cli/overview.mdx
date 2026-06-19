@@ -1,0 +1,133 @@
+---
+title: CLI Overview & Setup
+description: Install the SuperPlane CLI, authenticate, and manage your configuration.
+---
+
+import { Aside } from "@astrojs/starlight/components";
+
+Use the SuperPlane CLI to connect to your organization and manage workflows from your terminal.
+
+<Aside type="tip" title="AI agents">
+For agent-first usage of the CLI (auth, apps, secrets, runs), use the
+[SuperPlane skills repository](https://github.com/superplanehq/skills) and install the
+`superplane-cli` skill: `npx skills add superplanehq/skills --skill superplane-cli`.
+</Aside>
+
+## Installation
+
+### Direct download
+
+Get the latest binary for your operating system and architecture:
+
+```sh
+curl -fsSL https://install.superplane.com/install.sh | sh
+```
+
+Older versions can be found in our [GitHub Releases page](https://github.com/superplanehq/superplane/releases).
+
+### APT (Debian and Ubuntu)
+
+On Debian-based distributions you can install and upgrade the CLI through `apt`.
+
+Trust the SuperPlane signing key, add the repository, and install:
+
+```sh
+sudo install -d -m 0755 /etc/apt/keyrings
+curl -fsSL https://s3.amazonaws.com/apt.superplane.com/gpg.key \
+  | sudo gpg --dearmor -o /etc/apt/keyrings/superplane.gpg
+
+echo "deb [signed-by=/etc/apt/keyrings/superplane.gpg] https://s3.amazonaws.com/apt.superplane.com stable main" \
+  | sudo tee /etc/apt/sources.list.d/superplane.list
+
+sudo apt-get update
+sudo apt-get install -y superplane-cli
+```
+
+The repo serves both `amd64` and `arm64` packages; `apt` picks the right one automatically.
+
+## Authentication
+
+The SuperPlane CLI uses API tokens for authentication. You can use:
+
+- **Service account token** (recommended for scripts and integrations): see [Service Accounts](/concepts/service-accounts).
+- **Personal token** (tied to your user): go to **Profile > API token** in the SuperPlane UI.
+
+You can authenticate in two ways:
+
+### Environment variables (recommended for CI/CD)
+
+Set the following environment variables to authenticate automatically without running `superplane connect`:
+
+```sh
+export SUPERPLANE_URL="https://app.superplane.com"
+export SUPERPLANE_TOKEN="your-api-token"
+```
+
+### Interactive connect
+
+Connect to a SuperPlane organization interactively:
+
+```sh
+superplane connect <SUPERPLANE_URL> <API_TOKEN>
+```
+
+Show your identity for the current context:
+
+```sh
+superplane whoami
+```
+
+### Multiple organizations
+
+You can connect to multiple SuperPlane organizations at the same time. Each connection will become a CLI context. You can list contexts and switch interactively:
+
+```sh
+superplane contexts
+```
+
+Switch directly with a context selector:
+
+```sh
+superplane contexts <SUPERPLANE_URL>/<ORGANIZATION_NAME>
+```
+
+## Output formats
+
+All commands support `--output` (or `-o`) to choose the response format.
+
+Possible values are:
+
+- `text` (default)
+- `json`
+- `yaml`
+
+Examples:
+
+```sh
+superplane apps list --output text
+superplane apps list -o json
+superplane apps canvas get <app_name_or_id> -o yaml
+```
+
+## Updating the CLI
+
+If a newer version is available the CLI prints an upgrade notice after
+every command. You can update in place with:
+
+```sh
+superplane upgrade
+```
+
+`superplane self-update` is an alias for the same command. Self-update is
+available on macOS and Linux for release-built binaries; dev builds and
+Windows are not supported.
+
+If you installed via `apt`, upgrade through the package manager instead:
+
+```sh
+sudo apt-get update
+sudo apt-get install --only-upgrade superplane-cli
+```
+
+First-time install uses `install.sh` or a manual binary from [Installation](#installation). To reinstall or pin a
+version, run `install.sh` again.

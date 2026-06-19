@@ -1,0 +1,64 @@
+---
+title: Runs & Executions
+description: Inspect app runs, executions, and queues from the CLI.
+---
+
+## Runtime operations
+
+List runs for an app:
+
+```sh
+superplane runs list --app-id <app_id>
+```
+
+Filter runs by state or result:
+
+```sh
+superplane runs list --app-id <app_id> --state STATE_STARTED --result RESULT_FAILED
+```
+
+Show full details for a specific run:
+
+```sh
+superplane runs describe <run_id> --app-id <app_id>
+```
+
+## Legacy runtime operations (deprecated)
+
+The following commands interact with lower-level execution primitives. They are deprecated in favor of the `runs` commands above.
+
+List root events:
+
+```sh
+superplane events list --app-id <app_id>
+```
+
+List executions for a root event:
+
+```sh
+superplane events list-executions --app-id <app_id> --event-id <event_id>
+```
+
+List node executions:
+
+```sh
+superplane executions list --app-id <app_id> --node-id <node_id>
+```
+
+Cancel a node execution:
+
+```sh
+superplane executions cancel --app-id <app_id> --execution-id <execution_id>
+```
+
+List queue items for a node:
+
+```sh
+superplane queue list --app-id <app_id> --node-id <node_id>
+```
+
+Delete a queue item:
+
+```sh
+superplane queue delete --app-id <app_id> --node-id <node_id> --item-id <item_id>
+```

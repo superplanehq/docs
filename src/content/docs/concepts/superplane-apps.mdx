@@ -14,24 +14,26 @@ A **SuperPlane app** is a workspace where you design and run long-lived, event-d
   </figure>
 </div>
 
-Each app brings together four core building blocks:
+Each app brings together five core building blocks:
 
 - **[Canvas](/concepts/canvas)** — The workspace where you design and run workflows. It is a graph of nodes connected by subscriptions that define how events flow between steps. Unlike a linear pipeline, a Canvas is an infinite space that can hold multiple independent graphs and define multiple workflows, each with their own paths of execution.
 - **[Console](/concepts/console)** — The operational surface for the app. It turns workflow state into an at-a-glance view with dashboards, runbooks, tables of live data, and charts.
 - **[Memory](/concepts/canvas-memory)** — Persistent, app-scoped storage for JSON data. Workflows can read and write to Memory to share state across runs and power Console dashboards.
 - **[Files](/concepts/files)** — The git repository backing the app. It stores the `canvas.yaml` and `console.yaml` definitions, along with any other files or scripts your app needs, enabling version control and infrastructure-as-code practices.
+- **[Agent](/concepts/agent)** — A built-in AI assistant that helps you design workflows, make canvas changes, and troubleshoot failed executions.
 
 These building blocks work together to provide a complete platform for software engineering automation.
 
 ## How building blocks work together
 
-When you build a SuperPlane app, the four core components interact to create a complete operational tool:
+When you build a SuperPlane app, the core components interact to create a complete operational tool:
 
 1. **Events trigger workflows**: An external event (like a GitHub push or a PagerDuty incident) triggers a node on the **Canvas**.
 2. **Workflows process data**: The **Canvas** executes the workflow, transforming data, calling external APIs, or waiting for human input.
 3. **State is saved**: Throughout the workflow, nodes can read and write JSON data to **Memory**, preserving state across runs.
 4. **Operators monitor and act**: The **Console** reads from **Memory** and live run data to display dashboards, KPIs, and actionable buttons for human operators.
 5. **Everything is versioned**: The entire configuration of the **Canvas** and **Console** is saved in the **Files** repository, allowing you to draft, commit, and publish changes safely.
+6. **AI assists operations**: The **Agent** can read the app's state, inspect runs, and propose changes to the canvas to fix issues or add features.
 
 This architecture means you do not just build a script—you build a fully operational application with its own UI, state, and version history.
 

@@ -1,34 +1,24 @@
 ---
 title: Welcome
-description: Get up and running with SuperPlane, the open source DevOps control plane for event-driven apps and operational workflows.
+description: Get up and running with SuperPlane, the open source automation engine for AI-driven engineering.
 ---
 
-SuperPlane is an open source DevOps control plane for building event-driven apps and long-lived workflows. It works across the tools your team already uses—like Git, CI/CD, incident response, observability, infrastructure, and notifications.
+SuperPlane is an open source automation engine for AI-driven engineering.
 
-Most teams end up stitching these systems together with a mix of scripts, one-off CI jobs, and manual steps. That works until a workflow needs to span multiple tools, wait for human approval, or run over hours and days.
+As AI accelerates engineering throughput, traditional manual approvals and fragile scripts break down. To safely scale AI, you must automate every manual check and enforce strict quality guardrails across your software development lifecycle.
 
-SuperPlane gives you a place to model these workflows as fully operational **Apps**.
+SuperPlane lets you model these high-velocity workflows as fully operational [Apps](/concepts/superplane-apps). Apps execute your processes deterministically using graphs, providing the exact guardrails AI needs to safely interact with your tools—like Git, CI/CD, and observability.
 
 ![Run chain view showing end-to-end workflow execution history](../../assets/superplane-canvas-example.png)
 
-## The SuperPlane App
-
-Instead of writing isolated scripts, you build a SuperPlane App. Each app brings together five core building blocks to create a complete operational tool:
-
-- **[Canvas](/concepts/canvas)**: Design event-driven workflows with durable execution. Connect tools, define how events flow, and safely pause for human input.
-- **[Console](/concepts/console)**: Build operational dashboards. Turn workflow state into an at-a-glance view with tables, charts, KPIs, and actionable runbooks.
-- **[Memory](/concepts/canvas-memory)**: Store persistent JSON state across workflow runs to track ongoing processes like incidents or staged rollouts.
-- **[Files](/concepts/files)**: Manage your app as code. Every app is backed by a Git repository for safe drafting, committing, and publishing.
-- **[Agent](/concepts/agent)**: A built-in AI assistant that can help you design workflows, make canvas changes, and troubleshoot failed executions.
-
 ## What you can build
 
-Use SuperPlane when the workflow is bigger than a single pipeline or script:
+SuperPlane is built for workflows that are too complex for a single script or CI job. You can build:
 
-- **Cross-tool automation with guardrails**: coordinate releases with approvals, time windows, checks, and rollback paths.
-- **Human-in-the-loop operations**: pause for sign-off, collect decisions, and resume exactly where you left off.
-- **Incident and on-call workflows**: pull context from multiple systems, fan out notifications, and keep a work log.
-- **“Glue work” you don’t want to re-build**: webhooks, retries, routing, payload transforms, and a unified run history.
+- **AI-driven code review**: Automatically review pull requests, enforce style guides, and calculate risk scores using LLMs.
+- **Progressive delivery**: Coordinate staged rollouts with automatic health checks, manual approvals, and instant rollback paths.
+- **Incident response**: Pull context from observability tools, page the on-call engineer, create a dedicated chat channel, and track the resolution state.
+- **Infrastructure provisioning**: Provide a self-serve portal for developers to request databases or environments with built-in policy checks.
 
 ## Try it locally (fastest path)
 
@@ -43,11 +33,11 @@ Then open `http://localhost:3000`.
 
 For more details and options, see the [installation guide](/installation/overview).
 
-## Project status: alpha
+## Project status: beta
 
+- **Cloud beta**: We are launching our managed cloud offering next week.
 - **Self-hostable**: SuperPlane is designed to run on your own infrastructure.
-- **Expect rough edges**: we’re still stabilizing the core primitives and integrations.
-- **Breaking changes are possible**: but we'll do our best to avoid them.
+- **Stabilizing**: Core primitives and integrations are maturing. Breaking changes are possible, but we'll do our best to avoid them.
 
 ## LLM and agent tooling
 

@@ -52,9 +52,20 @@ The SuperPlane CLI uses API tokens for authentication. You can use:
 - **Service account token** (recommended for scripts and integrations): see [Service Accounts](/concepts/service-accounts).
 - **Personal token** (tied to your user): go to **Profile > API token** in the SuperPlane UI.
 
-## Connect
+You can authenticate in two ways:
 
-Connect to a SuperPlane organization:
+### Environment variables (recommended for CI/CD)
+
+Set the following environment variables to authenticate automatically without running `superplane connect`:
+
+```sh
+export SUPERPLANE_URL="https://app.superplane.com"
+export SUPERPLANE_TOKEN="your-api-token"
+```
+
+### Interactive connect
+
+Connect to a SuperPlane organization interactively:
 
 ```sh
 superplane connect <SUPERPLANE_URL> <API_TOKEN>
@@ -96,6 +107,20 @@ Examples:
 superplane apps list --output text
 superplane apps list -o json
 superplane apps canvas get <app_name_or_id> -o yaml
+```
+
+## Managing organizations
+
+Get details for the current organization:
+
+```sh
+superplane organizations get
+```
+
+Update the current organization's name or description:
+
+```sh
+superplane organizations update --name "New Name" --description "New description"
 ```
 
 ## Managing apps
@@ -254,22 +279,13 @@ When versioning is enabled, edits to `canvas.yaml` and `console.yaml` are writte
 ```sh
 # Stage changes to canvas.yaml
 superplane apps canvas update --draft-id <draft_id> -f my_canvas.yaml
-
-# View visual diff of staged changes (UI only) or check status
-# Then commit the staged changes
-superplane apps drafts commit <draft_id> <app_name_or_id>
-
-# Or discard staged changes to reset to the last commit
-superplane apps drafts discard <draft_id> <app_name_or_id>
 ```
+
+You can view a visual diff of staged changes and commit or discard them using the SuperPlane UI or API.
 
 ### Publish a draft
 
-Once your draft is ready and all changes are committed, publish it to make it the live version:
-
-```sh
-superplane apps drafts publish <draft_id> <app_name_or_id>
-```
+Once your draft is ready and all changes are committed, you can publish it to make it the live version using the SuperPlane UI or API.
 
 ### Canvas YAML shape (minimal working example)
 
@@ -353,6 +369,22 @@ file with `--file`:
 superplane apps console set --file console.yaml
 ```
 
+## Managing app memory
+
+List memory records stored by an app:
+
+```sh
+superplane apps memory list <app_name_or_id>
+```
+
+Filter memory records by a specific namespace:
+
+```sh
+superplane apps memory list <app_name_or_id> --namespace "my-namespace"
+```
+
+If you already set an active app, the app argument is optional.
+
 ## Reading app files
 
 Use `apps files` to inspect the git repository attached to an app.
@@ -411,7 +443,13 @@ Describe one trigger:
 superplane index triggers --name <trigger_name>
 ```
 
-Download the full registry (integrations, actions, and triggers) to a local JSON file:
+List available UI widgets:
+
+```sh
+superplane index widgets
+```
+
+Download the full registry (integrations, actions, triggers, and widgets) to a local JSON file:
 
 ```sh
 superplane index dump
@@ -480,6 +518,28 @@ superplane secrets delete <secret_name_or_id>
 ```
 
 ## Runtime operations
+
+List runs for an app:
+
+```sh
+superplane runs list --app-id <app_id>
+```
+
+Filter runs by state or result:
+
+```sh
+superplane runs list --app-id <app_id> --state STATE_STARTED --result RESULT_FAILED
+```
+
+Show full details for a specific run:
+
+```sh
+superplane runs describe <run_id> --app-id <app_id>
+```
+
+### Legacy runtime operations (deprecated)
+
+The following commands interact with lower-level execution primitives. They are deprecated in favor of the `runs` commands above.
 
 List root events:
 

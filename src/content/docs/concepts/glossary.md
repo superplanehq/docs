@@ -103,4 +103,4 @@ condition, or select an output path). See the [Expressions](/concepts/expression
 ## Service account
 
 A **service account** is a non-human identity used to call the SuperPlane API from scripts and external systems. Access is governed by [RBAC](/concepts/access-control). See
-[Service Accounts](/concepts/service-accounts) for details.
+[Service accounts](/security/service-accounts) for details.

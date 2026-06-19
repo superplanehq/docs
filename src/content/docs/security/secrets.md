@@ -59,4 +59,4 @@ Secret management requires specific permissions:
 - `secrets.update` - Update existing secrets
 - `secrets.delete` - Delete secrets
 
-By default, only `Admin` and `Owner` roles have these permissions. See [Access Control](/concepts/access-control) for details.
+By default, only `Admin` and `Owner` roles have these permissions. See [Access Control](/security/access-control) for details.

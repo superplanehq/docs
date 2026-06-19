@@ -1,5 +1,5 @@
 ---
-title: Service Accounts
+title: Service accounts
 description: Use service accounts and API tokens for programmatic and automation access.
 ---
 
@@ -26,7 +26,7 @@ superplane connect <SUPERPLANE_URL> <SERVICE_ACCOUNT_TOKEN>
 ## Permissions
 
 The token can only do what the service account’s role allows. Permissions are
-organization-scoped and governed by [RBAC](/concepts/access-control).
+organization-scoped and governed by [RBAC](/security/access-control).
 
 - **Viewer**: Read-only (e.g. list canvases, read run history).
 - **Admin** or custom roles: Create or update canvases, integrations, or secrets when required.

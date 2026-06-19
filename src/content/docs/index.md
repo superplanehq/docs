@@ -16,7 +16,7 @@ SuperPlane lets you model these high-velocity workflows as fully operational [Ap
 SuperPlane is built for workflows that are too complex for a single script or CI job. You can build:
 
 - **AI-driven code review**: Automatically review pull requests, enforce style guides, and calculate risk scores using LLMs.
-- **Progressive delivery**: Coordinate staged rollouts with automatic health checks, manual approvals, and instant rollback paths.
+- **Release management**: Coordinate complex, multi-repo, multi-regional deployments that span multiple days, incorporating automatic health checks, manual approvals, and instant rollback paths.
 - **Incident response**: Pull context from observability tools, page the on-call engineer, create a dedicated chat channel, and track the resolution state.
 - **Infrastructure provisioning**: Provide a self-serve portal for developers to request databases or environments with built-in policy checks.
 
@@ -35,7 +35,7 @@ For more details and options, see the [installation guide](/installation/overvie
 
 ## Project status: beta
 
-- **Cloud beta**: We are launching our managed cloud offering next week.
+- **Cloud beta**: We are launching our managed cloud offering soon.
 - **Self-hostable**: SuperPlane is designed to run on your own infrastructure.
 - **Stabilizing**: Core primitives and integrations are maturing. Breaking changes are possible, but we'll do our best to avoid them.
 

@@ -262,6 +262,7 @@ Use runner components when a workflow step needs code or shell that SuperPlane i
 - Run build scripts, linters, or custom tooling on dedicated machines
 - Transform upstream payload data with JavaScript or Python and pass structured output downstream
 - Execute in a specific container image without managing SSH or long-lived hosts
+- Provide sandboxed compute for coding agents and AI workflows
 
 For remote commands on a host you manage directly, consider [SSH Command](/components/core/#ssh-command)
 instead. For HTTP or API calls, use [HTTP Request](/components/core/#http-request).

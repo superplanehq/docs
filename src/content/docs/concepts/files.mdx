@@ -1,12 +1,12 @@
 ---
 title: Files
-description: Each app has a git repository with canvas.yaml and console.yaml — edit from the Files tab or the CLI.
+description: Each app has a git repository. It stores canvas.yaml, console.yaml, and any other files your app needs.
 ---
 
 import filesOverview from "../../../assets/files-overview.png";
 import { Image } from "astro:assets";
 
-Every app is backed by a **git repository**. The **Files** tab is where you view and edit the YAML that defines the app.
+Every app is backed by a **git repository**. The **Files** tab is where you view and edit the files that define the app.
 
 <div class="big-image">
   <figure class="sp-canvas-figure">
@@ -19,6 +19,10 @@ Every app is backed by a **git repository**. The **Files** tab is where you view
 
 ## What's in the repository
 
+Because the app is backed by a standard Git repository, you can store any files you need inside it, such as scripts, READMEs, or custom configuration files. 
+
+However, two files have a special meaning to SuperPlane:
+
 | File | Purpose |
 | ---- | ------- |
 | `canvas.yaml` | Workflow graph: nodes, subscriptions, and configuration |
@@ -30,8 +34,8 @@ Changes you make in the UI are reflected in these files. Edits in **Files** foll
 
 Open **Files** from the app header (alongside **Canvas**, **Console**, and **Memory**).
 
-- View and edit `canvas.yaml` and `console.yaml` in the browser
-- Export YAML for review or backup
+- View and edit files in the browser
+- Export files for review or backup
 - Import YAML to replace the graph or console in one update (console import is replace-all)
 
 ## CLI

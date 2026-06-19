@@ -1,13 +1,12 @@
 ---
 title: Overview
-description: A SuperPlane app is a control plane for long-lived, event-driven DevOps workflows across your existing tools.
+description: A SuperPlane app is a control plane for long-lived, event-driven software engineering workflows across your existing tools.
 ---
 
 import appOverviewCanvas from "../../../assets/app-overview-canvas.png";
 import { Image } from "astro:assets";
 
-A **SuperPlane app** is a workspace where you design and run long-lived, event-driven DevOps workflows.
-It consists of an execution engine, git repository, management console and memory.
+A **SuperPlane app** is a workspace where you design and run long-lived, event-driven software engineering workflows.
 
 <div class="big-image">
   <figure class="sp-canvas-figure">
@@ -15,20 +14,27 @@ It consists of an execution engine, git repository, management console and memor
   </figure>
 </div>
 
-Each app brings together:
+Each app brings together four core building blocks:
 
-- **[Canvas](/concepts/canvas)** — The workflow engine of the app
-- **[Console](/concepts/console)** — The operational console for the app
-- **[Memory](/concepts/canvas-memory)** — Persistent storage for the app
-- **[Files](/concepts/files)** — Git repository backing the app
+- **[Canvas](/concepts/canvas)** — The workspace where you design and run workflows. It is a graph of nodes connected by subscriptions that define how events flow between steps. Unlike a linear pipeline, a Canvas is an infinite space that can hold multiple independent graphs and define multiple workflows, each with their own paths of execution.
+- **[Console](/concepts/console)** — The operational surface for the app. It turns workflow state into an at-a-glance view with dashboards, runbooks, tables of live data, and charts.
+- **[Memory](/concepts/canvas-memory)** — Persistent, app-scoped storage for JSON data. Workflows can read and write to Memory to share state across runs and power Console dashboards.
+- **[Files](/concepts/files)** — The git repository backing the app. It stores the `canvas.yaml` and `console.yaml` definitions, along with any other files or scripts your app needs, enabling version control and infrastructure-as-code practices.
+
+These building blocks work together to provide a complete platform for software engineering automation.
+
+## How building blocks work together
+
+When you build a SuperPlane app, the four core components interact to create a complete operational tool:
+
+1. **Events trigger workflows**: An external event (like a GitHub push or a PagerDuty incident) triggers a node on the **Canvas**.
+2. **Workflows process data**: The **Canvas** executes the workflow, transforming data, calling external APIs, or waiting for human input.
+3. **State is saved**: Throughout the workflow, nodes can read and write JSON data to **Memory**, preserving state across runs.
+4. **Operators monitor and act**: The **Console** reads from **Memory** and live run data to display dashboards, KPIs, and actionable buttons for human operators.
+5. **Everything is versioned**: The entire configuration of the **Canvas** and **Console** is saved in the **Files** repository, allowing you to draft, commit, and publish changes safely.
+
+This architecture means you do not just build a script—you build a fully operational application with its own UI, state, and version history.
 
 ## Getting started
 
-To get started, click the **New App** button in the top-right corner of the page:
-
-1. Click the **New App** button in the top-right corner of the page
-1. Select a prebuilt app template or create a blank app
-1. Click the **Create** button
-
-This will create a new app with a blank canvas, console, memory, and git repository.
-You can then start designing your workflows on the canvas, and manage your app in the console.
+To get started with building your first app, see the [Quickstart](/get-started/quickstart) tutorial.

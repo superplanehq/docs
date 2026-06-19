@@ -1,20 +1,27 @@
 ---
 title: Welcome
-description: Get up and running with SuperPlane, the open source DevOps control plane for event-driven workflows.
+description: Get up and running with SuperPlane, the open source platform for building internal developer tools and operational workflows.
 ---
 
-SuperPlane is an open source DevOps control plane for running long-lived, event-driven workflows.
-It works across the tools teams already use such as Git, CI/CD, incident response, observability, infra, notifications, and more.
+SuperPlane is an open source platform for building internal developer tools and long-lived, event-driven workflows. It works across the tools your team already uses—like Git, CI/CD, incident response, observability, infrastructure, and notifications.
 
-Most teams end up stitching these systems together with a mix of scripts, one-off CI jobs, and manual steps. That works
-until the workflow needs to span multiple tools, wait for humans, or run over hours and days.
+Most teams end up stitching these systems together with a mix of scripts, one-off CI jobs, and manual steps. That works until a workflow needs to span multiple tools, wait for human approval, or run over hours and days.
 
-SuperPlane gives you a place to model these workflows as a system: connect your tools, define how events flow, and get a
-complete, queryable execution history for debugging, audit, and shared understanding.
+SuperPlane gives you a place to model these workflows as fully operational **Apps**.
 
 ![Run chain view showing end-to-end workflow execution history](../../assets/superplane-canvas-example.png)
 
-## What you can build with SuperPlane
+## The SuperPlane App
+
+Instead of writing isolated scripts, you build a SuperPlane App. Each app brings together five core building blocks to create a complete operational tool:
+
+- **[Canvas](/concepts/canvas)**: Design event-driven workflows with durable execution. Connect tools, define how events flow, and safely pause for human input.
+- **[Console](/concepts/console)**: Build operational dashboards. Turn workflow state into an at-a-glance view with tables, charts, KPIs, and actionable runbooks.
+- **[Memory](/concepts/canvas-memory)**: Store persistent JSON state across workflow runs to track ongoing processes like incidents or staged rollouts.
+- **[Files](/concepts/files)**: Manage your app as code. Every app is backed by a Git repository for safe drafting, committing, and publishing.
+- **[Agent](/concepts/agent)**: A built-in AI assistant that can help you design workflows, make canvas changes, and troubleshoot failed executions.
+
+## What you can build
 
 Use SuperPlane when the workflow is bigger than a single pipeline or script:
 
@@ -25,7 +32,7 @@ Use SuperPlane when the workflow is bigger than a single pipeline or script:
 
 ## Try it locally (fastest path)
 
-If you just want to click around and run a workflow, start the demo container:
+If you want to click around and run a workflow, start the demo container:
 
 ```bash
 docker pull ghcr.io/superplanehq/superplane-demo:stable
@@ -34,7 +41,7 @@ docker run --rm -p 3000:3000 -v spdata:/app/data -ti ghcr.io/superplanehq/superp
 
 Then open `http://localhost:3000`.
 
-For more details and options, see [installation guide](/installation/overview).
+For more details and options, see the [installation guide](/installation/overview).
 
 ## Project status: alpha
 

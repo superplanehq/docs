@@ -11,6 +11,18 @@ executing shell commands, bash scripts, JavaScript, and Python scripts.
 - [Running JavaScript](#running-javascript)
 - [Running Python](#running-python)
 
+## When to use runners
+
+Use runner components when a workflow step needs code or shell that SuperPlane integrations do not cover:
+
+- Run build scripts, linters, or custom tooling on dedicated machines
+- Transform upstream payload data with JavaScript or Python and pass structured output downstream
+- Execute in a specific container image without managing SSH or long-lived hosts
+- Provide sandboxed compute for coding agents and AI workflows
+
+For remote commands on a host you manage directly, consider [SSH Command](/components/core/#ssh-command)
+instead. For HTTP or API calls, use [HTTP Request](/components/core/#http-request).
+
 ## Running Shell Commands
 
 Runs shell commands on a runner machine. Commands execute in order. The task succeeds when the last
@@ -295,18 +307,6 @@ If a task is not progressing as expected:
 - **Stuck in Queued**: Check if your runner fleet has available machines or if the machines are offline.
 - **Fails immediately**: Check the run history or live logs. Common issues include syntax errors in the script, missing environment variables, or an invalid custom Docker image reference.
 - **Hangs in Running**: Ensure your script does not contain infinite loops or wait for interactive input. You can configure an execution timeout on the node to automatically kill hanging tasks.
-
-## When to use runners
-
-Use runner components when a workflow step needs code or shell that SuperPlane integrations do not cover:
-
-- Run build scripts, linters, or custom tooling on dedicated machines
-- Transform upstream payload data with JavaScript or Python and pass structured output downstream
-- Execute in a specific container image without managing SSH or long-lived hosts
-- Provide sandboxed compute for coding agents and AI workflows
-
-For remote commands on a host you manage directly, consider [SSH Command](/components/core/#ssh-command)
-instead. For HTTP or API calls, use [HTTP Request](/components/core/#http-request).
 
 For more on how payloads flow between nodes, see [Data Flow](/concepts/data-flow). For expression
 syntax inside runner scripts and node configuration, see [Expressions](/concepts/expressions).

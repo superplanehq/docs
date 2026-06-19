@@ -17,6 +17,7 @@ SuperPlane is built for workflows that are too complex for a single script or CI
 
 - **AI-driven code review**: Automatically review pull requests, enforce style guides, perform QA, fill documentation gaps, and calculate change risk scores using LLMs.
 - **Release management**: Coordinate complex, multi-regional deployments that span hours or days, incorporating automatic health checks, manual approvals, and instant rollback paths.
+- **Operational dashboards**: Unify data from any engineering event into a custom live UI. Track DORA metrics, active incidents, or deployment health across your entire stack—generated in minutes by the built-in AI agent.
 - **Incident response**: Pull context from observability tools, page the on-call engineer, create a dedicated chat channel, and track the resolution state.
 - **Infrastructure provisioning**: Provide a self-serve portal for developers to request databases or create on-demand ephemeral environments, all with built-in policy checks.
 

@@ -17,7 +17,7 @@ It consists of an execution engine, git repository, management console and memor
 
 Each app brings together four core building blocks:
 
-- **[Canvas](/concepts/canvas)** — The workspace where you design and run workflows visually. It is a graph of nodes connected by subscriptions that define how events flow between steps.
+- **[Canvas](/concepts/canvas)** — The workspace where you design and run workflows. It is a graph of nodes connected by subscriptions that define how events flow between steps. Unlike a linear pipeline, a canvas is an infinite space that can hold multiple independent graphs and define multiple workflows, each with their own paths of execution.
 - **[Console](/concepts/console)** — The operational surface for the app. It turns workflow state into an at-a-glance view with notes, runbooks, pinned nodes, tables of live data, and charts.
 - **[Memory](/concepts/canvas-memory)** — Persistent, app-scoped storage for JSON data. Workflows can read and write to memory to share state across runs and power console dashboards.
 - **[Files](/concepts/files)** — The git repository backing the app. It stores the `canvas.yaml` and `console.yaml` definitions, enabling version control and infrastructure-as-code practices.

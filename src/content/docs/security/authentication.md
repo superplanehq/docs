@@ -7,8 +7,9 @@ This page explains how to authenticate with SuperPlane as a human user or an aut
 
 ## Log in to the UI
 
-When logging into the SuperPlane UI, choose between two primary methods:
+When logging into the SuperPlane UI, choose between the following methods (depending on your organization's configuration):
 
+- **Single Sign-On (SSO)**: Log in securely using your Google or GitHub account.
 - **Email and password**: Standard login using your registered email and password.
 - **Passwordless sign-in**: Log in without a password by requesting a magic link or access code sent to your email. Use this if you forget your password or prefer not to use one.
 

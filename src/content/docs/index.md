@@ -1,31 +1,29 @@
 ---
 title: Welcome
-description: Get up and running with SuperPlane, the open source DevOps control plane for event-driven workflows.
+description: Get up and running with SuperPlane, the open source automation engine for AI-driven engineering.
 ---
 
-SuperPlane is an open source DevOps control plane for running long-lived, event-driven workflows.
-It works across the tools teams already use such as Git, CI/CD, incident response, observability, infra, notifications, and more.
+SuperPlane is an open source automation engine for AI-driven engineering.
 
-Most teams end up stitching these systems together with a mix of scripts, one-off CI jobs, and manual steps. That works
-until the workflow needs to span multiple tools, wait for humans, or run over hours and days.
+As AI accelerates engineering throughput, traditional manual approvals and fragile scripts break down. To safely scale AI, you must automate every manual check and enforce strict quality guardrails across your software development lifecycle.
 
-SuperPlane gives you a place to model these workflows as a system: connect your tools, define how events flow, and get a
-complete, queryable execution history for debugging, audit, and shared understanding.
+SuperPlane lets you model these high-velocity workflows as fully operational [apps](/concepts/superplane-apps). Apps execute your processes deterministically using graphs, providing the exact guardrails AI needs to safely interact with your tools—like Git, CI/CD, and observability.
 
 ![Run chain view showing end-to-end workflow execution history](../../assets/superplane-canvas-example.png)
 
-## What you can build with SuperPlane
+## What you can build
 
-Use SuperPlane when the workflow is bigger than a single pipeline or script:
+SuperPlane is built for workflows that are too complex for a single script or CI job. You can build:
 
-- **Cross-tool automation with guardrails**: coordinate releases with approvals, time windows, checks, and rollback paths.
-- **Human-in-the-loop operations**: pause for sign-off, collect decisions, and resume exactly where you left off.
-- **Incident and on-call workflows**: pull context from multiple systems, fan out notifications, and keep a work log.
-- **“Glue work” you don’t want to re-build**: webhooks, retries, routing, payload transforms, and a unified run history.
+- **AI-driven code review**: Automatically review pull requests, enforce style guides, perform QA, fill documentation gaps, and calculate change risk scores using LLMs.
+- **Release management**: Coordinate complex, multi-regional deployments that span hours or days, incorporating automatic health checks, manual approvals, and instant rollback paths.
+- **Operational dashboards**: Unify data from any engineering event into a custom live UI. Track DORA metrics, active incidents, or deployment health across your entire stack—generated in minutes by the built-in AI agent.
+- **Incident response**: Pull context from observability tools, page the on-call engineer, create a dedicated chat channel, and track the resolution state.
+- **Infrastructure provisioning**: Provide a self-serve portal for developers to request databases or create on-demand ephemeral environments, all with built-in policy checks.
 
 ## Try it locally (fastest path)
 
-If you just want to click around and run a workflow, start the demo container:
+If you want to click around and run a workflow, start the demo container:
 
 ```bash
 docker pull ghcr.io/superplanehq/superplane-demo:stable
@@ -34,13 +32,13 @@ docker run --rm -p 3000:3000 -v spdata:/app/data -ti ghcr.io/superplanehq/superp
 
 Then open `http://localhost:3000`.
 
-For more details and options, see [installation guide](/installation/overview).
+For more details and options, see the [installation guide](/installation/overview).
 
-## Project status: alpha
+## Project status: beta
 
+- **Cloud beta**: We are launching our managed cloud offering soon.
 - **Self-hostable**: SuperPlane is designed to run on your own infrastructure.
-- **Expect rough edges**: we’re still stabilizing the core primitives and integrations.
-- **Breaking changes are possible**: but we'll do our best to avoid them.
+- **Stabilizing**: Core primitives and integrations are maturing. Breaking changes are possible, but we'll do our best to avoid them.
 
 ## LLM and agent tooling
 

@@ -71,7 +71,16 @@ export const sidebar = [
         slug: "installation/kubernetes/amazon-eks",
       },
       { label: "Beacon", slug: "installation/beacon" },
-      { label: "CLI", slug: "installation/cli" },
+    ],
+  },
+  {
+    label: "Command Line Interface (CLI)",
+    items: [
+      { label: "Overview & Installation", slug: "cli/overview" },
+      { label: "Managing Apps", slug: "cli/apps" },
+      { label: "Runs & Executions", slug: "cli/runs" },
+      { label: "Integrations & Secrets", slug: "cli/resources" },
+      { label: "Discovery Index", slug: "cli/discovery" },
     ],
   },
   {

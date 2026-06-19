@@ -1,12 +1,12 @@
 ---
 title: Overview
-description: A SuperPlane app is a control plane for long-lived, event-driven DevOps workflows across your existing tools.
+description: A SuperPlane app is a control plane for long-lived, event-driven SDLC workflows across your existing tools.
 ---
 
 import appOverviewCanvas from "../../../assets/app-overview-canvas.png";
 import { Image } from "astro:assets";
 
-A **SuperPlane app** is a workspace where you design and run long-lived, event-driven DevOps workflows.
+A **SuperPlane app** is a workspace where you design and run long-lived, event-driven SDLC workflows.
 It consists of an execution engine, git repository, management console and memory.
 
 <div class="big-image">
@@ -22,7 +22,7 @@ Each app brings together four core building blocks:
 - **[Memory](/concepts/canvas-memory)** — Persistent, app-scoped storage for JSON data. Workflows can read and write to memory to share state across runs and power console dashboards.
 - **[Files](/concepts/files)** — The git repository backing the app. It stores the `canvas.yaml` and `console.yaml` definitions, along with any other files or scripts your app needs, enabling version control and infrastructure-as-code practices.
 
-These building blocks work together to provide a complete platform for DevOps automation. You design the logic on the Canvas, store state in Memory, manage operations through the Console, and version everything in Files.
+These building blocks work together to provide a complete platform for SDLC (software delivery lifecycle) automation. You design the logic on the Canvas, store state in Memory, manage operations through the Console, and version everything in Files.
 
 ## How building blocks work together
 

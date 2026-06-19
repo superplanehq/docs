@@ -238,6 +238,16 @@ Every task runs in one of two execution modes:
 
 Use **Docker** when you need an isolated environment or a specific toolchain image.
 
+### Docker Image Selection
+
+When using Docker mode, you can select a container image in the UI in two ways:
+- **Preset**: Choose from a dropdown of commonly used, pre-configured images (e.g., `node:22-slim`, `python:3.12-slim`).
+- **Custom**: Select "Custom image" and type the exact image reference (e.g., `registry.example.com/my-tools:1.2.3`).
+
+## Environment Variables
+
+You can pass environment variables to your runner scripts using the **Environment Variables** section in the node configuration. These variables are securely injected into the execution environment (both Host and Docker modes) and are available to your shell commands or scripts via standard environment variable syntax (e.g., `$MY_VAR` in Bash, `process.env.MY_VAR` in Node.js, `os.environ.get('MY_VAR')` in Python).
+
 ## Pre-installed software on the host machine
 
 The runner machine comes with the following pre-installed software.
@@ -254,6 +264,37 @@ The runner machine comes with the following pre-installed software.
 | AWS CLI        | 2.34      |
 
 Use these directly in shell commands, Bash scripts, and setup commands.
+
+## Operator Details
+
+Runners are **Generally Available (GA)** for production workloads.
+
+### Task Lifecycle
+
+A runner task progresses through the following states:
+1. **Queued**: The task is waiting for an available runner machine in the fleet.
+2. **Claimed**: A runner machine has picked up the task and is preparing the environment (e.g., pulling Docker images).
+3. **Running**: The script or commands are currently executing.
+4. **Succeeded** / **Failed** / **Canceled**: The terminal state of the task.
+
+### Live Logs
+
+While a task is executing, you can view its live output directly from the Canvas. Click the **View logs** button on the running node to open a streaming log viewer. This helps you monitor long-running builds or scripts in real-time.
+
+### Cancellation
+
+You can cancel a running task at any time. When you cancel a run from the Canvas UI or via the API, SuperPlane sends a cancellation signal to the task broker, which terminates the process on the runner machine and marks the task as **Canceled**.
+
+### Runner Task Admin Panel
+
+Instance administrators can view all active runner tasks across the entire system. Navigate to the **Admin Panel** > **Runner Tasks** to see a live table of tasks that are currently queued or claimed. This view includes the task ID, status, fleet ID, runner ID, execution mode, and lifecycle timestamps.
+
+### Operational Troubleshooting
+
+If a task is not progressing as expected:
+- **Stuck in Queued**: Check if your runner fleet has available machines or if the machines are offline.
+- **Fails immediately**: Check the run history or live logs. Common issues include syntax errors in the script, missing environment variables, or an invalid custom Docker image reference.
+- **Hangs in Running**: Ensure your script does not contain infinite loops or wait for interactive input. You can configure an execution timeout on the node to automatically kill hanging tasks.
 
 ## When to use runners
 

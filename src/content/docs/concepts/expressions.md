@@ -5,6 +5,10 @@ description: How to write expressions and access payload data in SuperPlane work
 
 SuperPlane uses [Expr](https://expr-lang.org) for expressions. Expressions let you reference data from upstream nodes, transform values, and control workflow logic.
 
+**Don't want to write expressions by hand?** 
+- **Ask the agent**: You can ask the built-in AI agent to write expressions for you. Just describe what you want to extract or calculate in the chat.
+- **Use the Preview tool**: When typing `{{` in a text field or `$` in a condition field, the Canvas editing UI provides an autocomplete dropdown based on actual payload data from previous runs. You can also use the **Preview** tab in the node configuration to test your expressions against real data before running the workflow.
+
 ## The message chain (`$`)
 
 As a run executes, each node's output is added to the message chain. Access it through `$`, referencing nodes by **display name**:
@@ -54,8 +58,6 @@ Deployment of {{$['Release'].data.name}} failed. See: {{$['Deploy'].data.workflo
 ```
 $['Get cat fact'].data.body.length <= 160 && $['Health Check'].data.body.healthy
 ```
-
-Type `$` in a condition field or `{{` in a text field to trigger autocomplete.
 
 ---
 

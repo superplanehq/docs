@@ -24,6 +24,7 @@ export const sidebar = [
       },
       { label: "Memory", slug: "concepts/canvas-memory" },
       { label: "Files", slug: "concepts/files" },
+      { label: "Runs", slug: "concepts/runs" },
       { label: "Agent", slug: "concepts/agent" },
     ],
   },

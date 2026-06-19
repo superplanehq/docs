@@ -91,14 +91,7 @@ For CLI commands, see [SuperPlane CLI](/cli/overview).
 
 ## Durable Execution
 
-SuperPlane provides **durable execution** for your workflows. This means that if a node crashes, times out, or the system restarts, the workflow state is preserved.
-
-Because every node's payload is saved to the message chain, a workflow can safely pause and resume without losing data. This is especially important for workflows that:
-- Wait for human approval (which could take days).
-- Call flaky external APIs that might need to be retried.
-- Run long-running scripts on remote runners.
-
-You don't need to write custom retry logic or state-saving code; durable execution is built into the canvas.
+SuperPlane provides **durable execution** for your workflows, preserving state across steps and system restarts. For more details on how executions are tracked and managed, see [Runs](/concepts/runs).
 
 ## The Canvas Page
 

@@ -7,7 +7,7 @@ This page defines the core terms used throughout the SuperPlane documentation.
 
 ## SuperPlane Apps
 
-A **SuperPlane app** is a control plane for long-lived, event-driven SDLC workflows across your existing tools. See [Overview](/concepts/superplane-apps).
+A **SuperPlane app** is a control plane for long-lived, event-driven software engineering workflows across your existing tools. See [Overview](/concepts/superplane-apps).
 
 ## Canvas
 

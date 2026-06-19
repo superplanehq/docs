@@ -7,7 +7,7 @@ SuperPlane uses [Expr](https://expr-lang.org) for expressions. Expressions let y
 
 **Don't want to write expressions by hand?** 
 - **Ask the agent**: You can ask the built-in AI agent to write expressions for you. Just describe what you want to extract or calculate in the chat.
-- **Use the Preview tool**: When typing `{{` in a text field or `$` in a condition field, the UI provides an autocomplete dropdown based on actual payload data from previous runs. You can also use the **Preview** tab in the node configuration to test your expressions against real data before running the workflow.
+- **Use the Preview tool**: When typing `{{` in a text field or `$` in a condition field, the Canvas editing UI provides an autocomplete dropdown based on actual payload data from previous runs. You can also use the **Preview** tab in the node configuration to test your expressions against real data before running the workflow.
 
 ## The message chain (`$`)
 

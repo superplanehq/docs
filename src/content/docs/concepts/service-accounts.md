@@ -1,5 +1,5 @@
 ---
-title: Service Accounts
+title: Service accounts
 description: Use service accounts and API tokens for programmatic and automation access.
 ---
 

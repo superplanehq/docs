@@ -41,9 +41,10 @@ export const sidebar = [
   {
     label: "Security",
     items: [
+      { label: "Authentication & Accounts", slug: "concepts/authentication" },
       { label: "Secrets", slug: "concepts/secrets" },
       { label: "RBAC", slug: "concepts/access-control" },
-      { label: "Service Accounts", slug: "concepts/service-accounts" },
+      { label: "Service accounts", slug: "concepts/service-accounts" },
     ],
   },
   {

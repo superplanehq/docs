@@ -17,9 +17,11 @@ All API requests require a valid API token sent in the `Authorization` header:
 Authorization: Bearer <API_TOKEN>
 ```
 
+For a full overview of authentication methods, see [Authentication and accounts](/concepts/authentication).
+
 You can obtain a token in two ways:
 
-- **Service account token** (recommended for scripts and integrations): see [Service Accounts](/concepts/service-accounts).
+- **Service account token** (recommended for scripts and integrations): see [Service accounts](/concepts/service-accounts).
 - **Personal token** (tied to your user): go to **Profile > API token** in the SuperPlane UI.
 
 ## Quick example

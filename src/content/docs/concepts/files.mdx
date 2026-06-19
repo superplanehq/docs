@@ -30,6 +30,28 @@ However, two files have a special meaning to SuperPlane:
 
 Changes you make in the UI are reflected in these files. Edits in **Files** follow the same **draft and publish** flow as on the [Canvas](/concepts/canvas) and [Console](/concepts/console).
 
+## How files connect to your workflows
+
+The files in your repository are not just static configuration—they interact with the other core components of your SuperPlane app.
+
+### AI Agent
+
+The [built-in AI agent](/concepts/agent) has direct access to your app's repository. When you ask the agent to build or troubleshoot a workflow, it can:
+- **Read files**: Inspect `README.md`, documentation, or custom scripts to gain context about your app.
+- **Write files**: Create new scripts, update documentation, or modify configuration files.
+- **Manage configuration**: Update `canvas.yaml` and `console.yaml` directly to build workflows and dashboards.
+
+### Runners
+
+[Runners](/concepts/runners) execute shell commands and scripts on remote machines. You can store complex scripts (e.g., a 500-line Python data processing script or a Bash deployment script) directly in your app's repository instead of pasting them into the Canvas UI.
+
+To use a repository script in a runner:
+1. Store the script in your app's repository (e.g., `scripts/process-data.py`).
+2. In your Runner node's **Setup commands**, clone the repository.
+3. In the Runner node's **Script** field, simply execute the file: `python scripts/process-data.py`.
+
+This approach keeps your Canvas clean, allows you to version-control your scripts, and lets you use standard IDEs and linters for your code.
+
 ## Files tab
 
 Open **Files** from the app header (alongside **Canvas**, **Console**, and **Memory**).

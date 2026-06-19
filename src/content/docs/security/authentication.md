@@ -29,10 +29,14 @@ Personal API tokens are tied to your user account and inherit your permissions. 
 To create a personal token:
 
 1. Go to **Profile > API token** in the SuperPlane UI.
-2. Generate a new token. Configure the token's validity period (for example, 30 days, 90 days, or no expiration). You can extend the validity period later if needed.
+2. Click **Generate Token** (or **Regenerate Token** if you already have one).
 3. Copy the token immediately. It will not be shown again.
 
 **Note:** If you need a token for an automated script or integration that shouldn't be tied to a specific human user, use a [Service account](/security/service-accounts) instead.
+
+## Session expiration
+
+When you log in to the UI, your session remains active as long as you continue to use SuperPlane. Your session token validity is automatically extended in the background with your activity. If you are inactive for an extended period, you will be prompted to log in again.
 
 ## Authenticate the CLI
 

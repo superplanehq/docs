@@ -57,7 +57,7 @@ You can explicitly reference canvas nodes in your messages by typing `@` followe
 
 The agent operates safely within strict boundaries:
 
-- **RBAC enforcement**: The agent shares your user session's permissions. It cannot perform any action that you do not have permission to do. See [RBAC](/concepts/access-control).
+- **RBAC enforcement**: The agent shares your user session's permissions. It cannot perform any action that you do not have permission to do. See [RBAC](/security/access-control).
 - **Canvas isolation**: The agent is strictly bound to its parent canvas. It cannot read or modify data from other apps.
 - **Drafts only**: The agent can only update draft versions of your app. It cannot publish changes directly to production.
 - **File safety**: The agent cannot access sensitive system paths (like `.superplane/`) or traverse outside the repository workspace.

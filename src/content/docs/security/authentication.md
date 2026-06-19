@@ -31,7 +31,7 @@ To create a personal token:
 2. Generate a new token. Configure the token's validity period (for example, 30 days, 90 days, or no expiration). You can extend the validity period later if needed.
 3. Copy the token immediately. It will not be shown again.
 
-**Note:** If you need a token for an automated script or integration that shouldn't be tied to a specific human user, use a [Service account](/concepts/service-accounts) instead.
+**Note:** If you need a token for an automated script or integration that shouldn't be tied to a specific human user, use a [Service account](/security/service-accounts) instead.
 
 ## Authenticate the CLI
 
@@ -66,4 +66,4 @@ When these variables are present, the CLI automatically uses them for all comman
 
 For programmatic access by external systems, scripts, or integrations, use service accounts. Service accounts are non-human identities that you can assign specific roles via RBAC.
 
-See the [Service accounts](/concepts/service-accounts) documentation for more details.
+See the [Service accounts](/security/service-accounts) documentation for more details.

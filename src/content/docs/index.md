@@ -7,7 +7,7 @@ SuperPlane is an open source automation engine for AI-driven engineering.
 
 As AI accelerates engineering throughput, traditional manual approvals and fragile scripts break down. To safely scale AI, you must automate every manual check and enforce strict quality guardrails across your software development lifecycle.
 
-SuperPlane lets you model these high-velocity workflows as fully operational [Apps](/concepts/superplane-apps). Apps execute your processes deterministically using graphs, providing the exact guardrails AI needs to safely interact with your tools—like Git, CI/CD, and observability.
+SuperPlane lets you model these high-velocity workflows as fully operational [apps](/concepts/superplane-apps). Apps execute your processes deterministically using graphs, providing the exact guardrails AI needs to safely interact with your tools—like Git, CI/CD, and observability.
 
 ![Run chain view showing end-to-end workflow execution history](../../assets/superplane-canvas-example.png)
 
@@ -15,10 +15,10 @@ SuperPlane lets you model these high-velocity workflows as fully operational [Ap
 
 SuperPlane is built for workflows that are too complex for a single script or CI job. You can build:
 
-- **AI-driven code review**: Automatically review pull requests, enforce style guides, and calculate risk scores using LLMs.
-- **Release management**: Coordinate complex, multi-repo, multi-regional deployments that span multiple days, incorporating automatic health checks, manual approvals, and instant rollback paths.
+- **AI-driven code review**: Automatically review pull requests, enforce style guides, perform QA, fill documentation gaps, and calculate change risk scores using LLMs.
+- **Release management**: Coordinate complex, multi-regional deployments that span hours or days, incorporating automatic health checks, manual approvals, and instant rollback paths.
 - **Incident response**: Pull context from observability tools, page the on-call engineer, create a dedicated chat channel, and track the resolution state.
-- **Infrastructure provisioning**: Provide a self-serve portal for developers to request databases or environments with built-in policy checks.
+- **Infrastructure provisioning**: Provide a self-serve portal for developers to request databases or create on-demand ephemeral environments, all with built-in policy checks.
 
 ## Try it locally (fastest path)
 

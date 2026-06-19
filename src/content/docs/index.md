@@ -1,9 +1,9 @@
 ---
 title: Welcome
-description: Get up and running with SuperPlane, the open source platform for building internal developer tools and operational workflows.
+description: Get up and running with SuperPlane, the open source DevOps control plane for event-driven apps and operational workflows.
 ---
 
-SuperPlane is an open source platform for building internal developer tools and long-lived, event-driven workflows. It works across the tools your team already uses—like Git, CI/CD, incident response, observability, infrastructure, and notifications.
+SuperPlane is an open source DevOps control plane for building event-driven apps and long-lived workflows. It works across the tools your team already uses—like Git, CI/CD, incident response, observability, infrastructure, and notifications.
 
 Most teams end up stitching these systems together with a mix of scripts, one-off CI jobs, and manual steps. That works until a workflow needs to span multiple tools, wait for human approval, or run over hours and days.
 

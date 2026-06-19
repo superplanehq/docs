@@ -74,9 +74,9 @@ export const sidebar = [
     ],
   },
   {
-    label: "Command Line Interface",
+    label: "Command Line Interface (CLI)",
     items: [
-      { label: "Overview & Setup", slug: "cli/overview" },
+      { label: "Overview & Installation", slug: "cli/overview" },
       { label: "Managing Apps", slug: "cli/apps" },
       { label: "Runs & Executions", slug: "cli/runs" },
       { label: "Integrations & Secrets", slug: "cli/resources" },

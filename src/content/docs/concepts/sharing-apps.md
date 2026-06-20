@@ -7,7 +7,7 @@ A SuperPlane app is backed by a Git repository. You can export that repository, 
 
 ## How app sharing works
 
-Every app stores its definition in two files: `canvas.yaml` for the workflow and `console.yaml` for the dashboard. These files, together with any helper files (scripts, READMEs, agent instructions), form a complete, portable app.
+An app's [canvas](/concepts/canvas), [console](/concepts/console), scripts, and helper files form a complete, portable package.
 
 To share an app:
 
@@ -116,7 +116,7 @@ Reference parameters in your `canvas.yaml` and any other files using the `{{ ins
         secret: {{ install_params.ssh_secret_name }}
 ```
 
-At install time, SuperPlane replaces every `{{ install_params.<name> }}` placeholder with the value the user provided. If a parameter has a default and the user does not override it, the default value is used.
+At install time, SuperPlane replaces every `{{ install_params.<name> }}` placeholder with the value the user provided before parsing the YAML. Write placeholders without quotes — the substituted value appears as-is in the file. If a parameter has a default and the user does not override it, the default value is used.
 
 ## Launch in SuperPlane badge
 

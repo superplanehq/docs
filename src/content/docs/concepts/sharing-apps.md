@@ -27,9 +27,23 @@ A shareable app repository contains at minimum a `canvas.yaml`. Everything else 
 | `canvas.yaml` | Yes | Workflow definition: nodes, connections, and configuration |
 | `console.yaml` | No | Console layout and panels |
 | `params.json` | No | Install parameters shown in the install wizard |
-| Other files | No | Scripts, READMEs, agent instructions, or any file your workflows reference |
+| `AGENTS.md` | No | Instructions for AI agents operating on this app |
+| Other files | No | Scripts, READMEs, or any file your workflows reference |
 
 During install, SuperPlane copies every file from the repository into the new app's git repository — except `canvas.yaml`, `console.yaml`, and `params.json`, which are handled separately. This means helper scripts, documentation, and agent instruction files are available to the app from the start.
+
+### AGENTS.md
+
+Include an `AGENTS.md` file to give AI agents context about your app. The [built-in agent](/concepts/agent) and external agents (like Cursor) can read this file to understand how the canvas works, what is safe to change, and how to help the user.
+
+A good `AGENTS.md` covers:
+
+- What the app does and its main workflows
+- Key nodes and how the flows connect
+- What was parameterized at install time
+- What is safe to customize (scripts, comments, thresholds) and what should not be changed (memory namespaces, core wiring)
+- Common tasks a user might ask an agent to do
+- Common issues and how to debug them
 
 ## Install parameters
 
@@ -66,7 +80,7 @@ Each parameter has these fields:
 
 | Field | Required | Description |
 | ----- | -------- | ----------- |
-| `name` | Yes | Identifier used in `canvas.yaml` placeholders |
+| `name` | Yes | Identifier used in `{{ install_params.<name> }}` placeholders across all files |
 | `label` | Yes | Display label shown in the install wizard |
 | `type` | Yes | `string`, `secret_picker`, or `integration-resource` |
 | `placeholder` | No | Hint text shown in the input field |
@@ -97,10 +111,11 @@ Each parameter has these fields:
 | ----- | ----------- |
 | `integration` | Integration type name (e.g., `digitalocean`, `github`) |
 | `resourceType` | Resource type to list (e.g., `region`, `size`, `image`, `repository`) |
+| `useNameAsValue` | When `true`, substitute the resource display name instead of its ID. Use this when the component expects a name (e.g., GitHub repository name) rather than a numeric ID. Optional, defaults to `false`. |
 
-### Using parameters in canvas.yaml
+### Using parameters in canvas.yaml and files
 
-Reference parameters in your `canvas.yaml` using the `{{ install_params.<name> }}` syntax:
+Reference parameters in your `canvas.yaml` and any other files using the `{{ install_params.<name> }}` syntax. SuperPlane substitutes placeholders in both the canvas definition and all repository files (scripts, READMEs, etc.) during install.
 
 ```yaml
 - component: ssh
@@ -153,11 +168,24 @@ superplane apps console get <app-name-or-id> -o yaml > console.yaml
 
 Push these files to a GitHub repository, add a `params.json` if needed, and your app is ready to share.
 
-## Example
+## Examples
 
-The [Coolify Watcher](https://github.com/superplanehq/app_coolify-watcher) app is a complete example of a shareable app. It monitors a Coolify host, stores metrics in [memory](/concepts/canvas-memory), renders a live dashboard on the [console](/concepts/console), and includes install parameters for the SSH connection.
+### Preview Environments on DigitalOcean
 
-Repository structure:
+The [Preview Environments](https://github.com/superplanehq/app_preview-env-digitalocean) app is a complete example of a shareable app with install parameters, a file-based SSH script, and an `AGENTS.md`.
+
+```
+canvas.yaml                    # Workflow: provision, deploy, teardown, TTL
+console.yaml                   # Dashboard (optional)
+params.json                    # Install params: repository, SSH secret, region, size, image
+scripts/preview-setup.sh       # Setup script executed by the SSH node
+AGENTS.md                      # Instructions for AI agents
+README.md                      # Documentation with Launch in SuperPlane badge
+```
+
+### Coolify Watcher
+
+The [Coolify Watcher](https://github.com/superplanehq/app_coolify-watcher) app monitors a Coolify host, stores metrics in [memory](/concepts/canvas-memory), renders a live dashboard on the [console](/concepts/console), and includes install parameters for the SSH connection.
 
 ```
 canvas.yaml          # Workflow: poll host, store metrics, restart containers

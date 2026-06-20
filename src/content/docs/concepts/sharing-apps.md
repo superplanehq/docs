@@ -16,7 +16,7 @@ To share an app:
 3. Add a **Launch in SuperPlane** badge to the README.
 4. Optionally, add a `params.json` file to make the app configurable at install time.
 
-When someone clicks the badge, SuperPlane reads the repository, detects which integrations the app needs, and walks the user through connecting them and filling in any parameters before creating the app.
+When someone clicks the badge, SuperPlane reads the repository, copies all files into the new app (scripts, READMEs, helper files), detects which integrations the app needs, and walks the user through naming the app, connecting integrations, and filling in any parameters before creating it.
 
 ## Repository structure
 
@@ -28,6 +28,8 @@ A shareable app repository contains at minimum a `canvas.yaml`. Everything else 
 | `console.yaml` | No | Console layout and panels |
 | `params.json` | No | Install parameters shown in the install wizard |
 | Other files | No | Scripts, READMEs, agent instructions, or any file your workflows reference |
+
+During install, SuperPlane copies every file from the repository into the new app's git repository — except `canvas.yaml`, `console.yaml`, and `params.json`, which are handled separately. This means helper scripts, documentation, and agent instruction files are available to the app from the start.
 
 ## Install parameters
 
@@ -76,7 +78,7 @@ Each parameter has these fields:
 
 **`string`** — A plain text input. Use for hosts, names, regions, or any free-form value.
 
-**`secret_picker`** — Lets the user select an existing [secret](/security/secrets) from their organization. Use for credentials, API keys, or SSH keys that should not be stored in plain text.
+**`secret_picker`** — Lets the user select an existing [secret](/security/secrets) from their organization. SuperPlane validates that the selected secret exists before completing the install. Use for credentials, API keys, or SSH keys that should not be stored in plain text.
 
 **`integration-resource`** — Lets the user pick a resource from a connected integration. Requires two additional fields:
 
@@ -126,9 +128,10 @@ Add this badge to your README so users can install the app with one click:
 Replace `<owner>/<repo>` with your GitHub repository path. When a user clicks the badge, SuperPlane opens the install wizard, which:
 
 1. Reads `canvas.yaml` from the repository.
-2. Detects which integrations the app uses and asks the user to connect them.
-3. Reads `params.json` (if present) and shows the parameter form.
-4. Creates the app with all placeholders resolved.
+2. Lets the user name the app (pre-filled from the template).
+3. Detects which integrations the app uses and asks the user to connect them.
+4. Reads `params.json` (if present) and shows the parameter form.
+5. Creates the app with all placeholders resolved and all repository files copied in.
 
 ## Exporting an existing app
 

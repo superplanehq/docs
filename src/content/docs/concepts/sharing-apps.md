@@ -174,27 +174,6 @@ To turn the export into a shareable template:
 
 ## Examples
 
-### Preview Environments on DigitalOcean
-
-The [Preview Environments](https://github.com/superplanehq/app_preview-env-digitalocean) app is a complete example of a shareable app with install parameters, a file-based SSH script, and an `AGENTS.md`.
-
-```
-canvas.yaml                    # Workflow: provision, deploy, teardown, TTL
-console.yaml                   # Dashboard (optional)
-params.json                    # Install params: repository, SSH secret, region, size, image
-scripts/preview-setup.sh       # Setup script executed by the SSH node
-AGENTS.md                      # Instructions for AI agents
-README.md                      # Documentation with Launch in SuperPlane badge
-```
-
-### Coolify Watcher
-
-The [Coolify Watcher](https://github.com/superplanehq/app_coolify-watcher) app monitors a Coolify host, stores metrics in [memory](/concepts/canvas-memory), renders a live dashboard on the [console](/concepts/console), and includes install parameters for the SSH connection.
-
-```
-canvas.yaml          # Workflow: poll host, store metrics, restart containers
-console.yaml         # Dashboard: host stats, container table, trend charts
-params.json          # Install params: SSH host, user, secret
-coolify-health.sh    # Helper script executed by the SSH runner
-README.md            # Documentation with Launch in SuperPlane badge
-```
+| App | Description | Repository |
+| --- | ----------- | ---------- |
+| Preview Environments on DigitalOcean | Spin up ephemeral preview environments for GitHub PRs using DigitalOcean droplets | [superplanehq/app_preview-env-digitalocean](https://github.com/superplanehq/app_preview-env-digitalocean) |

@@ -27,23 +27,9 @@ A shareable app repository contains at minimum a `canvas.yaml`. Everything else 
 | `canvas.yaml` | Yes | Workflow definition: nodes, connections, and configuration |
 | `console.yaml` | No | Console layout and panels |
 | `params.json` | No | Install parameters shown in the install wizard |
-| `AGENTS.md` | No | Instructions for AI agents operating on this app |
-| Other files | No | Scripts, READMEs, or any file your workflows reference |
+| Other files | No | Scripts, READMEs, agent instructions, or any file your workflows reference |
 
 During install, SuperPlane copies every file from the repository into the new app's git repository — except `canvas.yaml`, `console.yaml`, and `params.json`, which are handled separately. This means helper scripts, documentation, and agent instruction files are available to the app from the start.
-
-### AGENTS.md
-
-Include an `AGENTS.md` file to give AI agents context about your app. The [built-in agent](/concepts/agent) and external agents (like Cursor) can read this file to understand how the canvas works, what is safe to change, and how to help the user.
-
-A good `AGENTS.md` covers:
-
-- What the app does and its main workflows
-- Key nodes and how the flows connect
-- What was parameterized at install time
-- What is safe to customize (scripts, comments, thresholds) and what should not be changed (memory namespaces, core wiring)
-- Common tasks a user might ask an agent to do
-- Common issues and how to debug them
 
 ## Install parameters
 
@@ -154,7 +140,7 @@ To export an app you have already built:
 
 **From the UI:**
 1. Open the app and go to the **Files** tab.
-2. Copy or download `canvas.yaml` and `console.yaml`.
+2. Download `canvas.yaml`, `console.yaml`, and any scripts or helper files.
 
 **From the CLI:**
 
@@ -164,9 +150,27 @@ superplane apps canvas get <app-name-or-id> -o yaml > canvas.yaml
 
 # Export the console
 superplane apps console get <app-name-or-id> -o yaml > console.yaml
+
+# List all files in the app repository
+superplane apps files tree <app-name-or-id>
 ```
 
-Push these files to a GitHub repository, add a `params.json` if needed, and your app is ready to share.
+To turn the export into a shareable template:
+
+1. Remove hardcoded values (integration IDs, secrets, repo names) and replace them with `{{ install_params.<name> }}` placeholders.
+2. Create a `params.json` to define the install parameters.
+3. Add a `README.md` with a Launch in SuperPlane badge and setup instructions.
+4. Push everything to a GitHub repository.
+
+## Best practices
+
+**Write a clear README.** Explain what the app does, list prerequisites, and describe how to customize it after install. Include the Launch in SuperPlane badge so users can install with one click.
+
+**Parameterize your app.** Even though `params.json` is optional, it makes installing the app much easier. Users should not have to open canvas nodes and update hardcoded values. Anything that varies between installations — repository names, secrets, regions, hostnames — should be a parameter.
+
+**Include an AGENTS.md.** The [built-in agent](/concepts/agent) and external agents (like Cursor) can read this file to understand how your canvas works. Document the main flows, what is safe to change, what should not be touched, and common issues. This helps agents give accurate advice instead of guessing.
+
+**Add annotations to the canvas.** Use notes on the canvas to explain key sections, especially parts that users will need to customize. For example, an annotation above an SSH node can explain which secret it expects and how to update the setup script. Annotations make the canvas self-documenting for both humans and agents.
 
 ## Examples
 

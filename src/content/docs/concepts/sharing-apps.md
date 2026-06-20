@@ -157,7 +157,7 @@ superplane apps files tree <app-name-or-id>
 
 To turn the export into a shareable template:
 
-1. Remove hardcoded values (integration IDs, secrets, repo names) and replace them with `{{ install_params.<name> }}` placeholders.
+1. Remove hardcoded values (secrets, repo names, hostnames) and replace them with `{{ install_params.<name> }}` placeholders.
 2. Create a `params.json` to define the install parameters.
 3. Add a `README.md` with a Launch in SuperPlane badge and setup instructions.
 4. Push everything to a GitHub repository.

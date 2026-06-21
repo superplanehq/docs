@@ -177,3 +177,9 @@ To turn the export into a shareable template:
 | App | Description | Repository |
 | --- | ----------- | ---------- |
 | Preview Environments on DigitalOcean | Spin up ephemeral preview environments for GitHub PRs using DigitalOcean droplets | [superplanehq/app_preview-env-digitalocean](https://github.com/superplanehq/app_preview-env-digitalocean) |
+| Preview Environments on AWS | Spin up ephemeral preview environments for GitHub PRs using AWS EC2 instances | [superplanehq/app_preview-env-github-aws](https://github.com/superplanehq/app_preview-env-github-aws) |
+| Cluster Autoscaler | Autoscale a Hetzner Cloud worker fleet from Grafana CPU alerts with Slack notifications | [superplanehq/app_cluster-auto-scaler-hetzner-grafana-slack](https://github.com/superplanehq/app_cluster-auto-scaler-hetzner-grafana-slack) |
+| OSS Guard | Check open-source license compatibility on every PR using osv-scanner | [superplanehq/app_oss_guard](https://github.com/superplanehq/app_oss_guard) |
+| TLS Monitor | Monitor TLS certificate expiry for HTTPS endpoints with scheduled checks and Discord alerts | [superplanehq/app_tls_monitor](https://github.com/superplanehq/app_tls_monitor) |
+| Semantic Pull Requests | Enforce semantic PR title conventions and track merged PRs by type | [superplanehq/app_semantic_pull_requests](https://github.com/superplanehq/app_semantic_pull_requests) |
+| Coolify Watcher | Monitor a Coolify host with SSH health checks, container stats, and one-click restarts | [superplanehq/app_coolify-watcher](https://github.com/superplanehq/app_coolify-watcher) |

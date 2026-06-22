@@ -61,9 +61,8 @@ Each component node on the canvas displays key information and provides interact
 
 1. **Input channel** — Drag to subscribe to events from other nodes (action nodes only).
 2. **Configuration overview** — Quick summary of key settings for this node.
-3. **Latest run item** — Shows the last execution or event that passed through this node.
-4. **Action menu** — On hover: duplicate, collapse/expand, or delete.
-5. **Output channels** — Subscribe other nodes or drag to create new components.
+3. **Latest run item** — Shows the last execution that passed through this node, with its status and timestamp.
+4. **Output channels** — Named output channels (e.g., `success`, `failed`). Subscribe other nodes or drag to create new components.
 
 ## Component node inspector
 

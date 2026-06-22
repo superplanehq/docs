@@ -34,12 +34,24 @@ Changes you make in the UI are reflected in these files. Edits in **Files** foll
 
 The files in your repository are not just static configuration—they interact with the other core components of your SuperPlane app.
 
-### AI Agent
+### Built-in AI agent
 
 The [built-in AI agent](/concepts/agent) has direct access to your app's repository. When you ask the agent to build or troubleshoot a workflow, it can:
 - **Read files**: Inspect `README.md`, documentation, or custom scripts to gain context about your app.
 - **Write files**: Create new scripts, update documentation, or modify configuration files.
 - **Manage configuration**: Update `canvas.yaml` and `console.yaml` directly to build workflows and dashboards.
+
+### SSH commands
+
+You can store a script in the repository (e.g., `scripts/deploy.sh`) and execute it using an [SSH Command](/components/Core#ssh-command) node. 
+
+To use a repository script in an SSH Command node, set **Command source** to **From file** and point **Command file** at the script's path. The script is re-read from the repository on every run, so any edits take effect on the next run after you publish. The file always runs under bash, regardless of its shebang.
+
+### Claude agents
+
+The [Run Claude Agent](/components/Claude#run-claude-agent) and [Text Prompt](/components/Claude#text-prompt) components both have a **Files** field that attaches repository files to the session:
+- **Text Prompt**: Sends the files as inline context documents (up to 100 KB per file and 500 KB total).
+- **Run Claude Agent**: Mounts the files into the managed agent's working directory for the duration of the session.
 
 ### Runners
 

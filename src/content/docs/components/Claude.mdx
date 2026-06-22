@@ -35,6 +35,7 @@ The **Run Claude Agent** component uses [Claude Managed Agents](https://platform
 - **Agent ID** and optional **Version**: the Managed Agent to run (latest, or a pinned version if **Version** is set).
 - **Environment ID**: The environment the session runs in.
 - **Prompt**: The user message (task) sent to the agent.
+- **Files** (optional): A list of repository file paths uploaded and mounted into the managed agent's working directory for the session.
 - **Vault IDs** (optional): For MCP tools that need vault-backed credentials.
 
 ### Output
@@ -78,6 +79,7 @@ The Text Prompt component uses Anthropic's Claude models to generate text respon
 - **Model**: The Claude model to use (e.g., claude-3-5-sonnet-latest).
 - **Prompt**: The main user message/instruction.
 - **System Message**: (Optional) Context to define the assistant's behavior or persona.
+- **Files**: (Optional) A list of repository file paths embedded as inline context documents (limits: 100 KB per file, 500 KB total).
 - **Max Tokens**: (Optional) Limit the length of the generated response.
 - **Temperature**: (Optional) Control randomness (0.0 to 1.0).
 

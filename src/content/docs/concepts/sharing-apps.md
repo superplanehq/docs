@@ -178,8 +178,11 @@ To turn the export into a shareable template:
 | --- | ----------- | ---------- |
 | Preview Environments on DigitalOcean | Spin up ephemeral preview environments for GitHub PRs using DigitalOcean droplets | [superplanehq/app_preview-env-digitalocean](https://github.com/superplanehq/app_preview-env-digitalocean) |
 | Preview Environments on AWS | Spin up ephemeral preview environments for GitHub PRs using AWS EC2 instances | [superplanehq/app_preview-env-github-aws](https://github.com/superplanehq/app_preview-env-github-aws) |
-| Cluster Autoscaler | Autoscale a Hetzner Cloud worker fleet from Grafana CPU alerts with Slack notifications | [superplanehq/app_cluster-auto-scaler-hetzner-grafana-slack](https://github.com/superplanehq/app_cluster-auto-scaler-hetzner-grafana-slack) |
-| OSS Guard | Check open-source license compatibility on every PR using osv-scanner | [superplanehq/app_oss_guard](https://github.com/superplanehq/app_oss_guard) |
-| TLS Monitor | Monitor TLS certificate expiry for HTTPS endpoints with scheduled checks and Discord alerts | [superplanehq/app_tls_monitor](https://github.com/superplanehq/app_tls_monitor) |
-| Semantic Pull Requests | Enforce semantic PR title conventions and track merged PRs by type | [superplanehq/app_semantic_pull_requests](https://github.com/superplanehq/app_semantic_pull_requests) |
+| Cluster Autoscaler (Hetzner) | Autoscale a Hetzner Cloud worker fleet from Grafana CPU alerts with Slack notifications | [superplanehq/app_cluster-auto-scaler-hetzner-grafana-slack](https://github.com/superplanehq/app_cluster-auto-scaler-hetzner-grafana-slack) |
+| Cluster Autoscaler (DigitalOcean) | Autoscale a DigitalOcean droplet fleet from Grafana CPU alerts with Discord notifications | [superplanehq/app_cluster-auto-scaler-digital-ocean](https://github.com/superplanehq/app_cluster-auto-scaler-digital-ocean) |
 | Coolify Watcher | Monitor a Coolify host with SSH health checks, container stats, and one-click restarts | [superplanehq/app_coolify-watcher](https://github.com/superplanehq/app_coolify-watcher) |
+| TLS Monitor | Monitor TLS certificate expiry for HTTPS endpoints with scheduled checks and Discord alerts | [superplanehq/app_tls_monitor](https://github.com/superplanehq/app_tls_monitor) |
+| Auto Merge Bot | Automatically merge PRs when all CI checks pass and a configured label is applied | [superplanehq/app_auto_merge_bot](https://github.com/superplanehq/app_auto_merge_bot) |
+| Semantic Pull Requests | Enforce semantic PR title conventions and track merged PRs by type | [superplanehq/app_semantic_pull_requests](https://github.com/superplanehq/app_semantic_pull_requests) |
+| PR Docs Review | Review PRs for documentation impact using Claude AI with maintainer approval workflow | [superplanehq/app_pr_docs_drift](https://github.com/superplanehq/app_pr_docs_drift) |
+| OSS Guard | Check open-source license compatibility on every PR using osv-scanner | [superplanehq/app_oss_guard](https://github.com/superplanehq/app_oss_guard) |

@@ -68,6 +68,7 @@ Ask mode is read-only. The agent can inspect your app's state, analyze runs, and
 - Switch to Ask mode when you are debugging or monitoring. It prevents accidental changes.
 - Be specific about which run or node you are asking about. The agent can inspect any recent run, but referencing the right one helps.
 - Use Ask mode to understand an unfamiliar app before making changes in Build mode.
+- Add trigger components that record events from your external tools (alerts, deployments, CI pipelines). Once the data is collected, Ask mode can cross-reference events across sources — for example, finding which deployments happened around the time an alert went critical.
 
 ## Chat persistence and streaming
 

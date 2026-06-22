@@ -68,13 +68,14 @@ Each component node on the canvas displays key information and provides interact
 
 ## Component node inspector
 
-Click on a component node to select it and open the inspector panel. The panel has three tabs:
+Click on a component node to select it and open the inspector panel at the bottom of the canvas.
 
-![Component node sidebar](../../../assets/component-nodes-sidebar.png)
+![Component node inspector](../../../assets/component-nodes-sidebar.png)
 
-- **Runs** — Recent executions with event ID, timestamp, and status. Click a run item to inspect it. Running or waiting items can be cancelled or pushed through from the action menu.
-- **Configuration** — Node settings. Fields support [expressions](/concepts/expressions) for dynamic values.
-- **Info** — Component documentation and usage reference.
+1. **Selected node** — The node is highlighted on the canvas. The bottom panel shows its details.
+2. **Runs** — Recent executions with run ID, PR reference, and timestamp. Click a run item to inspect it. Running or waiting items can be cancelled or pushed through from the action menu.
+3. **Configuration** — Node settings. Fields support [expressions](/concepts/expressions) for dynamic values.
+4. **Info** — Component documentation and usage reference.
 
 ## Inspecting a run
 

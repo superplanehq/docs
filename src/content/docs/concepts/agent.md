@@ -11,13 +11,14 @@ The agent adapts to your current task using two modes:
 
 ### Build mode
 
-Build mode gives the agent write access to your app. Use it to design workflows, configure nodes, build console dashboards, and manage files.
+Build mode gives the agent write access to your app. Use it to design workflows from scratch, or install an existing app and chat with the agent to adjust it to your use case.
 
-![Agent in Build mode](../../../assets/agent-build-mode.png)
+![Agent in Build mode — swapping Claude for OpenAI with a rubric](../../../assets/agent-build-mode.png)
 
 **What the agent can do in Build mode:**
 
 - Add, remove, and configure canvas nodes and connections
+- Swap components (e.g., replace Claude with OpenAI) and rewire downstream references
 - Create and edit console panels (numbers, charts, tables, row actions)
 - Write and update files in the app repository (scripts, AGENTS.md, README)
 - Stage, commit, and publish canvas and console changes

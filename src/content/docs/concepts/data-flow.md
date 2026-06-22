@@ -110,10 +110,11 @@ The **Runs** sidebar on the Canvas page shows all workflow runs. Each entry repr
 
 ![Run history sidebar](../../../assets/data-flow-run-history.png)
 
-### Run Chain
+### Run chain
 
-Click on any item in the run history to see the full run chain. This shows all run items from all nodes
-that executed as part of that particular run.
+Select a run to see its full execution chain. The canvas renders the workflow at that point in time, highlighting the path the run took through the graph. The sidebar lists every node that executed, with its result.
+
+You can inspect individual node executions by clicking on them in the sidebar or directly on the canvas.
 
 ![Run chain view](../../../assets/data-flow-run-chain.png)
 

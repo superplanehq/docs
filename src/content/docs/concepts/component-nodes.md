@@ -83,11 +83,11 @@ Select a run from the **Runs** tab or from the [Runs sidebar](/concepts/runs) to
 
 ![Single run chain view](../../../assets/component-nodes-single-run.png)
 
-Click on any node in the run to open the bottom panel with three tabs:
-
-- **Details** — Execution metadata: start/finish time, result, duration.
-- **Payload** — The data this node emitted for downstream nodes.
-- **Config** — Resolved configuration snapshot for this execution (same as `$['Node Name'].config` in expressions). See [Expressions](/concepts/expressions).
+1. **Selected run** — The sidebar shows the full execution chain with every node and its status.
+2. **Node selection** — Click a node in the sidebar or directly on the canvas to inspect its execution.
+3. **Details** — Execution summary: status, timestamps, and component-specific output fields.
+4. **Payload** — The data this node emitted for downstream nodes.
+5. **Config** — Resolved configuration snapshot at execution time (same as `$['Node Name'].config` in expressions). See [Expressions](/concepts/expressions).
 
 ## Component Availability
 

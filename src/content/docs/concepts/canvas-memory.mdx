@@ -51,9 +51,9 @@ Namespaces are arbitrary strings that group related memory records. You create a
 - `rate_limits`: Keeping counters for API usage to prevent throttling.
 - `approval_requests`: Storing pending requests that wait for human interaction.
 
-## Persisting data across runs
+## Persisting data across runs and loops
 
-Runs on the same app are independent: payloads from one run do not automatically appear in the next. Memory is where you **store facts that should survive** until a later run needs them.
+Runs on the same app are independent: payloads from one run do not automatically appear in the next. Memory is where you **store facts that should survive** until a later run needs them. You also use Memory to accumulate state across loop iterations (see [Looping](/concepts/looping) for patterns).
 
 | Pattern | How |
 | ------- | --- |

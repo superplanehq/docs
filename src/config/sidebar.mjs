@@ -34,6 +34,7 @@ export const sidebar = [
       { label: "Overview", slug: "concepts/data-flow" },
       { label: "Runs", slug: "concepts/runs" },
       { label: "Component Nodes", slug: "concepts/component-nodes" },
+      { label: "Looping", slug: "concepts/looping" },
       { label: "Expressions", slug: "concepts/expressions" },
       { label: "Expression Functions", slug: "concepts/expression-functions" },
       { label: "Runners", slug: "concepts/runners" },

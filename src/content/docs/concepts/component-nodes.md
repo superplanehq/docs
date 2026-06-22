@@ -35,9 +35,11 @@ perform operations, and emit payloads for downstream nodes.
 
 **Examples:** HTTP Request, Filter, Approval, GitHub runWorkflow, Slack sendMessage
 
-## Adding Component Nodes to the Canvas
+## Adding component nodes to the canvas
 
-New component nodes can be added to the Canvas in two ways:
+You must be in **Edit** mode to add or modify nodes. Click **Edit** in the canvas header to enter edit mode.
+
+New component nodes can be added in two ways:
 
 ### From the Components Menu
 
@@ -53,47 +55,39 @@ You can also drag an output channel from an existing node to an empty space on t
 creates a new component node and automatically subscribes it to that output channel, making it
 faster to model workflows.
 
-## Node Overview on Canvas
+## Node overview on canvas
 
 Each component node on the canvas displays key information and provides interactive elements:
 
 ![Component node on canvas](../../../assets/component-nodes-node.png)
 
-1. **Input channel** — Drag to subscribe to events from other nodes (Action nodes only).
+1. **Input channel** — Drag to subscribe to events from other nodes (action nodes only).
 2. **Configuration overview** — Quick summary of key settings for this node.
-3. **Latest Run Item** — Shows the last run executed or event emitted.
-4. **Action menu** — On hover: manually emit, copy, collapse/expand, or delete.
-5. **Output channels** — Subscribe other nodes or drag to create new components.
+3. **Latest run item** — Shows the last execution that passed through this node, with its status and timestamp.
+4. **Output channels** — Named output channels (e.g., `success`, `failed`). Subscribe other nodes or drag to create new components.
 
-## Pausing and resuming nodes
+## Component node inspector
 
-You can **pause** a component node so it stops dequeuing new work. Events can still arrive and **queue**; they are processed again after you **resume** the node. Use this for maintenance, incident response, or debugging. Paused nodes are skipped until resumed (from the node menu where available, or via the API).
+Click on a component node to select it and open the inspector panel at the bottom of the canvas.
 
-## Component Node Sidebar
+![Component node inspector](../../../assets/component-nodes-sidebar.png)
 
-Clicking on a component node selects it and opens a component node sidebar.
+1. **Selected node** — The node is highlighted on the canvas. The bottom panel shows its details.
+2. **Runs** — Recent executions with run ID, PR reference, and timestamp. Click a run item to inspect it. Running or waiting items can be cancelled or pushed through from the action menu.
+3. **Configuration** — Node settings. Fields support [expressions](/concepts/expressions) for dynamic values.
+4. **Info** — Component documentation and usage reference.
 
-![Component node sidebar](../../../assets/component-nodes-sidebar.png)
+## Inspecting a run
 
-1. **Click to open** — You can click on a node to open the sidebar.
-2. **Resizable sidebar** — Sidebar is resizable and contains node details.
-3. **Latest runs section** — Recent executions with event ID, timestamp, and status.
-4. **Configuration tab** — Node settings. Fields support expressions — see [Expressions](/concepts/expressions).
-5. **Action menu for run item** — Cancel or push through running items.
-6. **Queue** — Items waiting to execute (FIFO order).
-
-## Single Run Chain
-
-Select a run from the list to see the full chain of nodes it went through.
+Select a run from the **Runs** tab or from the [Runs sidebar](/concepts/runs) to inspect it. The canvas highlights the path the run took, dimming nodes that were not part of the execution.
 
 ![Single run chain view](../../../assets/component-nodes-single-run.png)
 
-1. **Run chain** — Shows all nodes in the run with current node preselected.
-2. **Dimmed nodes** — Nodes not included in the run are dimmed on the canvas.
-3. **Expandable details** — Expand other nodes in the chain to view their payloads.
-4. **Details tab** — Execution info: start/finish time, result, duration.
-5. **Payload tab** — The data this node emitted for downstream nodes.
-6. **Config tab** — Resolved configuration for this run (same as `$['Node Name'].config` in expressions). See [Expressions](/concepts/expressions).
+1. **Selected run** — The sidebar shows the full execution chain with every node and its status.
+2. **Node selection** — Click a node in the sidebar or directly on the canvas to inspect its execution.
+3. **Details** — Execution summary: status, timestamps, and component-specific output fields.
+4. **Payload** — The data this node emitted for downstream nodes.
+5. **Config** — Resolved configuration snapshot at execution time (same as `$['Node Name'].config` in expressions). See [Expressions](/concepts/expressions).
 
 ## Component Availability
 

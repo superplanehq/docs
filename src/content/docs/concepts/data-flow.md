@@ -47,7 +47,7 @@ Each run item produces a payload that downstream nodes can access.
 A **run** is a collection of run items and the dependencies between them. It represents a complete workflow
 execution from start to finish.
 
-- Starts with a **root event** — the first event that triggered the workflow (usually from a trigger node)
+- Starts with a **root event** - the first event that triggered the workflow (usually from a trigger node)
 - Grows as the workflow executes and each node adds its run item to the chain
 - Tracks the full execution history and data flow
 
@@ -63,7 +63,7 @@ flowchart LR
 ## The Message Chain
 
 As a run executes, each node's output is added to a **message chain**. This chain is accessible via the `$`
-variable — think of it as a message bus that streams all outputs to your current node.
+variable - think of it as a message bus that streams all outputs to your current node.
 
 ### How It Works
 
@@ -95,7 +95,7 @@ Wrap expressions in `{{ }}` to insert values into text fields; in condition fiel
 
 ## Exploring Runs on the Canvas
 
-The workflow you see on the canvas is dynamic — it's not a single run, but a live view where multiple runs
+The workflow you see on the canvas is dynamic - it's not a single run, but a live view where multiple runs
 can execute simultaneously.
 
 ### Node Status
@@ -104,10 +104,9 @@ Each node on the canvas shows a quick overview of its current or most recent run
 
 ![Node with run item status](../../../assets/data-flow-node-status.png)
 
-### Run History
+### Run history
 
-Click on any node to open the sidebar. The sidebar shows the run history — all executions or events that
-have passed through this node, along with each execution's result.
+The **Runs** sidebar on the Canvas page shows all workflow runs. Each entry represents a complete execution chain triggered by an event. Click any run to see which nodes fired and inspect their payloads.
 
 ![Run history sidebar](../../../assets/data-flow-run-history.png)
 
@@ -176,11 +175,11 @@ Each execution carries **two independent** outcome fields. They report different
 
 | Field | What it means | Values |
 | --- | --- | --- |
-| `result` | **Runtime health** — did the action run to completion without crashing? | `RESULT_PASSED`, `RESULT_FAILED`, `RESULT_CANCELLED`, `RESULT_UNKNOWN` |
-| `outputs` (keys) | **Semantic routing** — which logical output the action chose | Component-defined channel names (`success`, `failure`, `approved`, `rejected`, `true`, `false`, `not_found`, …) |
+| `result` | **Runtime health** - did the action run to completion without crashing? | `RESULT_PASSED`, `RESULT_FAILED`, `RESULT_CANCELLED`, `RESULT_UNKNOWN` |
+| `outputs` (keys) | **Semantic routing** - which logical output the action chose | Component-defined channel names (`success`, `failure`, `approved`, `rejected`, `true`, `false`, `not_found`, ...) |
 
 **Example.** An HTTP node that receives a `500` status records `result: RESULT_PASSED` (the request was made, the response was parsed, the node finished cleanly) **and** emits on its `failure` channel (the response was a 5xx, so it routed onto the failure output). Both fields are correct.
 
-**Failure-class channels.** Only these channel names — case-insensitive — denote a semantic failure: `failure`, `failed`, `fail`, `timeout`. Other channels such as `rejected` (Approval), `not_found` (Memory), `false` (If), `degraded`, `low`, etc. are normal alternate routing outcomes, not failures.
+**Failure-class channels.** Only these channel names - case-insensitive - denote a semantic failure: `failure`, `failed`, `fail`, `timeout`. Other channels such as `rejected` (Approval), `not_found` (Memory), `false` (If), `degraded`, `low`, etc. are normal alternate routing outcomes, not failures.
 
-**Querying "failed runs".** If you want every run that did not take the happy path, filter on **both** axes — `result == RESULT_FAILED` **or** `outputs` contains a key in the failure-class set. `result` alone misses semantic failures routed via channels; channel alone misses runtime crashes that never emitted any output.
+**Querying "failed runs".** If you want every run that did not take the happy path, filter on **both** axes - `result == RESULT_FAILED` **or** `outputs` contains a key in the failure-class set. `result` alone misses semantic failures routed via channels; channel alone misses runtime crashes that never emitted any output.

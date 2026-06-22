@@ -61,7 +61,11 @@ Ask mode is read-only. The agent can inspect your app's state, analyze runs, and
 - "What's in the preview-envs memory namespace?"
 - "How does the approval flow work?"
 - "Are there any queued events on the SSH setup node?"
-- "What was the error message on the last health check?"
+- "Check the latest 50 deploys to production. Can you give me a chart with duration? Are there any outliers?"
+
+The agent can render charts, tables, and statistical analysis inline in the chat:
+
+![Agent analyzing deployment durations with charts and outlier detection](../../../assets/agent-ask-mode-analytics.png)
 
 **Best practices:**
 

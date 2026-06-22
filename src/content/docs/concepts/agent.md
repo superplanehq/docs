@@ -44,7 +44,11 @@ Build mode gives the agent write access to your app. Use it to design workflows 
 
 Ask mode is read-only. The agent can inspect your app's state, analyze runs, and answer questions without making changes.
 
-![Agent in Ask mode](../../../assets/agent-ask-mode.png)
+![Agent in Ask mode — cross-referencing events from multiple sources](../../../assets/agent-ask-mode.png)
+
+1. **Add trigger components** that record events from your external tools (alerts, deployments, CI pipelines)
+2. **Wait for data to collect** — each trigger event creates a run with its payload
+3. **Ask the agent** to analyze and cross-reference events from multiple sources
 
 **What the agent can do in Ask mode:**
 
@@ -67,6 +71,10 @@ Ask mode is read-only. The agent can inspect your app's state, analyze runs, and
 The agent can render charts, tables, and statistical analysis inline in the chat:
 
 ![Agent analyzing deployment durations with charts and outlier detection](../../../assets/agent-ask-mode-analytics.png)
+
+1. **Set up a workflow** through SuperPlane (e.g., a deployment pipeline)
+2. **Ask the agent** for analysis — duration trends, outliers, optimization opportunities
+3. **The agent renders** charts, tables, and statistical breakdowns directly in the conversation
 
 **Best practices:**
 

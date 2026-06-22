@@ -118,10 +118,9 @@ You can inspect individual node executions by clicking on them in the sidebar or
 
 ![Run chain view](../../../assets/data-flow-run-chain.png)
 
-### Inspecting Run Items
+### Inspecting run items
 
-In the run chain view, the node you were inspecting is preselected. You can click on any other run item
-in the chain to explore its details and payload.
+Select a node in the run sidebar or click directly on it in the canvas. A bottom panel opens showing the run item details for that node, with three tabs: **Details** (execution metadata), **Payload** (output data), and **Config** (configuration snapshot at execution time).
 
 ![Run item details expanded](../../../assets/data-flow-run-details.png)
 

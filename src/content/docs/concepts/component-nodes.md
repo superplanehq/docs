@@ -35,9 +35,11 @@ perform operations, and emit payloads for downstream nodes.
 
 **Examples:** HTTP Request, Filter, Approval, GitHub runWorkflow, Slack sendMessage
 
-## Adding Component Nodes to the Canvas
+## Adding component nodes to the canvas
 
-New component nodes can be added to the Canvas in two ways:
+You must be in **Edit** mode to add or modify nodes. Click **Edit** in the canvas header to enter edit mode.
+
+New component nodes can be added in two ways:
 
 ### From the Components Menu
 

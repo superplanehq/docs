@@ -42,7 +42,7 @@ superplane apps list
 
 ### 4. Install skills
 
-Skills teach the agent how to use SuperPlane. Install them with:
+Skills teach the agent how to use SuperPlane. They are published at [superplanehq/skills](https://github.com/superplanehq/skills). Install them with:
 
 ```bash
 npx skills add superplanehq/skills

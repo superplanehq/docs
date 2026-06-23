@@ -3,7 +3,7 @@ title: Cloud beta
 description: SuperPlane Cloud is a hosted version of SuperPlane, currently in public beta.
 ---
 
-SuperPlane is available as a **hosted cloud service** and as a **self-hosted** open source deployment. The cloud version is currently in public beta — free to use with usage limits that apply during beta.
+SuperPlane is available as a [hosted cloud service](https://app.superplane.com) (currently in public beta) and as a [self-hosted](/installation/overview) open source deployment. The cloud version is free during beta with usage limits.
 
 ## Feature comparison
 

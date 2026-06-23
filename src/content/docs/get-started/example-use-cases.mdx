@@ -1,65 +1,107 @@
 ---
 title: Example use cases
-description: Six templates you can copy and adapt to your own workflows.
+description: Real-world SuperPlane apps you can install and adapt to your own workflows.
 ---
 
-import { Aside, Card, CardGrid } from "@astrojs/starlight/components";
+import { Card, CardGrid } from "@astrojs/starlight/components";
 import { Image } from "astro:assets";
-import t1PolicyGatedDeployment from "../../../assets/templates/policy-gated-deployment.png";
-import t2AutomatedRollback from "../../../assets/templates/automated-rollback.png";
-import t3IncidentDataCollection from "../../../assets/templates/incident-triage.png";
-import t4StagedRelease from "../../../assets/templates/progressive-delivery.png";
-import t5IncidentRouter from "../../../assets/templates/incident-router.png";
-import t6MultiRepoRelease from "../../../assets/templates/multi-repo-release.png";
+import imgPreviewEnv from "../../../assets/templates/preview-env-do.png";
+import imgClusterAutoscaler from "../../../assets/templates/cluster-autoscaler.png";
+import imgCoolifyWatcher from "../../../assets/templates/coolify-watcher.png";
+import imgTlsMonitor from "../../../assets/templates/tls-monitor.png";
+import imgOssGuard from "../../../assets/templates/oss-guard.png";
+import imgPrDocsReview from "../../../assets/templates/pr-docs-review.png";
 
-SuperPlane ships with a set of built-in templates you can copy into your workspace and adapt.
-This page gives you a quick tour of what each template is for, plus screenshots you can reference as you build.
-
-<Aside>
-  Use the gallery view to scan the shape of the workflow, then click
-  the image to view the full canvas.
-</Aside>
+These are production-ready SuperPlane apps you can install with one click and adapt to your own stack. Each app is an open source repository with a canvas, console, and documentation.
 
 <CardGrid>
-  <Card title="Policy Gated Deployment" icon="approve-check-circle">
+  <Card title="Preview Environments on DigitalOcean" icon="rocket">
     <Image
       class="sp-thumb"
-      src={t1PolicyGatedDeployment}
-      alt="Policy-gated deployment template canvas (cropped preview)."
+      src={imgPreviewEnv}
+      alt="Preview Environments canvas showing droplet creation, SSH setup, and health check flow"
     />
-    <p>Gate deployments with a policy check, business hours, and approval.</p>
-  </Card>
-
-  <Card title="Automated Rollback" icon="warning">
-    <Image class="sp-thumb" src={t2AutomatedRollback} alt="Automated rollback template canvas (cropped preview)." />
     <p>
-      Automatically trigger rollback workflows when deployments fail and verify system health with Dash0 monitoring.
+      Spin up a live preview environment for every pull request. Comment <code>/start</code> on a PR, get a running app on a fresh DigitalOcean droplet in ~2 minutes.
+    </p>
+    <p>
+      <a href="https://app.superplane.com/install?repo=github.com/superplanehq/app_preview-env-digitalocean">Install</a> · <a href="https://github.com/superplanehq/app_preview-env-digitalocean">GitHub</a>
     </p>
   </Card>
 
-  <Card title="Incident Data Collection" icon="magnifier">
+  <Card title="Cluster Autoscaler" icon="setting">
     <Image
       class="sp-thumb"
-      src={t3IncidentDataCollection}
-      alt="Incident data collection template canvas (cropped preview)."
+      src={imgClusterAutoscaler}
+      alt="Cluster Autoscaler canvas showing Grafana alert trigger, server provisioning, and scale-down check"
     />
-    <p>Collect data and metrics when new P1/P2 incident is opened and create a GitHub issue</p>
-  </Card>
-
-  <Card title="Staged Release" icon="rocket">
-    <Image class="sp-thumb" src={t4StagedRelease} alt="Staged release template canvas (cropped preview)." />
-    <p>Gradually roll out releases through 10%, 50%, and 100% stages with health checks at each step.</p>
-  </Card>
-
-  <Card title="Incident Router" icon="forward-slash">
-    <Image class="sp-thumb" src={t5IncidentRouter} alt="Incident router template canvas (cropped preview)." />
     <p>
-      Route P1 incidents from Slack mentions to PagerDuty and GitHub with AI-generated titles and descriptions.
+      Autoscale a Hetzner Cloud worker fleet from Grafana CPU alerts. Provisions workers, bootstraps Docker workloads over SSH, and scales down quiet clusters.
+    </p>
+    <p>
+      <a href="https://app.superplane.com/install?repo=github.com/superplanehq/app_cluster-auto-scaler-hetzner-grafana-slack">Install</a> · <a href="https://github.com/superplanehq/app_cluster-auto-scaler-hetzner-grafana-slack">GitHub</a>
     </p>
   </Card>
 
-  <Card title="Multi-repo release" icon="seti:folder">
-    <Image class="sp-thumb" src={t6MultiRepoRelease} alt="Multi-repo release template canvas (cropped preview)." />
-    <p>Coordinate releases across multiple repositories with unified CI builds and deployments.</p>
+  <Card title="Coolify Watcher" icon="magnifier">
+    <Image
+      class="sp-thumb"
+      src={imgCoolifyWatcher}
+      alt="Coolify Watcher canvas showing SSH health check, memory storage, and container restart flow"
+    />
+    <p>
+      Monitor a Coolify host with scheduled SSH health checks. Tracks CPU, memory, disk, and container stats on a live dashboard with one-click restarts.
+    </p>
+    <p>
+      <a href="https://app.superplane.com/install?repo=github.com/superplanehq/app_coolify-watcher">Install</a> · <a href="https://github.com/superplanehq/app_coolify-watcher">GitHub</a>
+    </p>
+  </Card>
+
+  <Card title="TLS Monitor" icon="approve-check-circle">
+    <Image
+      class="sp-thumb"
+      src={imgTlsMonitor}
+      alt="TLS Monitor canvas showing scheduled certificate checks and Discord notifications"
+    />
+    <p>
+      Monitor TLS certificate expiry for HTTPS endpoints. Checks certificates on a schedule and sends Discord notifications when they are expiring.
+    </p>
+    <p>
+      <a href="https://app.superplane.com/install?repo=github.com/superplanehq/app_tls_monitor">Install</a> · <a href="https://github.com/superplanehq/app_tls_monitor">GitHub</a>
+    </p>
+  </Card>
+
+  <Card title="OSS Guard" icon="warning">
+    <Image
+      class="sp-thumb"
+      src={imgOssGuard}
+      alt="OSS Guard canvas showing PR trigger, license check runner, and commit status flow"
+    />
+    <p>
+      Check open-source license compatibility on every pull request using osv-scanner. Publishes commit statuses and comments on failures.
+    </p>
+    <p>
+      <a href="https://app.superplane.com/install?repo=github.com/superplanehq/app_oss_guard">Install</a> · <a href="https://github.com/superplanehq/app_oss_guard">GitHub</a>
+    </p>
+  </Card>
+
+  <Card title="PR Docs Review" icon="document">
+    <Image
+      class="sp-thumb"
+      src={imgPrDocsReview}
+      alt="PR Docs Review canvas showing Claude AI analysis, verdict branching, and approval workflow"
+    />
+    <p>
+      Review every pull request for documentation impact using Claude AI. Maintainers approve or reject via PR comments, with automatic issue tracking.
+    </p>
+    <p>
+      <a href="https://app.superplane.com/install?repo=github.com/superplanehq/app_pr_docs_drift">Install</a> · <a href="https://github.com/superplanehq/app_pr_docs_drift">GitHub</a>
+    </p>
   </Card>
 </CardGrid>
+
+## More apps
+
+Browse the full list of installable apps in the [Sharing apps](/concepts/sharing-apps#examples) documentation, including Preview Environments on AWS, Cluster Autoscaler on DigitalOcean, Semantic Pull Requests, and Auto Merge Bot.
+
+You can also [build and share your own apps](/concepts/sharing-apps).

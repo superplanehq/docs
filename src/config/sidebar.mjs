@@ -6,6 +6,7 @@ export const sidebar = [
       { label: "Welcome", slug: "" },
       { label: "Quickstart", slug: "get-started/quickstart" },
       { label: "Example use cases", slug: "get-started/example-use-cases" },
+      { label: "Cloud beta", slug: "concepts/cloud" },
     ],
   },
   {

@@ -41,7 +41,7 @@ Canvas definitions, console layouts, memory, and files are not affected by the r
 
 ### Event budget
 
-Each organization has a budget of **50,000 events per month**. An event is created each time a node executes — whether it is a trigger firing, an action running, or a component emitting a payload.
+Each organization has a budget of **500,000 events per month**. An event is created each time a node executes — whether it is a trigger firing, an action running, or a component emitting a payload.
 
 ### Increased limits
 

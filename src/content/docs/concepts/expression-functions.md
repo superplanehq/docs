@@ -14,6 +14,8 @@ This page lists every function available in SuperPlane expressions. For an intro
 | `root()` | Root payload that started the run | `root().data.ref` |
 | `previous()` | Immediate upstream node's payload | `previous().data.status` |
 | `previous(n)` | Walk n levels upstream | `previous(2).data.version` |
+| `memory.find(namespace, matches)` | All [memory](/concepts/canvas-memory) records in `namespace` matching `matches` | `memory.find("machines", {"sandbox_id": "12121"})` |
+| `memory.findFirst(namespace, matches)` | First matching [memory](/concepts/canvas-memory) record, or `nil` | `memory.findFirst("machines", {"creator": "igor"}).sandbox_id` |
 
 ---
 

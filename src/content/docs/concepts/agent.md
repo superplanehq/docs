@@ -21,7 +21,7 @@ Build mode gives the agent write access to your app. Use it to design workflows 
 - Swap components (e.g., replace Claude with OpenAI) and rewire downstream references
 - Create and edit console panels (numbers, charts, tables, row actions)
 - Write and update files in the app repository (scripts, AGENTS.md, README)
-- Stage, commit, and publish canvas and console changes
+- Stage and commit canvas and console changes
 - Set up integrations and wire them to nodes
 
 **Example prompts:**
@@ -38,7 +38,7 @@ Build mode gives the agent write access to your app. Use it to design workflows 
 - For complex workflows, let the agent present a **rubric** first. Review the plan before approving.
 - Use **@mentions** to reference specific nodes: type `@` followed by the node name so the agent targets the right component.
 - Build incrementally. Add a few nodes, test, then extend — rather than asking for the entire workflow at once.
-- Review the agent's draft before publishing. The agent works on drafts only and cannot publish directly.
+- Review the agent's staged changes before committing. The agent stages updates only and cannot commit directly.
 
 ### Ask mode
 
@@ -109,7 +109,7 @@ Reference canvas nodes in your messages by typing `@` followed by the node name.
 
 The agent has built-in tools to interact with your app:
 
-**Repository file tools** — list, read, write, and delete files in your app's repository. Stage changes to a draft branch and commit them.
+**Repository file tools** — list, read, write, and delete files in your app's repository. Stage changes in the app's staging area.
 
 **Canvas and console tools** — modify `canvas.yaml` and `console.yaml` configurations directly. Add nodes, update connections, and build dashboard panels.
 
@@ -121,7 +121,7 @@ The agent operates within strict boundaries:
 
 - **RBAC enforcement**: The agent shares your session's permissions. It cannot do anything you cannot do. See [RBAC](/security/access-control).
 - **Canvas isolation**: The agent is bound to its parent app. It cannot read or modify other apps.
-- **Drafts only**: The agent updates draft versions only. It cannot publish changes directly.
+- **Staging only**: The agent stages updates only. It cannot commit changes directly.
 - **File safety**: The agent cannot access system paths or traverse outside the repository workspace.
 
 ## Limits

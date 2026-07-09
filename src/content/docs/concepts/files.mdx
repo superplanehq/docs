@@ -28,7 +28,7 @@ However, two files have a special meaning to SuperPlane:
 | `canvas.yaml` | Workflow graph: nodes, subscriptions, and configuration |
 | `console.yaml` | Console layout and panels |
 
-Changes you make in the UI are reflected in these files. Edits in **Files** follow the same **draft and publish** flow as on the [Canvas](/concepts/canvas) and [Console](/concepts/console).
+Changes you make in the UI are reflected in these files. Edits in **Files** follow the same **stage and commit** flow as on the [Canvas](/concepts/canvas) and [Console](/concepts/console).
 
 ## How files connect to your workflows
 
@@ -45,7 +45,7 @@ The [built-in AI agent](/concepts/agent) has direct access to your app's reposit
 
 You can store a script in the repository (e.g., `scripts/deploy.sh`) and execute it using an [SSH Command](/components/Core#ssh-command) node. 
 
-To use a repository script in an SSH Command node, set **Command source** to **From file** and point **Command file** at the script's path. The script is re-read from the repository on every run, so any edits take effect on the next run after you publish. The file always runs under bash, regardless of its shebang.
+To use a repository script in an SSH Command node, set **Command source** to **From file** and point **Command file** at the script's path. The script is re-read from the repository on every run, so any edits take effect on the next run after you commit. The file always runs under bash, regardless of its shebang.
 
 ### Claude agents
 

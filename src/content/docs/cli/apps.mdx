@@ -1,6 +1,6 @@
 ---
 title: Managing Apps
-description: Create and manage apps, canvases, consoles, drafts, and files via the CLI.
+description: Create and manage apps, canvases, consoles, staging, and files via the CLI.
 ---
 
 An app is the primary unit you manage from the CLI. Each app contains a canvas, console, and files.
@@ -85,85 +85,41 @@ Export the existing canvas, edit it, then apply your changes:
 ```sh
 superplane apps canvas get <app_name> > my_canvas.yaml
 # update your YAML to reflect the changes you want to make
-superplane apps canvas update -f my_canvas.yaml
+superplane apps canvas update -f my_canvas.yaml --message "Add HTTP keepalive node"
 ```
+
+`superplane apps canvas update` stages the file and commits immediately. Pass `--message` (or `-m`) with every
+direct update. To stage changes without committing, use `superplane apps staging` instead (see below).
 
 `superplane apps canvas update` applies auto layout by default. Use explicit auto-layout flags only when you
 need to control scope or seed nodes.
 
-### Check whether versioning is enabled
+## Staging workflow
 
-Check the canvas metadata directly:
-
-```sh
-superplane apps canvas get <app_name_or_id> -o json | jq '.metadata.versioningEnabled'
-```
-
-Expected values:
-
-- `true`: effective versioning enabled for this app. Use
-  `superplane apps canvas update --draft-id <draft_id> -f ...`.
-- `false`: effective versioning disabled for this app. Use `superplane apps canvas update -f ...` (no `--draft-id`).
-
-Quick behavior-based check:
-
-- If `superplane apps canvas update --draft-id ...` returns
-  `--draft-id cannot be used when effective canvas versioning is disabled`, versioning is disabled for this app.
-- If `superplane apps canvas update ...` (without `--draft-id`) returns
-  `effective canvas versioning is enabled for this canvas; use --draft-id`, versioning is enabled for this app.
-
-## App versioning (drafts)
-
-Canvas update behavior depends on effective app mode:
-
-- Organization-level versioning ON forces effective versioning ON for all apps.
-- Organization-level versioning OFF allows each app to toggle versioning independently.
-
-- If app versioning is enabled, `superplane apps canvas update` must use `--draft-id`.
-- If app versioning is disabled, do not use `--draft-id`; updates apply directly.
-
-Draft workflow (versioning enabled):
+Use `superplane apps staging` when you want to stage one or more files and commit them together — the same
+stage-and-commit loop as the UI and agent.
 
 ```sh
-# List available drafts
-superplane apps drafts list <app_name_or_id>
+# List staged paths for an app
+superplane apps staging status <app_name_or_id>
 
-# Write changes to a specific draft version
-superplane apps canvas update --draft-id <draft_id> -f my_canvas.yaml
+# Stage local files (mapped to repository paths by filename)
+superplane apps staging update \
+  --file canvas.yaml \
+  --file console.yaml \
+  --file README.md
+
+# Commit staged changes to the live app
+superplane apps staging commit --message "Add incident routing path"
 ```
 
-If you already set an active app with `superplane apps active <app_id>`, you can omit
-`<app_name_or_id>` in `superplane apps drafts list`.
+If you already set an active app with `superplane apps active <app_id>`, omit `<app_name_or_id>` on staging
+commands.
 
-### Draft lifecycle actions
+Each `--file` path maps to a repository path using the file name only. For example, `./tmp/canvas.yaml` stages
+as `canvas.yaml`.
 
-When versioning is enabled, use `apps drafts` to manage your drafts:
-
-```sh
-# List drafts for an app (or active app)
-superplane apps drafts list <app_name_or_id>
-
-# Create a new draft
-superplane apps drafts create <app_name_or_id> --name "Add incident routing path"
-
-# Delete a draft
-superplane apps drafts delete <draft_id> <app_name_or_id>
-```
-
-### Repository-backed staging
-
-When versioning is enabled, edits to `canvas.yaml` and `console.yaml` are written to a **staging** layer on your draft. These staged changes must be committed before they become part of the draft version.
-
-```sh
-# Stage changes to canvas.yaml
-superplane apps canvas update --draft-id <draft_id> -f my_canvas.yaml
-```
-
-You can view a visual diff of staged changes and commit or discard them using the SuperPlane UI or API.
-
-### Publish a draft
-
-Once your draft is ready and all changes are committed, you can publish it to make it the live version using the SuperPlane UI or API.
+You can view a visual diff of staged changes and commit or discard them in the SuperPlane UI as well.
 
 ## Canvas YAML shape (minimal working example)
 
@@ -230,21 +186,19 @@ The console is part of an app. Use `apps console` to read or replace its YAML.
 # Print the live console
 superplane apps console get <app_name_or_id> -o yaml
 
-# Print your draft console
-superplane apps console get <app_name_or_id> --draft-id <draft_id> -o yaml
+# Replace the console from a file (commits immediately)
+superplane apps console set <app_name_or_id> console.yaml --message "Add deployment KPI panel"
 
-# Replace the console from a file
-superplane apps console set <app_name_or_id> console.yaml
-
-# Replace the draft console when versioning is enabled
-superplane apps console set <app_name_or_id> console.yaml --draft-id <draft_id>
+# Or stage and commit separately
+superplane apps staging update --file console.yaml
+superplane apps staging commit --message "Add deployment KPI panel"
 ```
 
 If you already set an active app with `superplane apps active <app_id>`, omit `<app_name_or_id>` and pass the
 file with `--file`:
 
 ```sh
-superplane apps console set --file console.yaml
+superplane apps console set --file console.yaml --message "Add deployment KPI panel"
 ```
 
 ## Managing app memory

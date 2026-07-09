@@ -52,7 +52,7 @@ Configure the HTTP Request:
 - **URL**: `https://catfact.ninja/fact`
 - Click **Save** button at the bottom of the configuration panel.
 
-Next, publish your changes and click **Run** on the manual trigger node to run the first HTTP request. Further nodes will use the response from this run to help us write expressions.
+Next, commit your changes and click **Run** on the manual trigger node to run the first HTTP request. Further nodes will use the response from this run to help us write expressions.
 
 This endpoint will fetch a random cat fact and return JSON like:
 
@@ -92,9 +92,9 @@ Add **two** No Operation nodes:
 This keeps the tutorial completely safe: the workflow does real work (an HTTP call), but has no external
 side effects.
 
-### 6) Publish and run
+### 6) Commit and run
 
-1. Click **Publish** to make your changes live.
+1. Click **Commit** to make your changes live.
 2. Click the **Manual Run** node.
 3. Click **Run**.
 

@@ -88,22 +88,48 @@ a count of its **direct** nested sections next to the title.
 > > Prefer the **Flush cache** node over manual Redis commands.
 ```
 
-Optional pieces:
+#### Presets and colors
 
-- **Preset** for icon and header tint: `tools`, `rules`, `skills`, `mcp`, or
-  `folder`.
+You pick color (and icon) with a **named preset** in the marker — there is no
+free-form color value. Syntax: `[!SECTION:preset] Title`.
 
-  ```markdown
-  > [!SECTION:rules] Standing rules · ~5,366
-  > Keep instructions short and actionable.
-  ```
+| Preset | Accent | Typical use |
+| --- | --- | --- |
+| `tools` | Violet | Tooling, CLIs, helper nodes |
+| `rules` | Emerald | Standing rules, policy, guardrails |
+| `skills` | Cyan | Playbooks, how-tos, agent skills |
+| `mcp` | Sky | MCP / integration wiring |
+| `folder` | Slate | Nested groups, folders, catch-alls |
 
-- **Trailing meta** after a middle dot (` · `) in the title — useful for token
-  counts or similar labels. The title is the text before the separator; the
-  trailing text appears on the right of the header.
+```markdown
+> [!SECTION:rules] Production guardrails
+> Require two approvals before promoting to prod.
 
-Root sections without a preset use the `rules` look; nested sections default
-to `folder`.
+> [!SECTION:tools] Rollback tools
+> Use `[Rollback](node:rollback-production)` when the canary fails.
+```
+
+Root sections without a preset use `rules`. Nested sections without a preset
+use `folder`.
+
+#### Trailing meta
+
+Optional text after a middle dot (` · `) in the title appears on the right of
+the header. Use it for SuperPlane context such as environment, owner, or step
+count — not for unrelated metrics.
+
+```markdown
+> [!SECTION:skills] Deploy checklist · prod
+> 1. Run canary.
+> 2. Wait for health check.
+> 3. Promote with `[Deploy](node:deploy-production)`.
+
+> [!SECTION:folder] Preview cleanup · on-call
+> Tear down with `[Delete preview](node:delete-preview)`.
+```
+
+The title is the text before the separator; the trailing text is everything
+after it.
 
 Raw HTML `<details>` / `<summary>` still works when you need a pre-expanded
 block (`<details open>`) or markup that is not a blockquote:

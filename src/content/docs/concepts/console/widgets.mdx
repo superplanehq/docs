@@ -95,36 +95,38 @@ free-form color value. Syntax: `[!SECTION:preset] Title`.
 
 | Preset | Accent | Typical use |
 | --- | --- | --- |
-| `tools` | Violet | Tooling, CLIs, helper nodes |
-| `rules` | Emerald | Standing rules, policy, guardrails |
-| `skills` | Cyan | Playbooks, how-tos, agent skills |
-| `integrations` | Sky | Connected integrations and wiring |
-| `folder` | Slate | Nested groups, folders, catch-alls |
+| `overview` | Slate | What this app/workflow is for |
+| `setup` | Sky | Prerequisites, secrets, first-time config |
+| `runbook` | Emerald | Step-by-step operating procedure |
+| `run` | Blue | Promote / release / go-live steps |
+| `troubleshoot` | Amber | Failures, checks, how to unblock |
+| `agent` | Violet | Notes and standing instructions for agents |
+| `integrations` | Cyan | Connected integrations and wiring |
+| `group` | Slate (muted) | Nested grouping when no stronger preset fits |
 
 ```markdown
-> [!SECTION:rules] Production guardrails
-> Require two approvals before promoting to prod.
+> [!SECTION:runbook] Production promote
+> Require two approvals, then run the canary.
 
-> [!SECTION:tools] Rollback tools
-> Use `[Rollback](node:rollback-production)` when the canary fails.
+> [!SECTION:agent] Agent notes
+> Prefer `node:` chips when linking canvas steps.
 ```
 
-Root sections without a preset use `rules`. Nested sections without a preset
-use `folder`.
+Root sections without a preset use `runbook`. Nested sections without a preset
+use `group`.
 
 #### Trailing meta
 
 Optional text after a middle dot (` · `) in the title appears on the right of
 the header. Use it for SuperPlane context such as environment, owner, or step
-count — not for unrelated metrics.
+count.
 
 ```markdown
-> [!SECTION:skills] Deploy checklist · prod
-> 1. Run canary.
-> 2. Wait for health check.
-> 3. Promote with `[Deploy](node:http-request-deploy-a1b2c3)`.
+> [!SECTION:run] Promote after green canary · prod
+> 1. Confirm health checks passed.
+> 2. Promote with `[Deploy](node:http-request-deploy-a1b2c3)`.
 
-> [!SECTION:folder] Preview cleanup · on-call
+> [!SECTION:group] Preview cleanup · on-call
 > Tear down with `[Delete preview](node:digitalocean-delete-droplet-f9e8d7)`.
 ```
 

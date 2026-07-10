@@ -16,7 +16,7 @@ CEL](/concepts/console/expressions).
 
 | Type | When to use it |
 | --- | --- |
-| [Markdown](#markdown) | Runbooks, notes, status copy, links. Supports live variables. |
+| [Markdown](#markdown) | Runbooks, notes, status copy, links. Alerts, sections, Mermaid, chips, and live variables. |
 | [HTML](#html) | Custom layout with scoped CSS and Tailwind utilities, with the same variables. |
 | [Node](#node) | Pin one canvas node — status + optional Run button. |
 | [Key Nodes](#key-nodes) | Pin several nodes with a short purpose line for each. |
@@ -27,7 +27,9 @@ CEL](/concepts/console/expressions).
 ## Markdown
 
 Use the **Markdown** widget for the prose parts of a console: runbooks,
-playbook links, status explanations, deployment notes.
+playbook links, status explanations, deployment notes. The same markdown
+renderer powers **Files** `.md` previews, so authoring features below work in
+both places.
 
 {/* TODO(image): screenshot of a markdown widget rendering a runbook with a status badge */}
 
@@ -35,68 +37,118 @@ playbook links, status explanations, deployment notes.
 
 - GitHub-flavored markdown (tables, task lists, strikethrough, autolinks).
 - Soft line breaks (one Enter is a `<br>`, not two paragraphs).
-- Collapsible sections via raw `<details>` / `<summary>`:
-
-  ```markdown
-  <details open>
-  <summary>Troubleshooting</summary>
-
-  - Flush the cache.
-  - Roll back via the **Rollback** node panel.
-
-  </details>
-  ```
-
-  Use `<details open>` to pre-expand a section. The body is still parsed as
-  markdown, so links, lists, and inline formatting keep working inside.
-
+- [GitHub-style alerts](#alerts) for callouts (`NOTE`, `TIP`, `IMPORTANT`,
+  `WARNING`, `CAUTION`).
+- [Collapsible sections](#sections) with `[!SECTION]` (preferred) or raw
+  `<details>` / `<summary>`.
+- [Mermaid diagrams](#mermaid-diagrams) from fenced `mermaid` code blocks, with
+  expand and pan/zoom in the fullscreen view.
+- [Canvas chips](#canvas-chips) via `node:` and `integration:` links.
 - **Safe-by-default raw HTML.** Inline `<script>`, event handlers (`onclick`,
   `onerror`, …), and any tag outside the allowlist are stripped at render time. The
   only raw tags added on top of the default allowlist are `<details>` and
   `<summary>` (plus the `open` attribute).
 
-### Variables
+### Alerts
 
-Markdown widgets can pull live values from canvas memory or recent runs through
-**variables**, then reference them in the title or body with `{{ }}` templates:
+GitHub alert blockquotes render with SuperPlane chrome (accent bar + label).
+Put the marker on its own line inside the quote:
 
-```yaml
-- id: deploy-summary
-  type: markdown
-  content:
-    title: "Latest deploy of {{ release.service }}"
-    body: |
-      ## {{ release.service }}
+```markdown
+> [!NOTE]
+> Rollouts pause when the canary error rate exceeds 2%.
 
-      - Status: **{{ lastRun.status }}**
-      - Triggered by: {{ lastRun.nodeName }}
-      - Output URL: {{ lastRun.$["Deploy"].data.url }}
-    variables:
-      - name: release
-        source:
-          kind: memory
-          namespace: releases
-          orderBy: createdAt
-          direction: desc
-          matches:
-            - field: env
-              value: production
-      - name: lastRun
-        source:
-          kind: run
-          select: latest_passed
+> [!TIP]
+> Prefer linking the **Deploy** node with `[Deploy](node:deploy-production)`.
+
+> [!IMPORTANT]
+> Production deploys require two approvals.
+
+> [!WARNING]
+> Do not re-run failed migrations without checking the run payload.
+
+> [!CAUTION]
+> This action deletes the preview environment.
 ```
 
-See [Variables](/concepts/console/data-sources#variables) for the full source
-options, list mode, and null-safety rules.
+Supported markers: `NOTE`, `TIP`, `IMPORTANT`, `WARNING`, `CAUTION`. Unknown
+markers (for example `[!TODO]`) stay as plain blockquotes.
 
-### Content fields
+### Sections
 
-| Field | Required | Meaning |
-| --- | --- | --- |
-| `title` | no | Card header. Supports `{{ }}` templates. |
-| `body` | no | Markdown body. Supports `{{ }}` templates. |
-| `variables` | no | Named variables resolved from memory or runs. |
+Use `[!SECTION]` for collapsible runbook sections. Sections start collapsed;
+click the header to expand. Nested sections are supported, and a parent shows
+a count of its **direct** nested sections next to the title.
+
+```markdown
+> [!SECTION] Troubleshooting
+> Flush the cache, then re-run the health check.
+>
+> > [!SECTION] Cache
+> > Prefer the **Flush cache** node over manual Redis commands.
+```
+
+Optional pieces:
+
+- **Preset** for icon and header tint: `tools`, `rules`, `skills`, `mcp`, or
+  `folder`.
+
+  ```markdown
+  > [!SECTION:rules] Standing rules · ~5,366
+  > Keep instructions short and actionable.
+  ```
+
+- **Trailing meta** after a middle dot (` · `) in the title — useful for token
+  counts or similar labels. The title is the text before the separator; the
+  trailing text appears on the right of the header.
+
+Root sections without a preset use the `rules` look; nested sections default
+to `folder`.
+
+Raw HTML `<details>` / `<summary>` still works when you need a pre-expanded
+block (`<details open>`) or markup that is not a blockquote:
+
+```markdown
+<details open>
+<summary>Troubleshooting</summary>
+
+- Flush the cache.
+- Roll back via the **Rollback** node panel.
+
+</details>
+```
+
+The body inside `<details>` is still parsed as markdown.
+
+### Mermaid diagrams
+
+Fenced `mermaid` code blocks render as diagrams. Use the expand control to
+open a fullscreen view with fit-to-viewport, zoom, and pan:
+
+````markdown
+```mermaid
+flowchart LR
+  start[Start] --> deploy[Deploy]
+  deploy --> verify[Verify]
+```
+````
+
+Other fenced languages keep the shared code-block chrome (including expand
+where available).
+
+### Canvas chips
+
+Special link schemes become interactive chips when canvas context is available
+(console markdown and Files on a canvas):
+
+| Link | Renders as |
+| --- | --- |
+| `[Deploy](node:deploy-production)` | Node chip — hover for details; click focuses the node on the live canvas (or the run canvas while inspecting a run). |
+| `[GitHub](integration:github)` | Integration chip for that integration ref. |
+
+Regular `http(s)`, relative, `mailto:`, and fragment links stay normal anchors.
+
+### Variables
 
 ## HTML
 

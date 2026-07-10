@@ -44,6 +44,7 @@ both places.
 - [Mermaid diagrams](#mermaid-diagrams) from fenced `mermaid` code blocks, with
   expand and pan/zoom in the fullscreen view.
 - [Canvas chips](#canvas-chips) via `node:` and `integration:` links.
+- [Dividers](#dividers) with a line of underscores (`___`).
 - **Safe-by-default raw HTML.** Inline `<script>`, event handlers (`onclick`,
   `onerror`, …), and any tag outside the allowlist are stripped at render time. The
   only raw tags added on top of the default allowlist are `<details>` and
@@ -163,6 +164,20 @@ flowchart LR
 
 Other fenced languages keep the shared code-block chrome (including expand
 where available).
+
+### Dividers
+
+A line with three or more underscores on its own renders a horizontal divider:
+
+```markdown
+Setup steps above.
+
+___
+
+Runbook steps below.
+```
+
+`---` and `***` produce the same divider (standard markdown thematic breaks).
 
 ### Canvas chips
 

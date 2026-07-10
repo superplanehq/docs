@@ -59,7 +59,7 @@ Put the marker on its own line inside the quote:
 > Rollouts pause when the canary error rate exceeds 2%.
 
 > [!TIP]
-> Prefer linking the **Deploy** node with `[Deploy](node:deploy-production)`.
+> Prefer linking the deploy node with `[Deploy](node:http-request-deploy-a1b2c3)`.
 
 > [!IMPORTANT]
 > Production deploys require two approvals.
@@ -122,10 +122,10 @@ count — not for unrelated metrics.
 > [!SECTION:skills] Deploy checklist · prod
 > 1. Run canary.
 > 2. Wait for health check.
-> 3. Promote with `[Deploy](node:deploy-production)`.
+> 3. Promote with `[Deploy](node:http-request-deploy-a1b2c3)`.
 
 > [!SECTION:folder] Preview cleanup · on-call
-> Tear down with `[Delete preview](node:delete-preview)`.
+> Tear down with `[Delete preview](node:digitalocean-delete-droplet-f9e8d7)`.
 ```
 
 The title is the text before the separator; the trailing text is everything
@@ -165,12 +165,37 @@ where available).
 ### Canvas chips
 
 Special link schemes become interactive chips when canvas context is available
-(console markdown and Files on a canvas):
+(console markdown and Files on a canvas).
 
-| Link | Renders as |
+#### Node chips
+
+Use `node:<node-id>` — the value after `node:` is the canvas **node id**, not
+the display name. The markdown link text is the label shown on the chip.
+
+```markdown
+[Deploy](node:http-request-deploy-a1b2c3)
+```
+
+Node ids look like `{component}-{name}-{6-char}` (for example
+`http-request-deploy-a1b2c3`). Find one by selecting the node on the canvas —
+the id appears in the node panel and in the URL as `?node=<id>`.
+
+Hover a chip for node details; click it to select and fit that node on the live
+canvas (or on the run canvas while inspecting a run).
+
+#### Integration chips
+
+Use `integration:<ref>`:
+
+| Ref | Meaning |
 | --- | --- |
-| `[Deploy](node:deploy-production)` | Node chip — hover for details; click focuses the node on the live canvas (or the run canvas while inspecting a run). |
-| `[GitHub](integration:github)` | Integration chip for that integration ref. |
+| Integration name (for example `github`) | Chip for that integration type — connect/create when none is linked yet. |
+| Connected instance UUID | Chip for a specific connected integration instance. |
+
+```markdown
+[GitHub](integration:github)
+[Prod Slack](integration:791ee6d1-4c2a-4f0b-9c1d-0a1b2c3d4e5f)
+```
 
 Regular `http(s)`, relative, `mailto:`, and fragment links stay normal anchors.
 

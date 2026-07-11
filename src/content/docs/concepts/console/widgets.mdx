@@ -472,6 +472,11 @@ Each column needs a non-empty `field`. The other fields are optional:
 | `format` | Display format. See the table below. |
 | `show` | Row expression controlling whether the cell is visible. |
 | `href` | Link template for `link`-formatted columns. |
+| `avatarCommitterField` | Optional secondary person map for `avatar` columns (used for initials/fallback identity). |
+| `progressTarget` | Target (100%) reference for `progress` columns. Accepts literal number, row dot-path, or `{{ CEL }}`. |
+| `progressLabel` | Label style for `progress`: `percent` (default), `number`, or `none`. |
+| `trendBetter` | For `trend`: which direction is “better” (`up` default, or `down`). |
+| `trendDisplay` | For `trend`: magnitude mode (`percent` default, `value`, or `none`). |
 
 Column `field` accepts a direct dot path (`status`, `payload.user_id`,
 `rootEvent.customName`) or a `{{ CEL }}` template. When the typed value matches a
@@ -493,6 +498,75 @@ the dropdown stays one click.
 | `badge` | Alias for `status`. |
 | `code` | Monospace text. |
 | `link` | Renders as a hyperlink. Requires `href`. |
+| `avatar` | Person avatar. Supports image URLs and provider handles (for example GitHub usernames) with fallback initials. |
+| `progress` | Horizontal progress bar based on current value (`field`) over `progressTarget`; supports percent/number/none labels. |
+| `trend` | Delta vs the row below (older baseline): arrow + optional percent/value magnitude; configurable “better” direction. |
+
+#### Progress bars
+
+Use `format: progress` when a row has a current value and a target value.
+
+`progressTarget` accepts:
+- numeric literal (`"100"`)
+- row field path (`"total"`, `"payload.goal"`)
+- `{{ CEL }}` expression (`"{{ base * 2 }}"`)
+
+`progressLabel` controls the text next to the bar:
+- `percent` (default): `50%`
+- `number`: `5/10`
+- `none`: bar only
+
+```yaml
+columns:
+  - field: done
+    label: Coverage
+    format: progress
+    progressTarget: total
+    progressLabel: percent
+```
+
+#### Avatar columns
+
+Use `format: avatar` to render a compact identity cell.
+
+Accepted values for the main `field` include:
+- full image URL
+- provider handle (for example a GitHub username)
+- plain display text (falls back to initials avatar)
+
+`avatarCommitterField` can provide secondary identity data for fallback initials
+and attribution when raw avatar URLs are missing.
+
+```yaml
+columns:
+  - field: author
+    label: Author
+    format: avatar
+    avatarCommitterField: committer
+```
+
+#### Trend columns
+
+Use `format: trend` to compare each row against the row below it (typically a
+time-ordered predecessor).
+
+- `trendBetter`: `up` (default) means increases are good; `down` means decreases
+  are good.
+- `trendDisplay`: `percent` (default), `value`, or `none`.
+
+Edge states:
+- last row without baseline shows no-baseline state
+- when pagination has more rows but baseline is not loaded yet, trend shows a
+  pending indicator
+
+```yaml
+columns:
+  - field: latencyMs
+    label: Latency Δ
+    format: trend
+    trendBetter: down
+    trendDisplay: percent
+```
 
 ### Structured filters
 

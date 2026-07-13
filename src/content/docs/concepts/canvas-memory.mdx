@@ -81,6 +81,31 @@ SuperPlane provides five memory components:
 
 See the [Components](/components/core) reference for field-level configuration.
 
+## Reading memory in expressions
+
+You can query memory directly in any expression field using `memory.find()` and `memory.findFirst()`, without adding a Read Memory node to the canvas.
+
+| Function | Returns |
+| -------- | ------- |
+| `memory.find(namespace, matches)` | All records in `namespace` whose fields contain `matches`. |
+| `memory.findFirst(namespace, matches)` | The first matching record, or `nil` if none. |
+
+`matches` is a JSON object — a record matches if its fields include all key-value pairs in the object.
+
+**Example — read a machine's status inline:**
+
+```
+{{memory.findFirst("machines", {"sandbox_id": $['Start'].data.sandbox_id}).status}}
+```
+
+**Example — check whether any machine is idle:**
+
+```
+memory.find("machines", {"status": "idle"}) != nil
+```
+
+Use `memory.findFirst()` when you expect a unique key and want a single value. Use `memory.find()` when you need all matches (for example, to pass the array to a downstream node or iterate over it).
+
 ## Manual memory entry and edits
 
 You don't have to rely solely on workflows to manage memory. You can manually view, add, edit, and delete records directly from the SuperPlane UI.

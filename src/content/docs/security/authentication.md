@@ -32,7 +32,7 @@ To create a personal token:
 2. Click **Generate Token** (or **Regenerate Token** if you already have one).
 3. Copy the token immediately. It will not be shown again.
 
-**Note:** If you need a token for an automated script or integration that shouldn't be tied to a specific human user, use a [Service account](/security/service-accounts) instead.
+**Note:** If you need a token for an automated script or integration that shouldn't be tied to a specific human user, use an [API key](/security/api-keys) instead.
 
 ## Session expiration
 
@@ -40,7 +40,7 @@ When you log in to the UI, your session remains active as long as you continue t
 
 ## Authenticate the CLI
 
-The SuperPlane CLI requires an API token to communicate with your organization. Authenticate using either a personal API token or a service account token.
+The SuperPlane CLI requires an API token to communicate with your organization. Authenticate using either a personal API token or an API key token.
 
 Choose between interactive login or environment variables.
 
@@ -69,6 +69,6 @@ When these variables are present, the CLI automatically uses them for all comman
 
 ## Authenticate automated systems
 
-For programmatic access by external systems, scripts, or integrations, use service accounts. Service accounts are non-human identities that you can assign specific roles via RBAC.
+For programmatic access by external systems, scripts, or integrations, use API keys. API keys are non-human credentials that you can assign specific roles via RBAC.
 
-See the [Service accounts](/security/service-accounts) documentation for more details.
+See the [API keys](/security/api-keys) documentation for more details.

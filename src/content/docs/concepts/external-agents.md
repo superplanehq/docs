@@ -7,14 +7,14 @@ External coding agents can operate SuperPlane through the CLI and published skil
 
 ## Setup
 
-### 1. Create a service account
+### 1. Create an API key
 
-The agent needs its own identity to authenticate with SuperPlane. Create a [service account](/security/service-accounts) with the appropriate role:
+The agent needs its own credential to authenticate with SuperPlane. Create an [API key](/security/api-keys) with the appropriate role:
 
-1. Go to **Organization Settings > Service accounts**
-2. Create a service account (e.g., `coding-agent`)
+1. Go to **Organization Settings > API keys**
+2. Create an API key (e.g., `coding-agent`)
 3. Assign it a role — `org_admin` for full access, or a custom role scoped to specific apps
-4. Generate an API token and copy it
+4. Copy the generated token
 
 ### 2. Install the CLI
 
@@ -28,10 +28,10 @@ See [CLI documentation](/cli/overview) for platform-specific options.
 
 ### 3. Connect the CLI
 
-Authenticate the CLI with the service account token:
+Authenticate the CLI with the API key token:
 
 ```bash
-superplane connect <your-superplane-url> <service-account-token>
+superplane connect <your-superplane-url> <api-key-token>
 ```
 
 Verify the connection:
@@ -115,5 +115,5 @@ The agent reads the current canvas, adds the node, wires the connection, and app
 - **Use the right skill for the task.** `superplane-cli` is the general-purpose skill. `superplane-app-builder` is best for creating new workflows. `superplane-monitor` is best for debugging.
 - **Be specific about which app** you want to work with. The agent can list apps, but naming the app in your prompt saves a round-trip.
 - **The agent works through the CLI**, so anything you can do with `superplane` commands, the agent can do too.
-- **Service account permissions matter.** If the agent gets permission errors, check the role assigned to the service account.
+- **API key permissions matter.** If the agent gets permission errors, check the role assigned to the API key.
 - **Combine with the built-in agent.** Use external agents for heavy lifting (building complex canvases, bulk operations) and the [built-in agent](/concepts/agent) for interactive edits in the UI.

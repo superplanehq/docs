@@ -42,7 +42,7 @@ Viewer permissions:
 - `groups.read`
 - `members.read`
 - `canvases.read`
-- `service_accounts.read`
+- `api_keys.read`
 - `agents.read`
 
 Admin permissions:
@@ -67,9 +67,9 @@ Admin permissions:
 - `roles.create`
 - `roles.update`
 - `roles.delete`
-- `service_accounts.create`
-- `service_accounts.update`
-- `service_accounts.delete`
+- `api_keys.create`
+- `api_keys.update`
+- `api_keys.delete`
 - `agents.create`
 
 Owner permissions:
@@ -120,11 +120,11 @@ building custom roles.
 - `secrets.update` - Update secrets.
 - `secrets.delete` - Delete secrets from the organization
 
-**Service accounts**
-- `service_accounts.read` - View service accounts (not secret token values).
-- `service_accounts.create` - Create service accounts.
-- `service_accounts.update` - Update service accounts and rotate tokens.
-- `service_accounts.delete` - Delete service accounts.
+**API keys**
+- `api_keys.read` - View API keys (not secret token values).
+- `api_keys.create` - Create API keys.
+- `api_keys.update` - Update API keys and rotate tokens.
+- `api_keys.delete` - Delete API keys.
 
 **Agents**
 - `agents.read` - View agent chats and messages.

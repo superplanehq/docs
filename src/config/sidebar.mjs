@@ -47,7 +47,7 @@ export const sidebar = [
       { label: "Authentication & Accounts", slug: "security/authentication" },
       { label: "Secrets", slug: "security/secrets" },
       { label: "RBAC", slug: "security/access-control" },
-      { label: "Service accounts", slug: "security/service-accounts" },
+      { label: "API keys", slug: "security/api-keys" },
     ],
   },
   {

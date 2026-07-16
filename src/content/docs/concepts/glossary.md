@@ -100,7 +100,7 @@ and combine data from earlier steps.
 An **expression** is a small program used to read and transform payload data (for example to build a message, compute a
 condition, or select an output path). See the [Expressions](/concepts/expressions) page for more details.
 
-## Service account
+## API key
 
-A **service account** is a non-human identity used to call the SuperPlane API from scripts and external systems. Access is governed by [RBAC](/concepts/access-control). See
-[Service accounts](/security/service-accounts) for details.
+An **API key** is a non-human credential used to call the SuperPlane API from scripts and external systems. Access is governed by [RBAC](/concepts/access-control). See
+[API keys](/security/api-keys) for details.

@@ -3,7 +3,7 @@ title: Public API Reference
 description: Explore the SuperPlane REST API using the interactive Swagger documentation.
 ---
 
-SuperPlane exposes a REST API covering all resources (canvases, integrations, secrets, service accounts, and more). The interactive docs list every route and schema.
+SuperPlane exposes a REST API covering all resources (canvases, integrations, secrets, API keys, and more). The interactive docs list every route and schema.
 
 The full API reference is available as an interactive Swagger document at:
 
@@ -21,7 +21,7 @@ For a full overview of authentication methods, see [Authentication and accounts]
 
 You can obtain a token in two ways:
 
-- **Service account token** (recommended for scripts and integrations): see [Service accounts](/security/service-accounts).
+- **API key token** (recommended for scripts and integrations): see [API keys](/security/api-keys).
 - **Personal token** (tied to your user): go to **Profile > API token** in the SuperPlane UI.
 
 ## Quick example

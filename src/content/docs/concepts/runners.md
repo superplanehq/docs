@@ -288,8 +288,7 @@ The runner machine comes with the following pre-installed software.
 | OpenCode            | 1.18.3    |
 | Codex CLI           | 0.144.5   |
 
-Use these directly in shell commands, Bash scripts, and setup commands. Coding agent CLIs
-(`claude`, `opencode`, `codex`) are pinned at AMI bake time.
+Use these directly in shell commands, Bash scripts, and setup commands.
 
 ## Operator Details
 

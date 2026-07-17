@@ -264,16 +264,29 @@ You can pass environment variables to your runner scripts using the **Environmen
 
 The runner machine comes with the following pre-installed software.
 
-| Software       | Version   |
-| -------------- | --------- |
-| Ubuntu         | 24.04 LTS |
-| Bash           | 5.2       |
-| Docker CE      | 29.5.3    |
-| Docker Buildx  | 0.34.1    |
-| Docker Compose | 5.1.4     |
-| Node.js        | 22.22     |
-| Python         | 3.12.3    |
-| AWS CLI        | 2.34      |
+| Software            | Version   |
+| ------------------- | --------- |
+| Ubuntu              | 24.04 LTS |
+| Bash                | 5.2       |
+| Docker CE           | 29.5.3    |
+| Docker Buildx       | 0.34.1    |
+| Docker Compose      | 5.1.4     |
+| Node.js             | 22.22     |
+| Python              | 3.12.3    |
+| AWS CLI             | 2.34      |
+| git                 | 2.43      |
+| GitHub CLI (`gh`)   | 2.96      |
+| jq                  | 1.7       |
+| yq                  | 4.53      |
+| ripgrep (`rg`)      | 14.1      |
+| fd                  | 9.0       |
+| make                | 4.3       |
+| zip                 | 3.0       |
+| rsync               | 3.2       |
+| wget                | 1.21      |
+| Claude Code         | 2.1.212   |
+| OpenCode            | 1.18.3    |
+| Codex CLI           | 0.144.5   |
 
 Use these directly in shell commands, Bash scripts, and setup commands.
 

@@ -4,7 +4,7 @@ description: Roles, permissions, groups, and member access in SuperPlane organiz
 ---
 
 **Overview**
-SuperPlane uses organization-scoped role-based access control (RBAC) to decide who can do what in an organization. Today, RBAC is only defined at the organization level.
+SuperPlane uses [organization](/concepts/glossary#organization)-scoped role-based access control (RBAC) to decide who can do what in an organization. Today, RBAC is only defined at the organization level.
 
 **RBAC Sections**
 - [Roles](#roles)
@@ -83,7 +83,8 @@ building custom roles.
 
 **General**
 - `org.read` - View organization details and settings.
-- `org.update` - Update organization settings and configuration.
+- `org.update` - Update organization settings and configuration, including the organization's name and
+  [slug](/concepts/glossary#organization).
 - `org.delete` - Delete the organization (dangerous).
 
 **People & Groups**

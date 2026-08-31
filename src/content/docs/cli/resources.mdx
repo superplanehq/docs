@@ -5,17 +5,22 @@ description: Manage organizations, connected integrations, and secrets via the C
 
 ## Managing organizations
 
-Get details for the current organization:
+Get details for the current organization, including its [slug](/concepts/glossary#organization):
 
 ```sh
 superplane organizations get
 ```
 
-Update the current organization's name or description:
+Update the current organization's name, description, or slug:
 
 ```sh
-superplane organizations update --name "New Name" --description "New description"
+superplane organizations update --name "New Name" --description "New description" --slug "new-slug"
 ```
+
+The slug must be URL-friendly: lowercase letters, numbers, and hyphens only, with no leading, trailing, or
+repeated hyphens. Slugs are unique across SuperPlane, so `organizations update` returns an error if the slug
+you request is already taken. Changing the slug changes the organization's URL
+(`app.superplane.com/<slug>/...`), so update any bookmarks or shared links after a rename.
 
 ## Managing integrations
 

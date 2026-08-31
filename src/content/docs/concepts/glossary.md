@@ -5,6 +5,15 @@ description: Definitions for key SuperPlane concepts and terms.
 
 This page defines the core terms used throughout the SuperPlane documentation.
 
+## Organization
+
+An **organization** is the top-level account that owns canvases, integrations, secrets, and members in
+SuperPlane. Every organization has a unique **slug**: a URL-friendly identifier derived from its name
+(lowercase letters, numbers, and hyphens) used to route the web app, for example
+`app.superplane.com/<slug>/canvases/<canvas_id>`. You can edit the slug from **Organization Settings** or with
+`superplane organizations update --slug` (see [CLI resources](/cli/resources)), subject to uniqueness and
+format checks. Renaming the slug changes the organization's URLs.
+
 ## SuperPlane Apps
 
 A **SuperPlane app** is a control plane for long-lived, event-driven software engineering workflows across your existing tools. See [Overview](/concepts/superplane-apps).

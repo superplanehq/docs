@@ -5,7 +5,8 @@ description: Install the SuperPlane CLI, authenticate, and manage your configura
 
 import { Aside } from "@astrojs/starlight/components";
 
-Use the SuperPlane CLI to connect to your organization and manage workflows from your terminal.
+Use the SuperPlane CLI to connect to your [organization](/concepts/glossary#organization) and manage
+workflows from your terminal.
 
 <Aside type="tip" title="AI agents">
 For agent-first usage of the CLI (auth, apps, secrets, runs), use the
@@ -87,10 +88,11 @@ You can connect to multiple SuperPlane organizations at the same time. Each conn
 superplane contexts
 ```
 
-Switch directly with a context selector:
+Switch directly with a context selector, using the organization's
+[slug](/concepts/glossary#organization) (the same slug used in its web URL):
 
 ```sh
-superplane contexts <SUPERPLANE_URL>/<ORGANIZATION_NAME>
+superplane contexts <SUPERPLANE_URL>/<ORGANIZATION_SLUG>
 ```
 
 ## Output formats

@@ -41,6 +41,20 @@ Every entry also includes a **`.config`** property — the node's resolved confi
 
 `previous()` is not available when a node has multiple inputs (e.g. after a Merge). Use `$['Node Name']` instead.
 
+### `memory`
+
+The `memory` namespace lets you query [canvas memory](/concepts/canvas-memory) records directly in any expression, without adding a Read Memory node.
+
+| Function | Returns |
+| -------- | ------- |
+| `memory.find(namespace, matches)` | All records in `namespace` whose fields contain `matches`. |
+| `memory.findFirst(namespace, matches)` | The first matching record, or `nil` if none. |
+
+```
+{{memory.find("machines", {"sandbox_id": "12121"})}}
+{{memory.findFirst("machines", {"creator": "igor"}).sandbox_id}}
+```
+
 ---
 
 ## Syntax: text fields vs conditions

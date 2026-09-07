@@ -28,8 +28,10 @@ superplane connect <SUPERPLANE_URL> <SERVICE_ACCOUNT_TOKEN>
 The token can only do what the service account’s role allows. Permissions are
 organization-scoped and governed by [RBAC](/concepts/access-control).
 
-- **Viewer**: Read-only (e.g. list canvases, read run history).
-- **Admin** or custom roles: Create or update canvases, integrations, or secrets when required.
+- **Operator**: Read-only (for example, list canvases and read run history).
+- **Maintainer**, **Admin**, or a custom role: Create or update canvases, integrations, or secrets when required.
+
+API keys cannot be owners. Ownership is a membership flag for human members only. See [Access Control](/concepts/access-control).
 
 ## Best practices
 
@@ -37,4 +39,4 @@ organization-scoped and governed by [RBAC](/concepts/access-control).
   account per integration or script so you can revoke access or rotate credentials
   without impacting others.
 - **Rotate**: Regenerate tokens periodically and update any stored copies.
-- **Least privilege**: Use the minimum role that satisfies the use case (e.g. Viewer for read-only).
+- **Least privilege**: Use the minimum role that satisfies the use case (for example, Operator for read-only).

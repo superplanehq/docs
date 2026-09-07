@@ -1,0 +1,65 @@
+---
+title: Discovery Index
+description: Discover available integrations, triggers, actions, and widgets via the CLI.
+---
+
+Use `index` to discover available integration definitions, triggers, and actions.
+
+```sh
+superplane index integrations
+```
+
+Describe one integration definition:
+
+```sh
+superplane index integrations --name <integration_name>
+```
+
+List core actions:
+
+```sh
+superplane index actions
+```
+
+List actions from an integration definition:
+
+```sh
+superplane index actions --from <integration_name>
+```
+
+Describe one action:
+
+```sh
+superplane index actions --name <action_name>
+```
+
+List triggers from an integration definition:
+
+```sh
+superplane index triggers --from <integration_name>
+```
+
+Describe one trigger:
+
+```sh
+superplane index triggers --name <trigger_name>
+```
+
+List available UI widgets:
+
+```sh
+superplane index widgets
+```
+
+Download the full registry (integrations, actions, triggers, and widgets) to a local JSON file:
+
+```sh
+superplane index dump
+```
+
+By default the file is written to `/tmp/superplane-index.json`. Use `--file` to choose a
+different path:
+
+```sh
+superplane index dump --file registry.json
+```

@@ -1,12 +1,12 @@
 ---
 title: Files
-description: Each app has a git repository with canvas.yaml and console.yaml — edit from the Files tab or the CLI.
+description: Each app has a git repository. It stores canvas.yaml, console.yaml, and any other files your app needs.
 ---
 
 import filesOverview from "../../../assets/files-overview.png";
 import { Image } from "astro:assets";
 
-Every app is backed by a **git repository**. The **Files** tab is where you view and edit the YAML that defines the app.
+Every app is backed by a **git repository**. The **Files** tab is where you view and edit the files that define the app.
 
 <div class="big-image">
   <figure class="sp-canvas-figure">
@@ -19,22 +19,60 @@ Every app is backed by a **git repository**. The **Files** tab is where you view
 
 ## What's in the repository
 
+Because the app is backed by a standard Git repository, you can store any files you need inside it, such as scripts, READMEs, or custom configuration files. 
+
+However, two files have a special meaning to SuperPlane:
+
 | File | Purpose |
 | ---- | ------- |
 | `canvas.yaml` | Workflow graph: nodes, subscriptions, and configuration |
 | `console.yaml` | Console layout and panels |
 
-Changes you make in the UI are reflected in these files. Edits in **Files** follow the same **draft and publish** flow as on the [Canvas](/concepts/canvas) and [Console](/concepts/console).
+Changes you make in the UI are reflected in these files. Edits in **Files** follow the same **stage and commit** flow as on the [Canvas](/concepts/canvas) and [Console](/concepts/console).
+
+## How files connect to your workflows
+
+The files in your repository are not just static configuration—they interact with the other core components of your SuperPlane app.
+
+### Built-in AI agent
+
+The [built-in AI agent](/concepts/agent) has direct access to your app's repository. When you ask the agent to build or troubleshoot a workflow, it can:
+- **Read files**: Inspect `README.md`, documentation, or custom scripts to gain context about your app.
+- **Write files**: Create new scripts, update documentation, or modify configuration files.
+- **Manage configuration**: Update `canvas.yaml` and `console.yaml` directly to build workflows and dashboards.
+
+### SSH commands
+
+You can store a script in the repository (e.g., `scripts/deploy.sh`) and execute it using an [SSH Command](/components/Core#ssh-command) node. 
+
+To use a repository script in an SSH Command node, set **Command source** to **From file** and point **Command file** at the script's path. The script is re-read from the repository on every run, so any edits take effect on the next run after you commit. The file always runs under bash, regardless of its shebang.
+
+### Claude agents
+
+The [Run Claude Agent](/components/Claude#run-claude-agent) and [Text Prompt](/components/Claude#text-prompt) components both have a **Files** field that attaches repository files to the session:
+- **Text Prompt**: Sends the files as inline context documents (up to 100 KB per file and 500 KB total).
+- **Run Claude Agent**: Mounts the files into the managed agent's working directory for the duration of the session.
+
+### Runners
+
+[Runners](/concepts/runners) execute shell commands and scripts on remote machines. You can store complex scripts (e.g., a 500-line Python data processing script or a Bash deployment script) directly in your app's repository instead of pasting them into the Canvas UI.
+
+To use a repository script in a runner:
+1. Store the script in your app's repository (e.g., `scripts/process-data.py`).
+2. In your Runner node's **Setup commands**, clone the repository.
+3. In the Runner node's **Script** field, simply execute the file: `python scripts/process-data.py`.
+
+This approach keeps your Canvas clean, allows you to version-control your scripts, and lets you use standard IDEs and linters for your code.
 
 ## Files tab
 
 Open **Files** from the app header (alongside **Canvas**, **Console**, and **Memory**).
 
-- View and edit `canvas.yaml` and `console.yaml` in the browser
-- Export YAML for review or backup
+- View and edit files in the browser
+- Export files for review or backup
 - Import YAML to replace the graph or console in one update (console import is replace-all)
 
 ## CLI
 
-Inspect app files with the SuperPlane CLI. See [SuperPlane CLI](/installation/cli) for `canvas.yaml` and
+Inspect app files with the SuperPlane CLI. See [SuperPlane CLI](/cli/apps#reading-app-files) for `canvas.yaml` and
 `console.yaml` commands on a given app.

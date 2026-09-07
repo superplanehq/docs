@@ -38,7 +38,7 @@ New members are assigned the `Operator` role by default.
 
 Owner is a flag on the organization membership. It is not a role. It does not appear in the Roles list, and it is not part of the inheritance chain. The Members page shows it as a badge.
 
-- API keys cannot be owners. Ownership is for human members only. See [Service Accounts](/concepts/service-accounts).
+- API keys cannot be owners. Ownership is for human members only. See [API keys](/security/api-keys).
 - You must keep at least one owner in the organization.
 
 ## Default role permissions

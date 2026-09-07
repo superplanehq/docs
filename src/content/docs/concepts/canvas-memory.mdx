@@ -26,6 +26,31 @@ import { Image } from "astro:assets";
 - **Rows** — Each write can add or update rows; each row holds JSON **values** (object).
 - **Matching** — Read, update, delete, and upsert operations can match rows by field values (JSON containment).
 
+## Hello world example
+
+A common use case is tracking the status of an ongoing process, like an incident.
+
+1. **Write**: When an incident is declared, use an **Add Memory** node.
+   - **Namespace**: `incidents`
+   - **Values**: `{"id": "{{ $.trigger.incident_id }}", "status": "open"}`
+2. **Read**: Later in the workflow (or in a completely separate run triggered by a different event), use a **Read Memory** node to check the status.
+   - **Namespace**: `incidents`
+   - **Match**: `{"id": "{{ $.trigger.incident_id }}"}`
+3. **Update**: When the incident is resolved, use an **Update Memory** node.
+   - **Namespace**: `incidents`
+   - **Match**: `{"id": "{{ $.trigger.incident_id }}"}`
+   - **Values**: `{"status": "resolved"}`
+
+## Namespaces
+
+Namespaces are arbitrary strings that group related memory records. You create a namespace simply by writing to it.
+
+**Examples of namespaces:**
+- `deployments`: Tracking the version, environment, and status of code rollouts.
+- `user_preferences`: Storing opt-in/opt-out flags for notifications.
+- `rate_limits`: Keeping counters for API usage to prevent throttling.
+- `approval_requests`: Storing pending requests that wait for human interaction.
+
 ## Persisting data across runs
 
 Runs on the same app are independent: payloads from one run do not automatically appear in the next. Memory is where you **store facts that should survive** until a later run needs them.
@@ -56,6 +81,43 @@ SuperPlane provides five memory components:
 
 See the [Components](/components/core) reference for field-level configuration.
 
-## API
+## Manual memory entry and edits
 
-Memory can also be listed or cleared via the REST API (see [Public API Reference](/concepts/api-reference)). Managing memory records requires permissions to read or update the app.
+You don't have to rely solely on workflows to manage memory. You can manually view, add, edit, and delete records directly from the SuperPlane UI.
+
+1. Open your app and navigate to the **Memory** tab.
+2. Select a namespace from the sidebar.
+3. Click **Add Record** to manually insert a new JSON object.
+4. Click on any existing row to edit its JSON values or delete it.
+
+This is especially useful for seeding initial configuration data, updating feature flags, or correcting state during an incident.
+
+### Read-only behavior
+
+Access to the Memory tab is governed by your app permissions:
+- Users with `canvases:update` permission can add, edit, and delete memory records manually.
+- Users with only `canvases:read` permission will see the Memory tab in **read-only mode**. They can browse namespaces and inspect JSON values, but the buttons to add, edit, or delete records will be hidden or disabled.
+
+## Feeding console widgets
+
+Memory is a primary data source for the [Console](/concepts/console). You can build live operational dashboards that read directly from memory namespaces.
+
+For example, you can configure a **Table** widget to display the `incidents` namespace. As your workflows add or update memory records, the console table updates in real-time. You can also reference memory variables directly in **Markdown** widgets to display dynamic text (e.g., `{{ memory.incidents.length }} open incidents`).
+
+See [Console Data Sources](/concepts/console/data-sources) for more details.
+
+## CLI and API
+
+You can list and export memory records using the [SuperPlane CLI](/cli/apps#managing-app-memory). This is useful for auditing, backups, or piping data into other scripts.
+
+List all memory records for an app:
+```sh
+superplane apps memory list <app_id>
+```
+
+Filter records to a specific namespace:
+```sh
+superplane apps memory list <app_id> --namespace "incidents"
+```
+
+Memory can also be managed via the REST API (see [Public API Reference](/concepts/api-reference)). Managing memory records requires permissions to read or update the app.

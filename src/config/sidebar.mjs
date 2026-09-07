@@ -6,6 +6,7 @@ export const sidebar = [
       { label: "Welcome", slug: "" },
       { label: "Quickstart", slug: "get-started/quickstart" },
       { label: "Example use cases", slug: "get-started/example-use-cases" },
+      { label: "Cloud beta", slug: "concepts/cloud" },
     ],
   },
   {
@@ -25,12 +26,15 @@ export const sidebar = [
       { label: "Memory", slug: "concepts/canvas-memory" },
       { label: "Files", slug: "concepts/files" },
       { label: "Agent", slug: "concepts/agent" },
+      { label: "External agents", slug: "concepts/external-agents" },
+      { label: "Sharing apps", slug: "concepts/sharing-apps" },
     ],
   },
   {
     label: "Workflow Orchestration",
     items: [
       { label: "Overview", slug: "concepts/data-flow" },
+      { label: "Runs", slug: "concepts/runs" },
       { label: "Component Nodes", slug: "concepts/component-nodes" },
       { label: "Expressions", slug: "concepts/expressions" },
       { label: "Expression Functions", slug: "concepts/expression-functions" },
@@ -40,9 +44,10 @@ export const sidebar = [
   {
     label: "Security",
     items: [
-      { label: "Secrets", slug: "concepts/secrets" },
-      { label: "RBAC", slug: "concepts/access-control" },
-      { label: "Service Accounts", slug: "concepts/service-accounts" },
+      { label: "Authentication & Accounts", slug: "security/authentication" },
+      { label: "Secrets", slug: "security/secrets" },
+      { label: "RBAC", slug: "security/access-control" },
+      { label: "API keys", slug: "security/api-keys" },
     ],
   },
   {
@@ -71,7 +76,16 @@ export const sidebar = [
         slug: "installation/kubernetes/amazon-eks",
       },
       { label: "Beacon", slug: "installation/beacon" },
-      { label: "CLI", slug: "installation/cli" },
+    ],
+  },
+  {
+    label: "Command Line Interface (CLI)",
+    items: [
+      { label: "Overview & Installation", slug: "cli/overview" },
+      { label: "Managing Apps", slug: "cli/apps" },
+      { label: "Runs & Executions", slug: "cli/runs" },
+      { label: "Integrations & Secrets", slug: "cli/resources" },
+      { label: "Discovery Index", slug: "cli/discovery" },
     ],
   },
   {

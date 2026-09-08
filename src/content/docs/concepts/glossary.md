@@ -102,5 +102,5 @@ condition, or select an output path). See the [Expressions](/concepts/expression
 
 ## API key
 
-An **API key** is a non-human credential used to call the SuperPlane API from scripts and external systems. Access is governed by [RBAC](/concepts/access-control). See
+An **API key** is a non-human credential used to call the SuperPlane API from scripts and external systems. Access is governed by [RBAC](/security/access-control). See
 [API keys](/security/api-keys) for details.

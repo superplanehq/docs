@@ -1,6 +1,8 @@
 # SuperPlane Documentation
 
-This repository contains the documentation for [SuperPlane](https://github.com/superplanehq/superplane), the open source DevOps control plane.
+This repository contains the documentation for [SuperPlane](https://github.com/superplanehq/superplane), an open source AI software factory for engineering teams. SuperPlane coordinates AI agents, source control, continuous integration (CI), review, approvals, and feedback to move high-confidence routine work from the backlog to verified, review-ready pull requests.
+
+Agents perform the work. Workflows define the allowed scope, required checks, review policies, approval points, and escalation paths. This keeps control and verification in the workflow instead of depending on a specific model or agent.
 
 ## About
 

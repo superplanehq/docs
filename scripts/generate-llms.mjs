@@ -147,7 +147,7 @@ function buildLlmsTxt(sections) {
   const lines = [
     "# SuperPlane Docs",
     "",
-    "> SuperPlane documentation for building and operating event-driven DevOps workflows.",
+    "> SuperPlane documentation for building and operating AI agent workflows that one-shot routine engineering work.",
     "",
     "This file provides a structured index of documentation pages for LLM-based tools.",
     "",
@@ -166,7 +166,7 @@ function buildLlmsFullTxt(sections) {
     "",
     "> Comprehensive companion to `/llms.txt` with full page content for the current docs table of contents.",
     "",
-    "SuperPlane is an open source DevOps control plane for long-lived, event-driven workflows.",
+    "SuperPlane is an open source AI software factory that lets AI agents fully automate routine development work through long-lived, event-driven workflows.",
     "",
   ];
 

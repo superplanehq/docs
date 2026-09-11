@@ -5,8 +5,12 @@ This document provides guidelines for AI agents working with the SuperPlane docu
 ## Repository Overview
 
 This repository contains the documentation for
-[SuperPlane](https://github.com/superplanehq/superplane), an open source DevOps
-control plane. The documentation site is built with
+[SuperPlane](https://github.com/superplanehq/superplane), an open source AI
+software factory for engineering teams. SuperPlane coordinates agents and
+deterministic workflows to turn high-confidence routine work into verified,
+review-ready pull requests. Workflows define scope, checks, approvals,
+feedback, and escalation; agents perform the work within those guardrails.
+The documentation site is built with
 [Starlight](https://starlight.astro.build), a documentation framework built on
 [Astro](https://astro.build).
 

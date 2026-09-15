@@ -149,11 +149,11 @@ Use **Organization Settings > Roles** to review roles and create custom roles.
 - Default roles are marked as **Default Role** and are read-only.
 - Custom roles can be created, edited and deleted if you have `roles.*` permissions.
 
-![Roles page](https://assets.superplane.com/src/assets/rbac-roles.png)
+![Roles page](https://docs-assets.superplane.com/src/assets/rbac-roles.png)
 
 The Create Role page lets you pick permissions by category.
 
-![Create role page](https://assets.superplane.com/src/assets/rbac-create-role.png)
+![Create role page](https://docs-assets.superplane.com/src/assets/rbac-create-role.png)
 
 ## Groups
 
@@ -161,8 +161,8 @@ Groups map to a single role. When a user is added to a group, they inherit that 
 - Create groups in **Organization Settings > Groups**.
 - Change a group role from the Groups list; all group members inherit the new role immediately.
 
-![Groups page](https://assets.superplane.com/src/assets/rbac-groups.png)
-![Groups creation page](https://assets.superplane.com/src/assets/rbac-create-group.png)
+![Groups page](https://docs-assets.superplane.com/src/assets/rbac-groups.png)
+![Groups creation page](https://docs-assets.superplane.com/src/assets/rbac-create-group.png)
 
 ## Members
 
@@ -172,4 +172,4 @@ The Members page is where you assign a member's direct role and manage invite li
 - Assigning a role replaces the previous direct role.
 - Owners appear with an **Owner** badge. You must keep at least one owner in the organization.
 
-![Members page](https://assets.superplane.com/src/assets/rbac-members.png)
+![Members page](https://docs-assets.superplane.com/src/assets/rbac-members.png)

@@ -51,7 +51,7 @@ The first two pieces become GitHub issues. Keeping them separate gives the facto
 Open the <a href="https://github.com/pixawna/Factory-Starter-App" target="_blank" rel="noreferrer">Factory Starter App repository</a>. You do not need a finished application yet. The repository is where you will define the work and where SuperPlane will push each change.
 
 <figure class="sp-media-figure not-content">
-  <img src="https://assets.superplane.com/src/assets/initial_page_1.png" alt="Empty Factory Starter App repository on GitHub" />
+  <img src="https://docs-assets.superplane.com/src/assets/initial_page_1.png" alt="Empty Factory Starter App repository on GitHub" />
   <figcaption>The repository starts almost empty. The issues will define what the factory builds.</figcaption>
 </figure>
 
@@ -64,7 +64,7 @@ Do not create one issue called “Build the whole website and deploy it.” Crea
 Ask for the base application, project structure and a simple homepage. Include acceptance criteria that can be checked locally such as a successful build and an accessible default page.
 
 <figure class="sp-media-figure not-content">
-  <img src="https://assets.superplane.com/src/assets/issue_1.png" alt="GitHub issue for setting up the initial Next.js application" />
+  <img src="https://docs-assets.superplane.com/src/assets/issue_1.png" alt="GitHub issue for setting up the initial Next.js application" />
   <figcaption>The first issue creates a working foundation that the factory can build and test.</figcaption>
 </figure>
 
@@ -73,7 +73,7 @@ Ask for the base application, project structure and a simple homepage. Include a
 Once the base application exists, create a second issue for the real homepage. Describe the layout, required sections and responsive behavior you expect.
 
 <figure class="sp-media-figure not-content">
-  <img src="https://assets.superplane.com/src/assets/issue_2.png" alt="GitHub issue for building the Factory Starter App homepage" />
+  <img src="https://docs-assets.superplane.com/src/assets/issue_2.png" alt="GitHub issue for building the Factory Starter App homepage" />
   <figcaption>The second issue improves the application without repeating the initial setup.</figcaption>
 </figure>
 
@@ -91,7 +91,7 @@ If you have not connected a repository before, complete the [Quickstart](/get-st
       <div class="repository-connect-step">
         <p>Connect GitHub.</p>
         <figure>
-          <img src="https://assets.superplane.com/src/assets/connect_github.png" alt="SuperPlane setup screen for connecting GitHub" />
+          <img src="https://docs-assets.superplane.com/src/assets/connect_github.png" alt="SuperPlane setup screen for connecting GitHub" />
         </figure>
         <p class="factory-stage-caption">Connect GitHub to your SuperPlane workspace.</p>
       </div>
@@ -100,7 +100,7 @@ If you have not connected a repository before, complete the [Quickstart](/get-st
       <div class="repository-connect-step">
         <p>Select <strong>Factory-Starter-App</strong>.</p>
         <figure>
-          <img src="https://assets.superplane.com/src/assets/factory_starter_app.png" alt="SuperPlane repository picker with Factory Starter App selected" />
+          <img src="https://docs-assets.superplane.com/src/assets/factory_starter_app.png" alt="SuperPlane repository picker with Factory Starter App selected" />
         </figure>
         <p class="factory-stage-caption">Choose Factory-Starter-App as the repository for this factory.</p>
       </div>
@@ -109,7 +109,7 @@ If you have not connected a repository before, complete the [Quickstart](/get-st
       <div class="repository-connect-step">
         <p>Allow SuperPlane to import work from the repository.</p>
         <figure>
-          <img src="https://assets.superplane.com/src/assets/import_repo.png" alt="SuperPlane backlog import screen with GitHub Issues selected" />
+          <img src="https://docs-assets.superplane.com/src/assets/import_repo.png" alt="SuperPlane backlog import screen with GitHub Issues selected" />
         </figure>
         <p class="factory-stage-caption">Use GitHub Issues as the source for work entering the Backlog.</p>
       </div>
@@ -118,7 +118,7 @@ If you have not connected a repository before, complete the [Quickstart](/get-st
       <div class="repository-connect-step">
         <p>Open your factory board.</p>
         <figure>
-          <img src="https://assets.superplane.com/src/assets/factory_board.png" alt="SuperPlane workspace ready screen with a button to open the factory board" />
+          <img src="https://docs-assets.superplane.com/src/assets/factory_board.png" alt="SuperPlane workspace ready screen with a button to open the factory board" />
         </figure>
         <p class="factory-stage-caption">Open the board after SuperPlane finishes importing the repository.</p>
       </div>
@@ -164,7 +164,7 @@ You do not need to describe these operational steps in every issue. The implemen
 ### Inspect the agent configuration
 
 <figure class="sp-media-figure not-content">
-  <img src="https://assets.superplane.com/src/assets/agent_config.png" alt="SuperPlane factory board with the initial application task running in Implement" />
+  <img src="https://docs-assets.superplane.com/src/assets/agent_config.png" alt="SuperPlane factory board with the initial application task running in Implement" />
   <figcaption>The agent writes the code. The factory controls the process around it.</figcaption>
 </figure>
 
@@ -175,7 +175,7 @@ The model setting controls which model performs the work. The automation steps d
 Open the Implement automation to follow the active run. The automation defines what happens from the moment the task enters Implement until SuperPlane has a result to verify.
 
 <figure class="sp-media-figure not-content">
-  <img src="https://assets.superplane.com/src/assets/implementation_phase.png" alt="SuperPlane Implement automation showing the agent run and pull request steps" />
+  <img src="https://docs-assets.superplane.com/src/assets/implementation_phase.png" alt="SuperPlane Implement automation showing the agent run and pull request steps" />
   <figcaption>The automation runs the implementation steps and prepares the pull request in the background.</figcaption>
 </figure>
 
@@ -184,14 +184,14 @@ Open the Implement automation to follow the active run. The automation defines w
 When implementation completes, the task moves to Verify. Open the linked pull request and confirm that the application builds, the expected files exist and the default page works.
 
 <figure class="sp-media-figure not-content">
-  <img src="https://assets.superplane.com/src/assets/verify_phase.png" alt="Initial Next.js application task waiting for review in the Verify stage" />
+  <img src="https://docs-assets.superplane.com/src/assets/verify_phase.png" alt="Initial Next.js application task waiting for review in the Verify stage" />
   <figcaption>The task waits in Verify while you review the pull request and its checks.</figcaption>
 </figure>
 
 If a configured check fails, the failure becomes part of the factory work. The result can return to the agent with the context needed for another attempt. When every required check passes, review and merge the pull request.
 
 <figure class="sp-media-figure not-content">
-  <img src="https://assets.superplane.com/src/assets/github_image.png" alt="Factory Starter App repository after merging the initial Next.js application pull request" />
+  <img src="https://docs-assets.superplane.com/src/assets/github_image.png" alt="Factory Starter App repository after merging the initial Next.js application pull request" />
   <figcaption>The first merged pull request turns the empty repository into a working Next.js project.</figcaption>
 </figure>
 
@@ -200,7 +200,7 @@ If a configured check fails, the failure becomes part of the factory work. The r
 Return to Backlog and start **Build the Factory Starter App homepage**. You do not need to create another factory, rebuild the implementation workflow or recreate verification. The same process handles the next piece of work.
 
 <figure class="sp-media-figure not-content">
-  <video controls playsinline preload="metadata" src="https://assets.superplane.com/factory_starter_video.mp4">
+  <video controls playsinline preload="metadata" src="https://docs-assets.superplane.com/src/assets/factory_starter_video.mp4">
     Your browser does not support embedded video.
   </video>
   <figcaption>The second issue moves from Backlog through Implement and Verify to a review ready pull request.</figcaption>
@@ -220,14 +220,14 @@ Once the frontend pull request is verified and merged, connect the repository to
 After the initial setup, future merged changes can deploy through the same Git workflow. Read the <a href="https://vercel.com/docs/deployments" target="_blank" rel="noreferrer">Vercel deployment documentation</a> if you need help with the deployment settings.
 
 <figure class="sp-media-figure not-content">
-  <img src="https://assets.superplane.com/src/assets/initial_one.png" alt="Vercel production deployment for the Factory Starter App" />
+  <img src="https://docs-assets.superplane.com/src/assets/initial_one.png" alt="Vercel production deployment for the Factory Starter App" />
   <figcaption>Vercel deploys the application from the merged main branch.</figcaption>
 </figure>
 
 Open the <a href="https://factoryapp-ashen.vercel.app/" target="_blank" rel="noreferrer">deployed Factory Starter App</a> to see the result.
 
 <figure class="sp-media-figure not-content">
-  <img src="https://assets.superplane.com/src/assets/final_project.png" alt="Finished Factory Starter App homepage deployed to production" />
+  <img src="https://docs-assets.superplane.com/src/assets/final_project.png" alt="Finished Factory Starter App homepage deployed to production" />
   <figcaption>The finished homepage was created through two focused factory runs.</figcaption>
 </figure>
 

@@ -15,6 +15,8 @@ SuperPlane usage includes:
 - Managed model tokens at the provider rate plus 10%.
 - Retries and repeated verification steps that run machines or models again.
 
+If you use your own model provider keys, your provider bills that usage separately without the SuperPlane 10% platform fee. You can mix managed and self-provided keys across workflows.
+
 There is no charge for each team member. External services that you connect can bill you separately.
 
 ## Establish a baseline

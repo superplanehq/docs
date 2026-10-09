@@ -35,7 +35,7 @@ const { siteTitleHref } = Astro.locals.starlightRoute;
 	@layer starlight.user {
 		.site-title {
 			align-items: center;
-			gap: 12px;
+			gap: 16px;
 			font-size: var(--sl-text-h4);
 			font-weight: 500;
 			color: var(--sl-color-text-accent);
@@ -44,8 +44,13 @@ const { siteTitleHref } = Astro.locals.starlightRoute;
 			min-width: 0;
 		}
 		.site-title-text {
-			font-size: 1.25rem;
-			color: var(--sl-color-gray-3);
+			font-family: var(--sl-font-mono);
+			font-size: 0.6875rem;
+			text-transform: uppercase;
+			letter-spacing: 0.04em;
+			color: #8fadb1;
+			border-inline-start: 1px solid #303838;
+			padding-inline-start: 16px;
 		}
 		span {
 			overflow: hidden;
@@ -53,13 +58,13 @@ const { siteTitleHref } = Astro.locals.starlightRoute;
 		img {
 			height: calc(var(--sl-nav-height) - 2 * var(--sl-nav-pad-y));
 			width: auto;
-			max-width: 150px;
-			margin-bottom: -4px !important;
+			max-width: 158px;
+			margin-bottom: 0;
 			object-fit: contain;
 			object-position: 0 50%;
 		}
 		.site-title .site-logo {
-			filter: invert(1) brightness(1.1) sepia(0.08);
+			filter: none;
 		}
 
 		@media (max-width: 49.999rem) {
@@ -75,7 +80,7 @@ const { siteTitleHref } = Astro.locals.starlightRoute;
 
 			.site-title-text {
 				flex: 0 1 auto;
-				font-size: 1rem;
+				font-size: 0.6875rem;
 				text-overflow: ellipsis;
 			}
 		}

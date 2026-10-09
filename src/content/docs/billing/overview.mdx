@@ -5,12 +5,7 @@ description: Compare SuperPlane plans and understand subscription, machine and m
 
 SuperPlane charges a fixed monthly fee for each organization. Machine use and managed model use draw from a shared allowance. You can invite your full team without a fee for each member.
 
-<figure class="sp-media-figure not-content">
-  <img src="https://docs-assets.superplane.com/images/billing_overview.png" alt="SuperPlane organization billing settings showing the Business plan and remaining hosted credit" />
-  <figcaption>View your plan and remaining hosted credit from the organization billing settings.</figcaption>
-</figure>
-
-Business includes a 14 day trial with no credit card required. You can connect private repositories during the trial.
+Business includes a 14-day trial with full access and no credit card required. If you don't subscribe when the trial ends, your workspace becomes view-only until you subscribe.
 
 ## Choose a plan
 
@@ -18,13 +13,9 @@ Business includes a 14 day trial with no credit card required. You can connect p
   <article class="pricing-card">
     <p class="pricing-card__label">Open source</p>
     <h3>Free for qualifying projects</h3>
-    <p>Actively maintained projects with a public repository and an open source license can apply for up to $5,000 in sponsored credits.</p>
-    <ul>
-      <li>Business features included</li>
-      <li>Credits for machines and AI models</li>
-      <li>Public pages for your workflows</li>
-    </ul>
-    <span class="pricing-card__action pricing-card__action--disabled">Applications coming soon</span>
+    <p>Maintainers of qualifying open source projects can apply for free access to the Business plan.</p>
+    <p>Includes the same features as a paid workspace.</p>
+    <a class="pricing-card__action pricing-card__action--secondary" href="https://superplane.com/open-source/">Apply for sponsorship</a>
   </article>
 
   <article class="pricing-card pricing-card--featured">
@@ -39,22 +30,14 @@ Business includes a 14 day trial with no credit card required. You can connect p
       <li>Model API rates plus 10%</li>
       <li>Email support</li>
     </ul>
-    <a class="pricing-card__action" href="https://app.superplane.com/" target="_blank" rel="noreferrer">Start free trial</a>
+    <a class="pricing-card__action" href="https://app.superplane.com/" target="_blank" rel="noreferrer">Start 14-day free trial</a>
   </article>
 
   <article class="pricing-card">
     <p class="pricing-card__label">Enterprise</p>
     <div class="pricing-card__price"><strong>Custom</strong></div>
-    <p>For scaled organizations. Enterprise includes everything in Business plus:</p>
-    <ul>
-      <li>Air gapped installation</li>
-      <li>Access controls and audit logs</li>
-      <li>Your own model keys</li>
-      <li>Priority support and service level agreements</li>
-      <li>A dedicated engineer for workflow implementation</li>
-      <li>Invoice and purchase order billing</li>
-    </ul>
-    <a class="pricing-card__action pricing-card__action--secondary" href="https://calendar.app.google/bZ4ZejCzttSPBg4J7" target="_blank" rel="noreferrer">Contact sales</a>
+    <p>For scaled organizations. Contact sales to discuss pricing and your requirements.</p>
+    <a class="pricing-card__action pricing-card__action--secondary" href="https://superplane.com/demo/" target="_blank" rel="noreferrer">Contact sales</a>
   </article>
 </div>
 
@@ -68,20 +51,20 @@ Your included usage covers machines and managed models. Usage above the included
   <div><strong>$0</strong><span>per member</span></div>
 </div>
 
-Managed model usage is available for models from OpenAI, Anthropic, Gemini, xAI Grok, DeepSeek, Qwen and Kimi. Enterprise customers can also use their own model API keys.
+Managed model usage is available for models from OpenAI, Anthropic, Gemini, xAI Grok, DeepSeek, Qwen and Kimi. You can use your own provider keys to avoid the 10% platform fee or combine managed and self-provided keys across workflows. Your provider bills usage on your own keys separately.
 
-Unused monthly usage does not roll over. When the included $50 is exhausted SuperPlane deducts additional usage from your prepaid balance.
+Unused monthly usage does not roll over. When the included $50 is exhausted SuperPlane deducts additional usage from your prepaid balance. You can top up your balance from billing settings.
 
 ## Machine usage
 
 Managed machines run Linux. Choose a size and architecture that matches your workflow.
 
-| Machine | Architecture | vCPUs | Memory | Price per minute |
-| --- | --- | ---: | ---: | ---: |
-| Small x64 | x64 | 2 | 0.5 GiB | $0.0002 |
-| Small ARM | ARM | 2 | 0.5 GiB | $0.0001 |
-| Large x64 | x64 | 2 | 8 GiB | $0.0042 |
-| Large ARM | ARM | 2 | 8 GiB | $0.0030 |
+| Machine | vCPUs | Memory | Rate per hour |
+| --- | ---: | ---: | ---: |
+| Small x64 | 2 | 4 GB | $0.08 |
+| Small arm64 | 2 | 4 GB | $0.05 |
+| Large x64 | 8 | 16 GB | $0.32 |
+| Large arm64 | 8 | 16 GB | $0.20 |
 
 ## See example monthly bills
 
@@ -94,11 +77,11 @@ These examples show Business pricing for a five person team in United States dol
     <dl>
       <div><dt>Business subscription</dt><dd>$199</dd></div>
       <div><dt>Member charges</dt><dd>$0</dd></div>
-      <div><dt>Machine and model usage</dt><dd>$48</dd></div>
-      <div><dt>Additional usage</dt><dd>$0</dd></div>
+      <div><dt>Machine and model usage</dt><dd>$45</dd></div>
+      <div><dt>Included usage applied</dt><dd>($45)</dd></div>
       <div class="billing-total"><dt>Total cost</dt><dd>$199</dd></div>
     </dl>
-    <p>The remaining $2 of included usage expires at renewal.</p>
+    <p>The remaining $5 of included usage expires at renewal.</p>
   </article>
 
   <article>
@@ -106,13 +89,14 @@ These examples show Business pricing for a five person team in United States dol
     <h3>AI heavy usage</h3>
     <dl>
       <div><dt>Business subscription</dt><dd>$199</dd></div>
-      <div><dt>Machine usage</dt><dd>$300</dd></div>
-      <div><dt>Model usage at provider rates</dt><dd>$1,000</dd></div>
-      <div><dt>Model markup</dt><dd>$100</dd></div>
+      <div><dt>Machine usage</dt><dd>$180</dd></div>
+      <div><dt>Model usage at provider rates</dt><dd>$1,200</dd></div>
+      <div><dt>Model markup</dt><dd>$120</dd></div>
+      <div><dt>Total usage</dt><dd>$1,500</dd></div>
       <div><dt>Included usage</dt><dd>($50)</dd></div>
-      <div class="billing-total"><dt>Total cost</dt><dd>$1,549</dd></div>
+      <div class="billing-total"><dt>Total cost</dt><dd>$1,649</dd></div>
     </dl>
-    <p>The prepaid balance covers $1,350 in additional usage.</p>
+    <p>The prepaid balance covers $1,450 in additional usage.</p>
   </article>
 </div>
 

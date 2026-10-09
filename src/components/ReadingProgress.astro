@@ -71,12 +71,12 @@
     .reading-progress__star {
       color: color-mix(
         in srgb,
-        var(--sp-color-yellow) calc(var(--reading-progress, 0) * 100%),
+        var(--sp-color-orange) calc(var(--reading-progress, 0) * 100%),
         var(--sp-color-text-dim)
       );
       font-size: 1.55rem;
       line-height: 1;
-      filter: drop-shadow(0 0 calc(var(--reading-progress, 0) * 0.7rem) rgb(255 178 28 / 0.8));
+      filter: drop-shadow(0 0 calc(var(--reading-progress, 0) * 0.7rem) rgb(237 142 9 / 0.8));
       transform: scale(calc(0.86 + var(--reading-progress, 0) * 0.14));
       transition: color 180ms ease, filter 180ms ease, transform 180ms ease;
     }
@@ -105,8 +105,8 @@
       width: 0;
       height: 100%;
       border-radius: inherit;
-      background: var(--sp-color-yellow);
-      box-shadow: 0 0 0.6rem rgb(255 178 28 / 0.55);
+      background: var(--sp-color-orange);
+      box-shadow: 0 0 0.6rem rgb(237 142 9 / 0.55);
       transition: width 100ms linear;
     }
 

@@ -1,0 +1,315 @@
+import type {
+  ComponentBaseProps,
+  EventSection,
+  ComponentBaseSpec,
+  EventState,
+  EventStateMap,
+} from "@/ui/componentBase";
+import { DEFAULT_EVENT_STATE_MAP } from "@/ui/componentBase/eventState";
+import { getBackgroundColorClass } from "@/lib/colors";
+import type React from "react";
+import { getState, getStateMap, getTriggerRenderer } from "../mapperLookup";
+import type {
+  ComponentBaseMapper,
+  OutputPayload,
+  EventStateRegistry,
+  StateFunction,
+  ComponentBaseContext,
+  SubtitleContext,
+  ExecutionDetailsContext,
+  NodeInfo,
+  ExecutionInfo,
+} from "../types";
+import type { MetadataItem } from "@/ui/metadataList";
+import pdIcon from "@/assets/icons/integrations/pagerduty.svg";
+import type { Incident, ListIncidentsConfiguration, ListIncidentsResponse } from "./types";
+import { renderWithTimeAgo } from "@/components/TimeAgo";
+
+// Output channel names matching the backend constants
+const CHANNEL_CLEAR = "clear";
+const CHANNEL_LOW = "low";
+const CHANNEL_HIGH = "high";
+
+// Type for outputs with channel structure
+type ListIncidentsOutputs = {
+  default?: OutputPayload[];
+  clear?: OutputPayload[];
+  low?: OutputPayload[];
+  high?: OutputPayload[];
+};
+
+/**
+ * Extracts the first payload from execution outputs, checking all possible channels.
+ */
+function getFirstPayload(execution: ExecutionInfo): OutputPayload | null {
+  const outputs = execution.outputs as unknown as ListIncidentsOutputs | undefined;
+  if (!outputs) return null;
+
+  // Check channel-based outputs first (in severity order)
+  for (const channel of [CHANNEL_HIGH, CHANNEL_LOW, CHANNEL_CLEAR]) {
+    const channelOutputs = outputs[channel as keyof ListIncidentsOutputs];
+    if (channelOutputs && channelOutputs.length > 0) {
+      return channelOutputs[0];
+    }
+  }
+
+  // Fallback to default channel
+  if (outputs.default && outputs.default.length > 0) {
+    return outputs.default[0];
+  }
+
+  return null;
+}
+
+/**
+ * Determines which output channel has data, indicating the incident urgency state.
+ */
+function getActiveChannel(execution: ExecutionInfo): string | null {
+  const outputs = execution.outputs as unknown as ListIncidentsOutputs | undefined;
+  if (!outputs) return null;
+
+  if (outputs.high && outputs.high.length > 0) return CHANNEL_HIGH;
+  if (outputs.low && outputs.low.length > 0) return CHANNEL_LOW;
+  if (outputs.clear && outputs.clear.length > 0) return CHANNEL_CLEAR;
+  if (outputs.default && outputs.default.length > 0) return "default";
+
+  return null;
+}
+
+/**
+ * Extracts incidents from the execution payload.
+ */
+function getIncidents(execution: ExecutionInfo): Incident[] {
+  const payload = getFirstPayload(execution);
+  if (!payload || !payload.data) return [];
+
+  const responseData = payload.data as ListIncidentsResponse | undefined;
+  if (!responseData || !responseData.incidents) return [];
+
+  return responseData.incidents;
+}
+
+export const listIncidentsMapper: ComponentBaseMapper = {
+  props(context: ComponentBaseContext): ComponentBaseProps {
+    const lastExecution = context.lastExecutions.length > 0 ? context.lastExecutions[0] : null;
+    const componentName = context.componentDefinition.name ?? "pagerduty";
+
+    const configuration = context.node.configuration as unknown as ListIncidentsConfiguration;
+    const specs = getSpecs(configuration);
+
+    return {
+      iconSrc: pdIcon,
+      collapsedBackground: getBackgroundColorClass(context.componentDefinition.color),
+      collapsed: context.node.isCollapsed,
+      title:
+        context.node.name ||
+        context.componentDefinition.label ||
+        context.componentDefinition.name ||
+        "Unnamed component",
+      eventSections: lastExecution ? baseEventSections(context.nodes, lastExecution, componentName) : undefined,
+      metadata: metadataList(context.node),
+      specs,
+      includeEmptyState: !lastExecution,
+      eventStateMap: getStateMap(componentName),
+    };
+  },
+
+  subtitle(context: SubtitleContext): string | React.ReactNode {
+    const date = new Date(context.execution.createdAt!);
+    const incidents = getIncidents(context.execution);
+
+    if (incidents.length > 0) {
+      const highCount = incidents.filter((i) => i.urgency === "high").length;
+      const lowCount = incidents.filter((i) => i.urgency === "low").length;
+
+      const countParts: string[] = [];
+      if (highCount > 0) {
+        countParts.push(`${highCount} high urgency`);
+      }
+      if (lowCount > 0) {
+        countParts.push(`${lowCount} low urgency`);
+      }
+
+      if (countParts.length > 0) {
+        return renderWithTimeAgo(countParts.join(", "), date);
+      }
+
+      return renderWithTimeAgo(`${incidents.length} incidents`, date);
+    }
+
+    return renderWithTimeAgo("no incidents", date);
+  },
+
+  getExecutionDetails(context: ExecutionDetailsContext): Record<string, unknown> {
+    const details: Record<string, string> = {};
+    if (context.execution.createdAt) {
+      details["Checked at"] = new Date(context.execution.createdAt).toLocaleString();
+    }
+
+    const incidents = getIncidents(context.execution);
+    if (incidents.length === 0) {
+      return details;
+    }
+
+    incidents.forEach((incident) => {
+      details[incident.title || "Untitled Incident"] =
+        `${incident.status} - ${incident.urgency} - ${incident.service?.summary} - ${incident.priority?.summary}`;
+    });
+
+    return details;
+  },
+};
+
+function metadataList(node: NodeInfo): MetadataItem[] {
+  const metadata: MetadataItem[] = [];
+  const nodeMetadata = node.metadata as { services?: { id: string; name: string }[] } | undefined;
+
+  if (nodeMetadata?.services && nodeMetadata.services.length > 0) {
+    const serviceNames = nodeMetadata.services.map((s) => s.name).join(", ");
+    metadata.push({ icon: "bell", label: serviceNames });
+  }
+
+  return metadata;
+}
+
+function getSpecs(configuration: ListIncidentsConfiguration): ComponentBaseSpec[] | undefined {
+  if (!configuration?.services || configuration.services.length === 0) {
+    return undefined;
+  }
+
+  return [
+    {
+      title: "Service",
+      tooltipTitle: "Services",
+      values: configuration.services.map((service) => ({
+        badges: [
+          {
+            label: service,
+            bgColor: "bg-gray-100",
+            textColor: "text-gray-700",
+          },
+        ],
+      })),
+    },
+  ];
+}
+
+export const LIST_INCIDENTS_STATE_MAP: EventStateMap = {
+  ...DEFAULT_EVENT_STATE_MAP,
+  clear: {
+    icon: "circle-check",
+    textColor: "text-gray-800",
+    backgroundColor: "bg-gray-100",
+    badgeColor: "bg-gray-500",
+  },
+  low: {
+    icon: "alert-triangle",
+    textColor: "text-gray-800",
+    backgroundColor: "bg-yellow-100",
+    badgeColor: "bg-yellow-500",
+  },
+  high: {
+    icon: "circle-x",
+    textColor: "text-gray-800",
+    backgroundColor: "bg-red-100",
+    badgeColor: "bg-red-500",
+  },
+};
+
+function listIncidentsPassedState(execution: ExecutionInfo): EventState {
+  const activeChannel = getActiveChannel(execution);
+
+  if (activeChannel === CHANNEL_HIGH) {
+    return "high";
+  }
+  if (activeChannel === CHANNEL_LOW) {
+    return "low";
+  }
+  if (activeChannel === CHANNEL_CLEAR) {
+    return "clear";
+  }
+
+  const incidents = getIncidents(execution);
+  if (incidents.length > 0) {
+    const hasHigh = incidents.some((i) => i.urgency === "high");
+    return hasHigh ? "high" : "low";
+  }
+
+  return "clear";
+}
+
+export const listIncidentsStateFunction: StateFunction = (execution: ExecutionInfo): EventState => {
+  if (!execution) return "neutral";
+
+  // Handle error states
+  if (
+    execution.resultMessage &&
+    (execution.resultReason === "RESULT_REASON_ERROR" ||
+      (execution.result === "RESULT_FAILED" && execution.resultReason !== "RESULT_REASON_ERROR_RESOLVED"))
+  ) {
+    return "error";
+  }
+
+  // Handle cancelled state
+  if (execution.result === "RESULT_CANCELLED") {
+    return "cancelled";
+  }
+
+  // Handle running state
+  if (execution.state === "STATE_PENDING" || execution.state === "STATE_STARTED") {
+    return "running";
+  }
+
+  // Only analyze incident urgency for finished, successful executions
+  if (execution.state === "STATE_FINISHED" && execution.result === "RESULT_PASSED") {
+    return listIncidentsPassedState(execution);
+  }
+
+  return "failed";
+};
+
+export const LIST_INCIDENTS_STATE_REGISTRY: EventStateRegistry = {
+  stateMap: LIST_INCIDENTS_STATE_MAP,
+  getState: listIncidentsStateFunction,
+};
+
+function baseEventSections(nodes: NodeInfo[], execution: ExecutionInfo, componentName: string): EventSection[] {
+  const rootTriggerNode = nodes.find((n) => n.id === execution.rootEvent?.nodeId);
+  const rootTriggerRenderer = getTriggerRenderer(rootTriggerNode?.componentName ?? "");
+  const { title } = rootTriggerRenderer.getTitleAndSubtitle({ event: execution.rootEvent! });
+
+  const incidents = getIncidents(execution);
+  const date = new Date(execution.createdAt!);
+
+  let eventSubtitle: string | React.ReactNode;
+  if (incidents.length > 0) {
+    const highCount = incidents.filter((i) => i.urgency === "high").length;
+    const lowCount = incidents.filter((i) => i.urgency === "low").length;
+
+    const countParts: string[] = [];
+    if (highCount > 0) {
+      countParts.push(`${highCount} high urgency`);
+    }
+    if (lowCount > 0) {
+      countParts.push(`${lowCount} low urgency`);
+    }
+
+    if (countParts.length > 0) {
+      eventSubtitle = renderWithTimeAgo(countParts.join(", "), date);
+    } else {
+      eventSubtitle = renderWithTimeAgo(`${incidents.length} incidents`, date);
+    }
+  } else {
+    eventSubtitle = renderWithTimeAgo("no incidents", date);
+  }
+
+  return [
+    {
+      receivedAt: new Date(execution.createdAt!),
+      eventTitle: title,
+      eventSubtitle,
+      eventState: getState(componentName)(execution),
+      eventId: execution.rootEvent!.id!,
+    },
+  ];
+}

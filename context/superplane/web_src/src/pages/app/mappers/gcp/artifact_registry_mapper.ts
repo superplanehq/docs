@@ -1,0 +1,193 @@
+import type { ComponentBaseProps } from "@/ui/componentBase";
+import type React from "react";
+import type { MetadataItem } from "@/ui/metadataList";
+import type {
+  ComponentBaseContext,
+  ComponentBaseMapper,
+  ExecutionDetailsContext,
+  NodeInfo,
+  SubtitleContext,
+} from "../types";
+import { baseMapper } from "./base";
+import { renderTimeAgo } from "@/components/TimeAgo";
+import {
+  getArtifactOutputPayload,
+  getArtifactData,
+  artifactShortName,
+  type ArtifactVersionData,
+  type GetArtifactAnalysisData,
+} from "./artifact_registry";
+import gcpArtifactRegistryIcon from "@/assets/icons/integrations/gcp.artifactregistry.svg";
+
+export const getArtifactMapper: ComponentBaseMapper = {
+  props(context: ComponentBaseContext): ComponentBaseProps {
+    return {
+      ...baseMapper.props(context),
+      iconSrc: gcpArtifactRegistryIcon,
+      metadata: artifactActionMetadataList(context.node),
+    };
+  },
+
+  getExecutionDetails(context: ExecutionDetailsContext): Record<string, string> {
+    const payload = getArtifactOutputPayload(context.execution);
+    const data = getArtifactData<ArtifactVersionData>(context.execution);
+    const metadata = data?.metadata;
+    const details: Record<string, string> = {};
+
+    if (payload?.timestamp) {
+      details["Retrieved At"] = new Date(payload.timestamp).toLocaleString();
+    }
+
+    const dockerUri = buildDockerUri(metadata?.name);
+    if (dockerUri) {
+      details["Image"] = dockerUri;
+    }
+
+    Object.assign(details, artifactTimestampDetails(data));
+
+    const sizeBytes = metadata?.imageSizeBytes;
+    if (sizeBytes) {
+      details["Size"] = formatBytes(Number(sizeBytes));
+    }
+
+    const digest = artifactShortName(data?.name);
+    if (digest) {
+      details["Digest"] = digest;
+    }
+
+    return details;
+  },
+
+  subtitle(context: SubtitleContext): string | React.ReactNode {
+    const timestamp = context.execution.updatedAt || context.execution.createdAt;
+    return timestamp ? renderTimeAgo(new Date(timestamp)) : "";
+  },
+};
+
+export const getArtifactAnalysisMapper: ComponentBaseMapper = {
+  props(context: ComponentBaseContext): ComponentBaseProps {
+    return {
+      ...baseMapper.props(context),
+      iconSrc: gcpArtifactRegistryIcon,
+      metadata: artifactActionMetadataList(context.node),
+    };
+  },
+
+  getExecutionDetails(context: ExecutionDetailsContext): Record<string, string> {
+    const payload = getArtifactOutputPayload(context.execution);
+    const data = getArtifactData<GetArtifactAnalysisData>(context.execution);
+    const details: Record<string, string> = {};
+
+    addTimestampDetail(details, "Retrieved At", payload?.timestamp);
+    addDetail(details, "Image", data?.resourceUri);
+    addDetail(details, "Scan Status", data?.scanStatus);
+    addNumberDetail(details, "Vulnerabilities", data?.vulnerabilities);
+    addPositiveCountDetail(details, "Critical", data?.critical);
+    addPositiveCountDetail(details, "High", data?.high);
+    addPositiveCountDetail(details, "Fixes Available", data?.fixAvailable);
+
+    return details;
+  },
+
+  subtitle(context: SubtitleContext): string | React.ReactNode {
+    const timestamp = context.execution.updatedAt || context.execution.createdAt;
+    return timestamp ? renderTimeAgo(new Date(timestamp)) : "";
+  },
+};
+
+function addDetail(details: Record<string, string>, key: string, value: string | undefined) {
+  if (value) {
+    details[key] = value;
+  }
+}
+
+function addTimestampDetail(details: Record<string, string>, key: string, value: string | undefined) {
+  if (value) {
+    details[key] = new Date(value).toLocaleString();
+  }
+}
+
+function addNumberDetail(details: Record<string, string>, key: string, value: unknown) {
+  if (typeof value === "number") {
+    details[key] = String(value);
+  }
+}
+
+function addPositiveCountDetail(details: Record<string, string>, key: string, value: unknown) {
+  if (typeof value === "number" && value > 0) {
+    details[key] = String(value);
+  }
+}
+
+function artifactTimestampDetails(data: ArtifactVersionData | undefined): Record<string, string> {
+  const details: Record<string, string> = {};
+  if (data?.createTime) {
+    const formatted = formatDateTime(data.createTime);
+    if (formatted) details["Image Created At"] = formatted;
+  }
+
+  if (data?.updateTime) {
+    const formatted = formatDateTime(data.updateTime);
+    if (formatted) details["Image Updated At"] = formatted;
+  }
+  return details;
+}
+
+function formatDateTime(value?: string): string | undefined {
+  if (!value) return undefined;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return undefined;
+  return date.toLocaleString();
+}
+
+// Converts a metadata.name like
+// "projects/P/locations/L/repositories/R/dockerImages/IMG@sha256:DIGEST"
+// into "L-docker.pkg.dev/P/R/IMG@sha256:DIGEST"
+function buildDockerUri(metadataName?: string): string | undefined {
+  if (!metadataName) return undefined;
+  const m = metadataName.match(/^projects\/([^/]+)\/locations\/([^/]+)\/repositories\/([^/]+)\/dockerImages\/(.+)$/);
+  if (!m) return undefined;
+  const [, project, location, repo, imageRef] = m;
+  return `https://${location}-docker.pkg.dev/${project}/${repo}/${imageRef}`;
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function artifactActionMetadataList(node: NodeInfo): MetadataItem[] {
+  const config = (node.configuration as Record<string, unknown> | undefined) ?? {};
+  const inputMode = String(config.inputMode || "url").toLowerCase();
+  const metadata: MetadataItem[] = [];
+
+  if (inputMode === "select") {
+    metadata.push({ icon: "funnel", label: "Select from Registry" });
+
+    const scope = [config.location, config.repository, config.package].filter(Boolean).map(String).join(" / ");
+    if (scope) {
+      metadata.push({ icon: "package", label: scope });
+    }
+
+    if (config.version) {
+      metadata.push({ icon: "tag", label: String(config.version) });
+    }
+
+    return metadata;
+  }
+
+  metadata.push({ icon: "link", label: "Resource URL" });
+  if (config.resourceUrl) {
+    metadata.push({ icon: "package", label: compactValue(String(config.resourceUrl), 72) });
+  }
+  return metadata;
+}
+
+function compactValue(value: string, maxLength: number): string {
+  if (value.length <= maxLength) {
+    return value;
+  }
+
+  return `${value.slice(0, maxLength)}...`;
+}

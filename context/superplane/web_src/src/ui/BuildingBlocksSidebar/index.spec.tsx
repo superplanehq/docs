@@ -1,0 +1,193 @@
+import { fireEvent, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { beforeEach, describe, expect, it, vi } from "bun:test";
+import { BuildingBlocksSidebar } from "./index";
+import type { BuildingBlockCategory } from "./types";
+
+const defaultProps = {
+  isOpen: true,
+  onToggle: vi.fn(),
+  blocks: [] as BuildingBlockCategory[],
+  canvasZoom: 1,
+};
+
+const coreCategory: BuildingBlockCategory = {
+  name: "Core",
+  blocks: [
+    { name: "manual", label: "Manual Run", type: "trigger" },
+    { name: "filter", label: "Filter", type: "component" },
+    { name: "approval", label: "Approval", type: "component" },
+  ],
+};
+
+describe("BuildingBlocksSidebar", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  it("calls onToggle(false) when close button is clicked while disabled", () => {
+    const onToggle = vi.fn();
+    render(
+      <BuildingBlocksSidebar
+        {...defaultProps}
+        onToggle={onToggle}
+        disabled={true}
+        disabledMessage="You don't have permission to edit this canvas."
+      />,
+    );
+
+    const closeButton = screen.getByTestId("close-sidebar-button");
+    fireEvent.click(closeButton);
+
+    expect(onToggle).toHaveBeenCalledWith(false);
+  });
+
+  it("calls onToggle(false) when close button is clicked while not disabled", () => {
+    const onToggle = vi.fn();
+    render(<BuildingBlocksSidebar {...defaultProps} onToggle={onToggle} disabled={false} />);
+
+    const closeButton = screen.getByTestId("close-sidebar-button");
+    fireEvent.click(closeButton);
+
+    expect(onToggle).toHaveBeenCalledWith(false);
+  });
+
+  it("renders the disabled overlay when disabled", () => {
+    const { container } = render(
+      <BuildingBlocksSidebar
+        {...defaultProps}
+        disabled={true}
+        disabledMessage="You don't have permission to edit this canvas."
+      />,
+    );
+
+    expect(container.querySelector(".cursor-not-allowed")).toBeInTheDocument();
+  });
+
+  it("does not render when isOpen is false", () => {
+    const { container } = render(<BuildingBlocksSidebar {...defaultProps} isOpen={false} />);
+
+    expect(container.querySelector('[data-testid="building-blocks-sidebar"]')).not.toBeInTheDocument();
+  });
+
+  it("persists display settings after remounting", async () => {
+    const user = userEvent.setup();
+    const { unmount } = render(<BuildingBlocksSidebar {...defaultProps} blocks={[coreCategory]} />);
+
+    const openSettings = () => user.click(screen.getByLabelText("Sidebar settings"));
+    const getSetting = (name: string) => screen.getByRole("menuitemcheckbox", { name });
+
+    // Toggle both settings
+    await openSettings();
+    await user.click(getSetting("Show integration setup status"));
+    await openSettings();
+    await user.click(getSetting("Connected integrations on top"));
+
+    // Remount the component
+    unmount();
+    render(<BuildingBlocksSidebar {...defaultProps} blocks={[coreCategory]} />);
+
+    // Verify settings persisted
+    await openSettings();
+    expect(getSetting("Show integration setup status")).toHaveAttribute("aria-checked", "false");
+    expect(getSetting("Connected integrations on top")).toHaveAttribute("aria-checked", "true");
+  });
+
+  describe("Enter-to-submit", () => {
+    it("calls onEnterSubmit with the first visible block when Enter is pressed after typing", () => {
+      const onEnterSubmit = vi.fn();
+      render(<BuildingBlocksSidebar {...defaultProps} blocks={[coreCategory]} onEnterSubmit={onEnterSubmit} />);
+
+      const input = screen.getByPlaceholderText("Filter components...");
+      fireEvent.change(input, { target: { value: "filt" } });
+      fireEvent.keyDown(input, { key: "Enter" });
+
+      expect(onEnterSubmit).toHaveBeenCalledTimes(1);
+      expect(onEnterSubmit.mock.calls[0][0]).toMatchObject({ name: "filter" });
+    });
+
+    it("is a no-op when the filter is empty", () => {
+      const onEnterSubmit = vi.fn();
+      render(<BuildingBlocksSidebar {...defaultProps} blocks={[coreCategory]} onEnterSubmit={onEnterSubmit} />);
+
+      const input = screen.getByPlaceholderText("Filter components...");
+      fireEvent.keyDown(input, { key: "Enter" });
+
+      expect(onEnterSubmit).not.toHaveBeenCalled();
+    });
+
+    it("is a no-op when the filter matches nothing", () => {
+      const onEnterSubmit = vi.fn();
+      render(<BuildingBlocksSidebar {...defaultProps} blocks={[coreCategory]} onEnterSubmit={onEnterSubmit} />);
+
+      const input = screen.getByPlaceholderText("Filter components...");
+      fireEvent.change(input, { target: { value: "zzzzzz" } });
+      fireEvent.keyDown(input, { key: "Enter" });
+
+      expect(onEnterSubmit).not.toHaveBeenCalled();
+    });
+
+    it("applies factory sidebar color and Inter font", () => {
+      render(<BuildingBlocksSidebar {...defaultProps} blocks={[coreCategory]} factoryChrome />);
+
+      const sidebar = screen.getByTestId("building-blocks-sidebar");
+      expect(sidebar).toHaveAttribute("data-factory-chrome", "true");
+      expect(sidebar).toHaveClass("factory-sidebar");
+      expect(sidebar).toHaveClass("font-inter");
+      expect(sidebar).toHaveClass("bg-background");
+      expect(sidebar).toHaveClass("dark:bg-background");
+      expect(sidebar).toHaveClass("text-foreground");
+      expect(screen.getByRole("heading", { name: "Select Component" })).toHaveClass("text-foreground");
+      expect(screen.getByText("Core").parentElement).toHaveClass("bg-background");
+
+      const filter = screen.getByPlaceholderText("Filter components...");
+      expect(filter).toHaveClass("dark:bg-background");
+      expect(filter.className).not.toMatch(/dark:bg-gray-800/);
+      expect(screen.getByLabelText("Sidebar settings")).toHaveClass("dark:bg-background");
+    });
+
+    it("keeps org-app colors when factory chrome is off", () => {
+      render(<BuildingBlocksSidebar {...defaultProps} blocks={[coreCategory]} />);
+
+      const sidebar = screen.getByTestId("building-blocks-sidebar");
+      expect(sidebar).not.toHaveAttribute("data-factory-chrome");
+      expect(sidebar).not.toHaveClass("factory-sidebar");
+      expect(sidebar.querySelector(".bg-white")).toBeInTheDocument();
+    });
+
+    it("renders Debugging directly after Core", () => {
+      const blocks: BuildingBlockCategory[] = [
+        { name: "Memory", blocks: [{ name: "addmemory", label: "Add Memory", type: "component" }] },
+        { name: "Debugging", blocks: [{ name: "display", label: "Display", type: "component" }] },
+        { name: "AWS", blocks: [{ name: "lambda", label: "Lambda", type: "component", integrationName: "aws" }] },
+        { name: "Core", blocks: [{ name: "filter", label: "Filter", type: "component" }] },
+      ];
+
+      render(<BuildingBlocksSidebar {...defaultProps} blocks={blocks} />);
+
+      const categoryNames = Array.from(document.querySelectorAll("details > summary span.font-medium")).map(
+        (element) => element.textContent ?? "",
+      );
+
+      expect(categoryNames).toEqual(["Core", "Debugging", "Memory", "AWS"]);
+    });
+
+    it("is a no-op when the sidebar is disabled", () => {
+      const onEnterSubmit = vi.fn();
+      render(
+        <BuildingBlocksSidebar
+          {...defaultProps}
+          blocks={[coreCategory]}
+          disabled={true}
+          onEnterSubmit={onEnterSubmit}
+        />,
+      );
+
+      const input = screen.getByPlaceholderText("Filter components...");
+      fireEvent.change(input, { target: { value: "filt" } });
+      fireEvent.keyDown(input, { key: "Enter" });
+
+      expect(onEnterSubmit).not.toHaveBeenCalled();
+    });
+  });
+});

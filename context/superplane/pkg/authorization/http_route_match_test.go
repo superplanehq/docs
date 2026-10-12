@@ -1,0 +1,128 @@
+package authorization
+
+import (
+	"net/http"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestMatchHTTPRoute(t *testing.T) {
+	rules := DefaultAuthorizationRules()
+
+	tests := []struct {
+		method string
+		path   string
+		want   HTTPRoute
+		wantOK bool
+	}{
+		{
+			method: http.MethodGet,
+			path:   "/api/v1/canvases",
+			want:   HTTPRoute{Method: http.MethodGet, Pattern: "/api/v1/canvases"},
+			wantOK: true,
+		},
+		{
+			method: http.MethodGet,
+			path:   "/api/v1/canvases/canvas-123",
+			want:   HTTPRoute{Method: http.MethodGet, Pattern: "/api/v1/canvases/{id}"},
+			wantOK: true,
+		},
+		{
+			method: http.MethodGet,
+			path:   "/api/v1/canvases/canvas-123/runs",
+			want:   HTTPRoute{Method: http.MethodGet, Pattern: "/api/v1/canvases/{canvas_id}/runs"},
+			wantOK: true,
+		},
+		{
+			method: http.MethodGet,
+			path:   "/api/v1/me",
+			wantOK: false,
+		},
+		{
+			method: http.MethodPost,
+			path:   "/api/v1/me/feedback",
+			wantOK: false,
+		},
+		{
+			method: http.MethodPost,
+			path:   "/api/v1/factories/factory-123/automations/app-456:defaults",
+			want:   HTTPRoute{Method: http.MethodPost, Pattern: "/api/v1/factories/{factory_id}/automations/{automation_id}:defaults"},
+			wantOK: true,
+		},
+		{
+			method: http.MethodPost,
+			path:   "/api/v1/factories/factory-123/app-templates/line-implementation:materialize",
+			want:   HTTPRoute{Method: http.MethodPost, Pattern: "/api/v1/factories/{factory_id}/app-templates/{template_id}:materialize"},
+			wantOK: true,
+		},
+		{
+			method: http.MethodPost,
+			path:   "/api/v1/factories/factory-123/automations/app-456:unknown",
+			wantOK: false,
+		},
+		{
+			method: http.MethodGet,
+			path:   "/api/v1/me/notification-settings",
+			want:   HTTPRoute{Method: http.MethodGet, Pattern: "/api/v1/me/notification-settings"},
+			wantOK: true,
+		},
+		{
+			method: http.MethodGet,
+			path:   "/api/v1/factories/factory-123/line-runner-models",
+			want:   HTTPRoute{Method: http.MethodGet, Pattern: "/api/v1/factories/{factory_id}/line-runner-models"},
+			wantOK: true,
+		},
+		{
+			method: http.MethodPost,
+			path:   "/api/v1/factories/factory-123/files",
+			want:   HTTPRoute{Method: http.MethodPost, Pattern: "/api/v1/factories/{factory_id}/files"},
+			wantOK: true,
+		},
+		{
+			method: http.MethodPost,
+			path:   "/api/v1/factories/factory-123/orders/order-456/files",
+			want:   HTTPRoute{Method: http.MethodPost, Pattern: "/api/v1/factories/{factory_id}/orders/{order_id}/files"},
+			wantOK: true,
+		},
+		{
+			method: http.MethodPost,
+			path:   "/api/v1/organizations/org-123/billing/sync",
+			want:   HTTPRoute{Method: http.MethodPost, Pattern: "/api/v1/organizations/{id}/billing/sync"},
+			wantOK: true,
+		},
+		{
+			method: http.MethodPost,
+			path:   "/api/v1/organizations/org-123/billing/cancel",
+			want:   HTTPRoute{Method: http.MethodPost, Pattern: "/api/v1/organizations/{id}/billing/cancel"},
+			wantOK: true,
+		},
+		{
+			method: http.MethodPost,
+			path:   "/api/v1/organizations/org-123/billing/resume",
+			want:   HTTPRoute{Method: http.MethodPost, Pattern: "/api/v1/organizations/{id}/billing/resume"},
+			wantOK: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.method+" "+tt.path, func(t *testing.T) {
+			route, ok := MatchHTTPRoute(tt.method, tt.path, rules)
+			assert.Equal(t, tt.wantOK, ok)
+			if tt.wantOK {
+				assert.Equal(t, tt.want, route)
+			}
+		})
+	}
+}
+
+func TestGatewayAuthorizerRouteFromRequestWithoutHTTPPathPattern(t *testing.T) {
+	authorizer := NewGatewayAuthorizer(allowingPermissionChecker{})
+	r, err := http.NewRequest(http.MethodGet, "http://example.com/api/v1/canvases/canvas-123", nil)
+	require.NoError(t, err)
+
+	route, ok := authorizer.RouteFromRequest(r)
+	require.True(t, ok)
+	assert.Equal(t, HTTPRoute{Method: http.MethodGet, Pattern: "/api/v1/canvases/{id}"}, route)
+}

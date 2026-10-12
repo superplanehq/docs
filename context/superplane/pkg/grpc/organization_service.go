@@ -1,0 +1,337 @@
+package grpc
+
+import (
+	"context"
+
+	"github.com/superplanehq/superplane/pkg/authorization"
+	"github.com/superplanehq/superplane/pkg/grpc/actions/organizations"
+	"github.com/superplanehq/superplane/pkg/oidc"
+	pb "github.com/superplanehq/superplane/pkg/protos/organizations"
+	"github.com/superplanehq/superplane/pkg/registry"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/structpb"
+)
+
+type OrganizationService struct {
+	pb.UnimplementedOrganizationsServer
+	authorizationService authorization.Authorization
+	registry             *registry.Registry
+	oidcProvider         oidc.Provider
+	baseURL              string
+	webhooksBaseURL      string
+}
+
+func NewOrganizationService(
+	authorizationService authorization.Authorization,
+	registry *registry.Registry,
+	oidcProvider oidc.Provider,
+	baseURL string,
+	webhooksBaseURL string,
+) *OrganizationService {
+	return &OrganizationService{
+		registry:             registry,
+		oidcProvider:         oidcProvider,
+		baseURL:              baseURL,
+		webhooksBaseURL:      webhooksBaseURL,
+		authorizationService: authorizationService,
+	}
+}
+
+func (s *OrganizationService) DescribeOrganization(ctx context.Context, req *pb.DescribeOrganizationRequest) (*pb.DescribeOrganizationResponse, error) {
+	orgID := ctx.Value(authorization.DomainIdContextKey).(string)
+	return organizations.DescribeOrganization(ctx, orgID)
+}
+
+func (s *OrganizationService) UpdateOrganization(ctx context.Context, req *pb.UpdateOrganizationRequest) (*pb.UpdateOrganizationResponse, error) {
+	orgID := ctx.Value(authorization.DomainIdContextKey).(string)
+	return organizations.UpdateOrganization(ctx, orgID, req.Organization)
+}
+
+func (s *OrganizationService) RemoveUser(ctx context.Context, req *pb.RemoveUserRequest) (*pb.RemoveUserResponse, error) {
+	orgID := ctx.Value(authorization.DomainIdContextKey).(string)
+	return organizations.RemoveUser(ctx, s.authorizationService, orgID, req.UserId)
+}
+
+func (s *OrganizationService) SetUserOwner(ctx context.Context, req *pb.SetUserOwnerRequest) (*pb.SetUserOwnerResponse, error) {
+	orgID := ctx.Value(authorization.DomainIdContextKey).(string)
+	return organizations.SetUserOwner(ctx, orgID, req.UserId, req.IsOwner)
+}
+
+func (s *OrganizationService) DeleteOrganization(ctx context.Context, req *pb.DeleteOrganizationRequest) (*pb.DeleteOrganizationResponse, error) {
+	orgID := ctx.Value(authorization.DomainIdContextKey).(string)
+	return organizations.DeleteOrganization(ctx, s.authorizationService, orgID)
+}
+
+func (s *OrganizationService) GetInviteLink(ctx context.Context, req *pb.GetInviteLinkRequest) (*pb.GetInviteLinkResponse, error) {
+	orgID := ctx.Value(authorization.DomainIdContextKey).(string)
+	return organizations.GetInviteLink(ctx, orgID)
+}
+
+func (s *OrganizationService) UpdateInviteLink(ctx context.Context, req *pb.UpdateInviteLinkRequest) (*pb.UpdateInviteLinkResponse, error) {
+	orgID := ctx.Value(authorization.DomainIdContextKey).(string)
+	return organizations.UpdateInviteLink(ctx, orgID, req.Enabled)
+}
+
+func (s *OrganizationService) ResetInviteLink(ctx context.Context, req *pb.ResetInviteLinkRequest) (*pb.ResetInviteLinkResponse, error) {
+	orgID := ctx.Value(authorization.DomainIdContextKey).(string)
+	return organizations.ResetInviteLink(ctx, orgID)
+}
+
+func (s *OrganizationService) DescribeOrganizationWorkspaceUsage(
+	ctx context.Context,
+	req *pb.DescribeOrganizationWorkspaceUsageRequest,
+) (*pb.DescribeOrganizationWorkspaceUsageResponse, error) {
+	orgID := ctx.Value(authorization.DomainIdContextKey).(string)
+	return organizations.DescribeOrganizationWorkspaceUsage(ctx, orgID, req)
+}
+
+func (s *OrganizationService) DescribeOrganizationSpendingReport(
+	ctx context.Context,
+	req *pb.DescribeOrganizationSpendingReportRequest,
+) (*pb.DescribeOrganizationSpendingReportResponse, error) {
+	orgID := ctx.Value(authorization.DomainIdContextKey).(string)
+	return organizations.DescribeOrganizationSpendingReport(ctx, orgID, req)
+}
+
+func (s *OrganizationService) ListOrganizationRunnerFleets(
+	ctx context.Context,
+	_ *pb.ListOrganizationRunnerFleetsRequest,
+) (*pb.ListOrganizationRunnerFleetsResponse, error) {
+	orgID := ctx.Value(authorization.DomainIdContextKey).(string)
+	return organizations.ListOrganizationRunnerFleets(ctx, orgID)
+}
+
+func (s *OrganizationService) ListHostedLLMModels(
+	ctx context.Context,
+	req *pb.ListHostedLLMModelsRequest,
+) (*pb.ListHostedLLMModelsResponse, error) {
+	orgID := ctx.Value(authorization.DomainIdContextKey).(string)
+	return organizations.ListHostedLLMModels(ctx, orgID, req)
+}
+
+func (s *OrganizationService) ListSelectableLLMModels(
+	ctx context.Context,
+	req *pb.ListSelectableLLMModelsRequest,
+) (*pb.ListSelectableLLMModelsResponse, error) {
+	orgID := ctx.Value(authorization.DomainIdContextKey).(string)
+	return organizations.ListSelectableLLMModels(ctx, s.registry, orgID, req)
+}
+
+func (s *OrganizationService) ListBYOKLLMModels(
+	ctx context.Context,
+	req *pb.ListBYOKLLMModelsRequest,
+) (*pb.ListBYOKLLMModelsResponse, error) {
+	orgID := ctx.Value(authorization.DomainIdContextKey).(string)
+	return organizations.ListBYOKLLMModels(ctx, s.registry, orgID, req)
+}
+
+func (s *OrganizationService) UpdateBYOKLLMModels(
+	ctx context.Context,
+	req *pb.UpdateBYOKLLMModelsRequest,
+) (*pb.UpdateBYOKLLMModelsResponse, error) {
+	orgID := ctx.Value(authorization.DomainIdContextKey).(string)
+	return organizations.UpdateBYOKLLMModels(ctx, orgID, req)
+}
+
+func (s *OrganizationService) ListOrganizationHostedLLMModels(ctx context.Context, _ *pb.ListOrganizationHostedLLMModelsRequest) (*pb.ListOrganizationHostedLLMModelsResponse, error) {
+	orgID := ctx.Value(authorization.DomainIdContextKey).(string)
+	return organizations.ListOrganizationHostedLLMModels(ctx, orgID)
+}
+
+func (s *OrganizationService) UpdateOrganizationHostedLLMModels(ctx context.Context, req *pb.UpdateOrganizationHostedLLMModelsRequest) (*pb.UpdateOrganizationHostedLLMModelsResponse, error) {
+	orgID := ctx.Value(authorization.DomainIdContextKey).(string)
+	return organizations.UpdateOrganizationHostedLLMModels(ctx, orgID, req)
+}
+
+func (s *OrganizationService) ListHostedCreditProducts(
+	ctx context.Context,
+	req *pb.ListHostedCreditProductsRequest,
+) (*pb.ListHostedCreditProductsResponse, error) {
+	orgID := ctx.Value(authorization.DomainIdContextKey).(string)
+	return organizations.ListHostedCreditProducts(ctx, orgID, req)
+}
+
+func (s *OrganizationService) CreateHostedCreditCheckout(
+	ctx context.Context,
+	req *pb.CreateHostedCreditCheckoutRequest,
+) (*pb.CreateHostedCreditCheckoutResponse, error) {
+	orgID := ctx.Value(authorization.DomainIdContextKey).(string)
+	accountID, _ := accountIDFromContext(ctx)
+	return organizations.CreateHostedCreditCheckout(ctx, orgID, req, accountID, s.baseURL)
+}
+
+func (s *OrganizationService) CreateBillingPortalSession(
+	ctx context.Context,
+	req *pb.CreateBillingPortalSessionRequest,
+) (*pb.CreateBillingPortalSessionResponse, error) {
+	orgID := ctx.Value(authorization.DomainIdContextKey).(string)
+	return organizations.CreateBillingPortalSession(ctx, orgID, req)
+}
+
+func (s *OrganizationService) ListOrganizationCreditGrants(
+	ctx context.Context,
+	req *pb.ListOrganizationCreditGrantsRequest,
+) (*pb.ListOrganizationCreditGrantsResponse, error) {
+	orgID := ctx.Value(authorization.DomainIdContextKey).(string)
+	return organizations.ListOrganizationCreditGrants(ctx, orgID, req)
+}
+
+func (s *OrganizationService) DescribeOrganizationBilling(
+	ctx context.Context,
+	req *pb.DescribeOrganizationBillingRequest,
+) (*pb.DescribeOrganizationBillingResponse, error) {
+	orgID := ctx.Value(authorization.DomainIdContextKey).(string)
+	return organizations.DescribeOrganizationBilling(ctx, orgID, req)
+}
+
+func (s *OrganizationService) CreateBusinessCheckout(
+	ctx context.Context,
+	req *pb.CreateBusinessCheckoutRequest,
+) (*pb.CreateBusinessCheckoutResponse, error) {
+	orgID := ctx.Value(authorization.DomainIdContextKey).(string)
+	accountID, _ := accountIDFromContext(ctx)
+	return organizations.CreateBusinessCheckout(ctx, orgID, req, accountID, s.baseURL)
+}
+
+func (s *OrganizationService) SyncOrganizationBilling(
+	ctx context.Context,
+	req *pb.SyncOrganizationBillingRequest,
+) (*pb.DescribeOrganizationBillingResponse, error) {
+	orgID := ctx.Value(authorization.DomainIdContextKey).(string)
+	return organizations.SyncOrganizationBilling(ctx, orgID, req)
+}
+
+func (s *OrganizationService) CancelOrganizationSubscription(
+	ctx context.Context,
+	req *pb.CancelOrganizationSubscriptionRequest,
+) (*pb.DescribeOrganizationBillingResponse, error) {
+	orgID := ctx.Value(authorization.DomainIdContextKey).(string)
+	return organizations.CancelOrganizationSubscription(ctx, orgID, req)
+}
+
+func (s *OrganizationService) ResumeOrganizationSubscription(
+	ctx context.Context,
+	req *pb.ResumeOrganizationSubscriptionRequest,
+) (*pb.DescribeOrganizationBillingResponse, error) {
+	orgID := ctx.Value(authorization.DomainIdContextKey).(string)
+	return organizations.ResumeOrganizationSubscription(ctx, orgID, req)
+}
+
+func (s *OrganizationService) AcceptInviteLink(ctx context.Context, req *pb.InviteLink) (*structpb.Struct, error) {
+	accountID, err := accountIDFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return organizations.AcceptInviteLink(ctx, s.authorizationService, accountID, req.Token)
+}
+
+func (s *OrganizationService) ListIntegrations(ctx context.Context, req *pb.ListIntegrationsRequest) (*pb.ListIntegrationsResponse, error) {
+	orgID := ctx.Value(authorization.DomainIdContextKey).(string)
+	return organizations.ListIntegrations(ctx, s.registry, orgID)
+}
+
+func (s *OrganizationService) DescribeIntegration(ctx context.Context, req *pb.DescribeIntegrationRequest) (*pb.DescribeIntegrationResponse, error) {
+	orgID := ctx.Value(authorization.DomainIdContextKey).(string)
+	return organizations.DescribeIntegration(ctx, s.registry, orgID, req.IntegrationId)
+}
+
+func (s *OrganizationService) ListIntegrationResources(ctx context.Context, req *pb.ListIntegrationResourcesRequest) (*pb.ListIntegrationResourcesResponse, error) {
+	orgID := ctx.Value(authorization.DomainIdContextKey).(string)
+	return organizations.ListIntegrationResources(ctx, s.registry, orgID, req.IntegrationId, req.Parameters)
+}
+
+func (s *OrganizationService) CreateIntegration(ctx context.Context, req *pb.CreateIntegrationRequest) (*pb.CreateIntegrationResponse, error) {
+	orgID := ctx.Value(authorization.DomainIdContextKey).(string)
+	return organizations.CreateIntegration(
+		ctx,
+		s.registry,
+		s.oidcProvider,
+		s.baseURL,
+		s.webhooksBaseURL,
+		orgID,
+		req.IntegrationName,
+		req.Name,
+		req.Configuration,
+	)
+}
+
+func (s *OrganizationService) UpdateIntegration(ctx context.Context, req *pb.UpdateIntegrationRequest) (*pb.UpdateIntegrationResponse, error) {
+	orgID := ctx.Value(authorization.DomainIdContextKey).(string)
+	configuration := map[string]any{}
+	if req.Configuration != nil {
+		configuration = req.Configuration.AsMap()
+	}
+
+	return organizations.UpdateIntegration(
+		ctx,
+		s.registry,
+		s.oidcProvider,
+		s.baseURL,
+		s.webhooksBaseURL,
+		orgID,
+		req.IntegrationId,
+		configuration,
+		req.Name,
+	)
+}
+
+func (s *OrganizationService) DeleteIntegration(ctx context.Context, req *pb.DeleteIntegrationRequest) (*pb.DeleteIntegrationResponse, error) {
+	orgID := ctx.Value(authorization.DomainIdContextKey).(string)
+	return organizations.DeleteIntegration(ctx, orgID, req.IntegrationId)
+}
+
+func (s *OrganizationService) NextIntegrationSetupStep(ctx context.Context, req *pb.NextIntegrationSetupStepRequest) (*pb.NextIntegrationSetupStepResponse, error) {
+	orgID := ctx.Value(authorization.DomainIdContextKey).(string)
+	return organizations.NextIntegrationSetupStep(ctx, s.registry, s.baseURL, s.webhooksBaseURL, orgID, req.IntegrationId, req.Inputs, req.Capabilities)
+}
+
+func (s *OrganizationService) PreviousIntegrationSetupStep(ctx context.Context, req *pb.PreviousIntegrationSetupStepRequest) (*pb.PreviousIntegrationSetupStepResponse, error) {
+	orgID := ctx.Value(authorization.DomainIdContextKey).(string)
+	return organizations.PreviousIntegrationSetupStep(ctx, s.registry, orgID, req.IntegrationId)
+}
+
+func (s *OrganizationService) UpdateIntegrationCapabilities(ctx context.Context, req *pb.UpdateIntegrationCapabilitiesRequest) (*pb.UpdateIntegrationCapabilitiesResponse, error) {
+	orgID := ctx.Value(authorization.DomainIdContextKey).(string)
+	return organizations.UpdateIntegrationCapabilities(ctx, s.registry, orgID, req.IntegrationId, req.Capabilities)
+}
+
+func (s *OrganizationService) UpdateIntegrationProperty(ctx context.Context, req *pb.UpdateIntegrationPropertyRequest) (*pb.UpdateIntegrationPropertyResponse, error) {
+	orgID := ctx.Value(authorization.DomainIdContextKey).(string)
+	return organizations.UpdateIntegrationProperty(ctx, s.registry, orgID, req.IntegrationId, req.PropertyName, req.Value)
+}
+
+func (s *OrganizationService) UpdateIntegrationSecret(ctx context.Context, req *pb.UpdateIntegrationSecretRequest) (*pb.UpdateIntegrationSecretResponse, error) {
+	orgID := ctx.Value(authorization.DomainIdContextKey).(string)
+	return organizations.UpdateIntegrationSecret(ctx, s.registry, orgID, req.IntegrationId, req.SecretName, req.Value)
+}
+
+func accountIDFromContext(ctx context.Context) (string, error) {
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return "", status.Error(codes.Unauthenticated, "account not found")
+	}
+
+	accountMeta := md.Get("x-account-id")
+	if len(accountMeta) == 0 || accountMeta[0] == "" {
+		return "", status.Error(codes.Unauthenticated, "account not found")
+	}
+
+	return accountMeta[0], nil
+}
+
+func userIDFromContext(ctx context.Context) (string, error) {
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return "", status.Error(codes.Unauthenticated, "user not found")
+	}
+
+	userMeta := md.Get("x-user-id")
+	if len(userMeta) == 0 || userMeta[0] == "" {
+		return "", status.Error(codes.Unauthenticated, "user not found")
+	}
+
+	return userMeta[0], nil
+}

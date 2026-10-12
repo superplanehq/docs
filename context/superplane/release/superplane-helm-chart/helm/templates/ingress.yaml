@@ -1,0 +1,173 @@
+{{- if .Values.ingress.enabled }}
+{{- $domainName := .Values.domain.name | required ".Values.domain.name is required." -}}
+{{- $staticIpName := .Values.ingress.staticIpName -}}
+{{- $className := .Values.ingress.className | required ".Values.ingress.className is required." -}}
+{{- $ssl := .Values.ingress.ssl }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: superplane
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    {{- if eq $className "traefik" }}
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/request-body-size: "80MB"
+    {{- end }}
+    {{- if eq $className "nginx" }}
+    nginx.ingress.kubernetes.io/proxy-body-size: "80m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "900"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "900"
+    {{- end }}
+    {{- if eq $className "gce" }}
+    kubernetes.io/ingress.class: gce
+    {{- if $ssl.enabled }}
+    networking.gke.io/v1beta1.FrontendConfig: "http-redirect-proxy"
+    {{- end }}
+    {{- if and $ssl.enabled (eq $ssl.type "cert-manager") }}
+    # certificate.yaml owns the TLS secret. Do not set
+    # cert-manager.io/cluster-issuer here. That annotation creates a
+    # second Certificate for the same secret.
+    acme.cert-manager.io/http01-edit-in-place: "true"
+    {{- end }}
+    {{- end }}
+    {{- if $staticIpName }}
+    kubernetes.io/ingress.global-static-ip-name: {{ $staticIpName }}
+    {{- end }}
+    {{- if and $ssl.enabled (eq $ssl.type "google") }}
+    ingress.gcp.kubernetes.io/pre-shared-cert: {{ $ssl.google.certName | required "ingress.ssl.google.certName is required when ingress.ssl.type is 'google'." }}
+    {{- end }}
+    {{- if eq $className "alb" }}
+    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    external-dns.alpha.kubernetes.io/hostname:  "*.{{ $domainName }}"
+    external-dns.alpha.kubernetes.io/ttl:  "60"
+    alb.ingress.kubernetes.io/certificate-arn: {{ $ssl.alb.certName | required "ingress.ssl.alb.certName is required when ingress.className is 'alb'." }}
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+    alb.ingress.kubernetes.io/actions.ssl-redirect: '{"Type": "redirect", "RedirectConfig": { "Protocol": "HTTPS", "Port": "443", "StatusCode": "HTTP_301"}}'
+    {{- end }}
+spec:
+{{- if ne $className "gce" }}
+  ingressClassName: {{ .Values.ingress.className }}
+{{- end }}
+{{- if and $ssl.enabled (or (eq $ssl.type "custom") (eq $ssl.type "cert-manager")) }}
+  tls:
+    - hosts:
+      - "{{ $domainName }}"
+      {{- if eq $ssl.type "custom" }}
+      secretName: {{ $ssl.custom.secretName | required "ingress.ssl.custom.secretName is required when ingress.ssl.type is 'custom'." }}
+      {{- else if eq $ssl.type "cert-manager" }}
+      secretName: {{ $ssl.certManager.secretName | required "ingress.ssl.certManager.secretName is required when ingress.ssl.type is 'cert-manager'." }}
+      {{- end }}
+{{- end }}
+  defaultBackend:
+    service:
+      name: {{ .Release.Name }}-api
+      port:
+        number: 8000
+  rules:
+  - host: "{{ $domainName }}"
+    http:
+      paths:
+      {{- if .Values.runner.api.enabled }}
+      - path: /runner/v1
+        pathType: Prefix
+        backend:
+          service:
+            name: {{ .Release.Name }}-runner-api
+            port:
+              number: 8000
+      {{- end }}
+      - path: /ws
+        pathType: Prefix
+        backend:
+          service:
+            name: {{ .Release.Name }}-websocket
+            port:
+              number: 8000
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: {{ .Release.Name }}-api
+            port:
+              number: 8000
+---
+{{- if and $ssl.enabled (eq $className "gce") }}
+apiVersion: networking.gke.io/v1beta1
+kind: FrontendConfig
+metadata:
+  name: http-redirect-proxy
+  namespace: {{ .Release.Namespace }}
+spec:
+  # cert-manager HTTP-01 uses port 80. FrontendConfig cannot exclude
+  # one path, so that type keeps the load balancer redirect off and the
+  # API redirects other HTTP requests. Other certificate types redirect here.
+  redirectToHttps:
+    enabled: {{ ne $ssl.type "cert-manager" }}
+{{- end }}
+{{- if and .Values.ingress.enabled (eq .Values.ingress.className "gce") }}
+---
+apiVersion: cloud.google.com/v1
+kind: BackendConfig
+metadata:
+  name: ingress-api-backend-config
+  namespace: {{ .Release.Namespace }}
+spec:
+  # https://cloud.google.com/kubernetes-engine/docs/how-to/ingress-features
+  timeoutSec: 900
+  connectionDraining:
+    drainingTimeoutSec: 60
+  logging:
+    enable: true
+  healthCheck:
+    checkIntervalSec: 30
+    timeoutSec: 10
+    port: 8000
+    type: HTTP
+    requestPath: /health
+---
+apiVersion: cloud.google.com/v1
+kind: BackendConfig
+metadata:
+  name: ingress-websocket-backend-config
+  namespace: {{ .Release.Namespace }}
+spec:
+  # Long-lived WebSocket connections
+  timeoutSec: 3600
+  connectionDraining:
+    drainingTimeoutSec: 60
+  logging:
+    enable: true
+  sessionAffinity:
+    affinityType: "CLIENT_IP"
+    affinityCookieTtlSec: 3600
+  healthCheck:
+    checkIntervalSec: 30
+    timeoutSec: 10
+    port: 8000
+    type: HTTP
+    requestPath: /health
+{{- if .Values.runner.api.enabled }}
+---
+apiVersion: cloud.google.com/v1
+kind: BackendConfig
+metadata:
+  name: ingress-runner-api-backend-config
+  namespace: {{ .Release.Namespace }}
+spec:
+  # Long-lived runner connections
+  timeoutSec: 3600
+  connectionDraining:
+    drainingTimeoutSec: 60
+  logging:
+    enable: true
+  healthCheck:
+    checkIntervalSec: 30
+    timeoutSec: 10
+    port: 8000
+    type: HTTP
+    requestPath: /health
+{{- end }}
+{{- end }}
+{{- end }}

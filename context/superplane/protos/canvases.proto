@@ -1,0 +1,973 @@
+syntax = "proto3";
+
+package Superplane.Canvases;
+
+import "components.proto";
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/struct.proto";
+import "google/api/annotations.proto";
+import "protoc-gen-openapiv2/options/annotations.proto";
+
+option go_package = "github.com/superplanehq/superplane/pkg/protos/canvases";
+
+option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_swagger) = {
+  info: {
+    title: "Superplane Canvases API";
+    version: "1.0";
+    description: "API for Superplane canvases";
+    contact: {
+      name: "API Support";
+      email: "support@superplane.com";
+    };
+  };
+  schemes: HTTPS;
+  schemes: HTTP;
+  consumes: "application/json";
+  produces: "application/json";
+};
+
+service Canvases {
+  rpc ListCanvases(ListCanvasesRequest) returns (ListCanvasesResponse) {
+    option (google.api.http) = {
+      get: "/api/v1/canvases"
+    };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      summary: "List canvases";
+      description: "Returns a list of canvases. Set include_graph to include node positions and edges.";
+      tags: "Canvas";
+    };
+  }
+
+  rpc CreateCanvas(CreateCanvasRequest) returns (CreateCanvasResponse) {
+    option (google.api.http) = {
+      post: "/api/v1/canvases"
+      body: "*"
+    };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      summary: "Create canvas";
+      description: "Creates a new canvas";
+      tags: "Canvas";
+    };
+  }
+
+  rpc DescribeCanvas(DescribeCanvasRequest) returns (DescribeCanvasResponse) {
+    option (google.api.http) = {
+      get: "/api/v1/canvases/{id}"
+    };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      summary: "Describe canvas";
+      description: "Returns a canvas by ID";
+      tags: "Canvas";
+    };
+  }
+
+  rpc UpdateCanvas(UpdateCanvasRequest) returns (UpdateCanvasResponse) {
+    option (google.api.http) = {
+      put: "/api/v1/canvases/{id}"
+      body: "*"
+    };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      summary: "Update canvas";
+      description: "Updates canvas metadata";
+      tags: "Canvas";
+    };
+  }
+
+  rpc UpdateCanvasPreference(UpdateCanvasPreferenceRequest) returns (UpdateCanvasPreferenceResponse) {
+    option (google.api.http) = {
+      put: "/api/v1/canvases/{canvas_id}/preference"
+      body: "*"
+    };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      summary: "Update canvas preference";
+      description: "Updates the current user's canvas preference";
+      tags: "Canvas";
+    };
+  }
+
+  rpc PutCanvasStaging(PutCanvasStagingRequest) returns (PutCanvasStagingResponse) {
+    option (google.api.http) = {
+      put: "/api/v1/canvases/{canvas_id}/staging"
+      body: "*"
+    };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      summary: "Stage canvas spec files";
+      description: "Writes staged canvas.yaml and console.yaml edits for the current user without creating a new version";
+      tags: "CanvasStaging";
+    };
+  }
+
+  rpc GetCanvasStaging(GetCanvasStagingRequest) returns (GetCanvasStagingResponse) {
+    option (google.api.http) = {
+      get: "/api/v1/canvases/{canvas_id}/staging"
+    };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      summary: "Get canvas staging";
+      description: "Returns the current user's staged edits for a canvas";
+      tags: "CanvasStaging";
+    };
+  }
+
+  rpc DeleteCanvasStaging(DeleteCanvasStagingRequest) returns (DeleteCanvasStagingResponse) {
+    option (google.api.http) = {
+      delete: "/api/v1/canvases/{canvas_id}/staging"
+    };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      summary: "Discard canvas staging";
+      description: "Discards the current user's staged edits for a canvas";
+      tags: "CanvasStaging";
+    };
+  }
+
+  rpc CommitCanvasStaging(CommitCanvasStagingRequest) returns (CommitCanvasStagingResponse) {
+    option (google.api.http) = {
+      post: "/api/v1/canvases/{canvas_id}/staging/commit"
+      body: "*"
+    };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      summary: "Commit canvas staging";
+      description: "Commits the current user's staged canvas.yaml and console.yaml edits as a new canvas version";
+      tags: "CanvasStaging";
+    };
+  }
+
+  rpc ListCanvasVersions(ListCanvasVersionsRequest) returns (ListCanvasVersionsResponse) {
+    option (google.api.http) = {
+      get: "/api/v1/canvases/{canvas_id}/versions"
+    };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      summary: "List canvas versions";
+      description: "Lists all versions for a canvas";
+      tags: "CanvasVersion";
+    };
+  }
+
+  rpc DescribeCanvasVersion(DescribeCanvasVersionRequest) returns (DescribeCanvasVersionResponse) {
+    option (google.api.http) = {
+      get: "/api/v1/canvases/{canvas_id}/versions/{version_id}"
+    };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      summary: "Describe canvas version";
+      description: "Returns one canvas version by ID, including its workflow spec";
+      tags: "CanvasVersion";
+    };
+  }
+
+  rpc DeleteCanvas(DeleteCanvasRequest) returns (DeleteCanvasResponse) {
+    option (google.api.http) = {
+      delete: "/api/v1/canvases/{id}"
+    };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      summary: "Delete canvas";
+      description: "Deletes an existing canvas";
+      tags: "Canvas";
+    };
+  }
+
+  rpc ListNodeQueueItems(ListNodeQueueItemsRequest) returns (ListNodeQueueItemsResponse) {
+    option (google.api.http) = {
+      get: "/api/v1/canvases/{canvas_id}/nodes/{node_id}/queue"
+    };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      summary: "List items in a node's queue";
+      description: "Returns a list of items in a node's queue";
+      tags: "CanvasNode";
+    };
+  }
+
+  rpc DeleteNodeQueueItem(DeleteNodeQueueItemRequest) returns (DeleteNodeQueueItemResponse) {
+    option (google.api.http) = {
+      delete: "/api/v1/canvases/{canvas_id}/nodes/{node_id}/queue/{item_id}"
+    };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      summary: "Delete item from a node's queue";
+      description: "Deletes a specific item in a node's queue";
+      tags: "CanvasNode";
+    };
+  }
+
+  rpc ListNodeExecutions(ListNodeExecutionsRequest) returns (ListNodeExecutionsResponse) {
+    option (google.api.http) = {
+      get: "/api/v1/canvases/{canvas_id}/nodes/{node_id}/executions"
+    };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      summary: "List node executions";
+      description: "Returns a list of executions for a specific canvas node";
+      tags: "CanvasNode";
+    };
+  }
+
+  rpc ListNodeEvents(ListNodeEventsRequest) returns (ListNodeEventsResponse) {
+    option (google.api.http) = {
+      get: "/api/v1/canvases/{canvas_id}/nodes/{node_id}/events"
+    };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      summary: "List node events";
+      description: "Returns a list of events for a specific canvas node";
+      tags: "CanvasNode";
+    };
+  }
+
+  rpc ReemitTriggerEvent(ReemitTriggerEventRequest) returns (ReemitTriggerEventResponse) {
+    option (google.api.http) = {
+      post: "/api/v1/canvases/{canvas_id}/triggers/{node_id}/events/{event_id}/reemit"
+    };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      summary: "Re-emit trigger event";
+      description: "Re-emits an existing root event from a trigger node";
+      tags: "CanvasNode";
+    };
+  }
+
+  rpc InvokeNodeExecutionHook(InvokeNodeExecutionHookRequest) returns (InvokeNodeExecutionHookResponse) {
+    option (google.api.http) = {
+      post: "/api/v1/canvases/{canvas_id}/executions/{execution_id}/hooks/{hook_name}"
+      body: "*"
+    };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      summary: "Invoke execution hook";
+      description: "Invokes a custom hook on a canvas node execution";
+      tags: "CanvasNodeExecution";
+    };
+  }
+
+  rpc InvokeNodeTriggerHook(InvokeNodeTriggerHookRequest) returns (InvokeNodeTriggerHookResponse) {
+    option (google.api.http) = {
+      post: "/api/v1/canvases/{canvas_id}/triggers/{node_id}/hooks/{hook_name}"
+      body: "*"
+    };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      summary: "Invoke trigger hook";
+      description: "Invokes a custom hook on a canvas node trigger";
+      tags: "CanvasNode";
+    };
+  }
+
+  rpc CancelExecution(CancelExecutionRequest) returns (CancelExecutionResponse) {
+    option (google.api.http) = {
+      patch: "/api/v1/canvases/{canvas_id}/executions/{execution_id}/cancel"
+      body: "*"
+    };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      summary: "Cancel execution";
+      description: "Cancels a running canvas node execution";
+      tags: "CanvasNodeExecution";
+    };
+  }
+
+  rpc ResolveExecutionErrors(ResolveExecutionErrorsRequest) returns (ResolveExecutionErrorsResponse) {
+    option (google.api.http) = {
+      patch: "/api/v1/canvases/{canvas_id}/executions/resolve"
+      body: "*"
+    };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      summary: "Resolve execution errors";
+      description: "Marks canvas node execution errors as resolved";
+      tags: "CanvasNodeExecution";
+    };
+  }
+
+  rpc ListRuns(ListRunsRequest) returns (ListRunsResponse) {
+    option (google.api.http) = {
+      get: "/api/v1/canvases/{canvas_id}/runs"
+    };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      summary: "List canvas runs";
+      description: "Returns a list of runs for a canvas";
+      tags: "CanvasRun";
+    };
+  }
+
+  rpc DescribeRun(DescribeRunRequest) returns (DescribeRunResponse) {
+    option (google.api.http) = {
+      get: "/api/v1/canvases/{canvas_id}/runs/{run_id}"
+    };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      summary: "Describe a run";
+      description: "Returns a description of a run";
+      tags: "CanvasRun";
+    };
+  }
+
+  rpc CancelRun(CancelRunRequest) returns (CancelRunResponse) {
+    option (google.api.http) = {
+      patch: "/api/v1/canvases/{canvas_id}/runs/{run_id}/cancel"
+      body: "*"
+    };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      summary: "Cancel a run";
+      description: "Requests cancellation of a run and its active work";
+      tags: "CanvasRun";
+    };
+  }
+
+  rpc ListCanvasMemories(ListCanvasMemoriesRequest) returns (ListCanvasMemoriesResponse) {
+    option (google.api.http) = {
+      get: "/api/v1/canvases/{canvas_id}/memory"
+    };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      summary: "List canvas memories";
+      description: "Returns append-only memory records for a canvas";
+      tags: "Canvas";
+    };
+  }
+
+  rpc DeleteCanvasMemory(DeleteCanvasMemoryRequest) returns (DeleteCanvasMemoryResponse) {
+    option (google.api.http) = {
+      delete: "/api/v1/canvases/{canvas_id}/memory/{memory_id}"
+    };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      summary: "Delete canvas memory entry";
+      description: "Deletes one memory record by ID from a canvas";
+      tags: "Canvas";
+    };
+  }
+
+  rpc CreateCanvasMemoryNamespace(CreateCanvasMemoryNamespaceRequest) returns (CreateCanvasMemoryNamespaceResponse) {
+    option (google.api.http) = {
+      post: "/api/v1/canvases/{canvas_id}/memory/namespaces"
+      body: "*"
+    };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      summary: "Create manual canvas memory namespace";
+      description: "Creates a manually-managed memory namespace with the provided entries. Rejected if the namespace already has any entries.";
+      tags: "Canvas";
+    };
+  }
+
+  rpc UpdateCanvasMemoryNamespace(UpdateCanvasMemoryNamespaceRequest) returns (UpdateCanvasMemoryNamespaceResponse) {
+    option (google.api.http) = {
+      put: "/api/v1/canvases/{canvas_id}/memory/namespaces/{namespace}"
+      body: "*"
+    };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      summary: "Update manual canvas memory namespace";
+      description: "Replaces the entries of a manually-managed memory namespace, optionally renaming it. Rejected if the namespace is node-managed.";
+      tags: "Canvas";
+    };
+  }
+
+  rpc ListEventExecutions(ListEventExecutionsRequest) returns (ListEventExecutionsResponse) {
+    option (google.api.http) = {
+      get: "/api/v1/canvases/{canvas_id}/events/{event_id}/executions"
+    };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      summary: "List event executions";
+      description: "Returns a list of all node executions triggered by a root event";
+      tags: "CanvasEvent";
+    };
+  }
+
+}
+
+message ListCanvasesRequest {
+  // When true, each summary includes node positions and edges.
+  optional bool include_graph = 1;
+}
+
+message ListCanvasesResponse {
+  repeated CanvasSummary canvases = 1;
+}
+
+message DescribeCanvasRequest {
+  string id = 1;
+}
+
+message DescribeCanvasResponse {
+  Canvas canvas = 1;
+}
+
+message UpdateCanvasRequest {
+  string id = 1;
+  optional string name = 2;
+  optional string description = 3;
+  // When set, appends this id to the canvas's dismissed Agent suggestion ids.
+  optional string dismiss_agent_suggestion_id = 4;
+}
+
+message UpdateCanvasResponse {
+  Canvas canvas = 1;
+}
+
+message UpdateCanvasPreferenceRequest {
+  string canvas_id = 1;
+  optional bool starred = 2;
+}
+
+message UpdateCanvasPreferenceResponse {
+  CanvasPreference preference = 1;
+}
+
+message CreateCanvasRequest {
+  string name = 1;
+  string description = 2;
+  optional string factory_id = 3;
+}
+
+message CreateCanvasResponse {
+  Canvas canvas = 1;
+}
+
+message CanvasRepositoryFileOperation {
+  string path = 1;
+  bytes content = 2;
+  bool delete = 3;
+}
+
+message PutCanvasStagingRequest {
+  string canvas_id = 1;
+  repeated CanvasRepositoryFileOperation operations = 2;
+  // Replaces staged files only when they still use an older live version.
+  // A current draft is left unchanged.
+  bool replace_if_stale = 3;
+  // When set, rejects the update if canvas.yaml no longer matches this value.
+  // An empty value does not check content.
+  bytes expected_canvas_yaml = 4;
+}
+
+message PutCanvasStagingResponse {
+  StagingSummary staging_summary = 1;
+}
+
+message GetCanvasStagingRequest {
+  string canvas_id = 1;
+}
+
+message GetCanvasStagingResponse {
+  StagingSummary staging_summary = 1;
+}
+
+message DeleteCanvasStagingRequest {
+  string canvas_id = 1;
+  repeated string paths = 2;
+}
+
+message DeleteCanvasStagingResponse {
+  StagingSummary staging_summary = 1;
+}
+
+message ListCanvasVersionsRequest {
+  string canvas_id = 1;
+  uint32 limit = 2;
+  google.protobuf.Timestamp before = 3;
+}
+
+message ListCanvasVersionsResponse {
+  repeated CanvasVersion.Metadata versions = 1;
+  uint32 total_count = 2;
+  bool has_next_page = 3;
+  google.protobuf.Timestamp last_timestamp = 4;
+}
+
+message DescribeCanvasVersionRequest {
+  string canvas_id = 1;
+  string version_id = 2;
+}
+
+message DescribeCanvasVersionResponse {
+  CanvasVersion version = 1;
+}
+
+// StagingSummary reports the uncommitted spec edits held in workflow_staged_files for the current user.
+message StagingSummary {
+  bool has_staging = 1;
+  string base_version_id = 2;
+  repeated string staged_paths = 3;
+  bool stale = 4;
+}
+
+message CommitCanvasStagingRequest {
+  string canvas_id = 1;
+  string commit_message = 2;
+}
+
+message CommitCanvasStagingResponse {
+  CanvasVersion version = 1;
+  StagingSummary staging_summary = 2;
+}
+
+message DeleteCanvasRequest {
+  string id = 1;
+}
+
+message DeleteCanvasResponse {}
+
+message UserRef {
+  string id = 1;
+  string name = 2;
+}
+
+message CanvasSummary {
+  message Node {
+    string id = 1;
+    Components.Position position = 2;
+  }
+
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  google.protobuf.Timestamp created_at = 4;
+  google.protobuf.Timestamp updated_at = 5;
+  UserRef created_by = 6;
+  repeated Node nodes = 7;
+  repeated Components.Edge edges = 8;
+  bool starred = 9;
+  google.protobuf.Timestamp starred_at = 10;
+  string factory_id = 11;
+}
+
+message CanvasPreference {
+  string canvas_id = 1;
+  bool starred = 2;
+  google.protobuf.Timestamp starred_at = 3;
+}
+
+message Canvas {
+  message Metadata {
+    string id = 1;
+    string organization_id = 2;
+    string name = 3;
+    string description = 4;
+    google.protobuf.Timestamp created_at = 5;
+    google.protobuf.Timestamp updated_at = 6;
+    UserRef created_by = 7;
+    string live_version_id = 8;
+    repeated string dismissed_agent_suggestion_ids = 9;
+    string factory_id = 10;
+  }
+
+  message Spec {
+    repeated Components.Node nodes = 1;
+    repeated Components.Edge edges = 2;
+  }
+
+  message Status {
+    repeated CanvasNodeExecution last_executions = 1;
+    repeated CanvasEvent last_events = 2;
+  }
+
+  Metadata metadata = 1;
+  Spec spec = 2;
+  Status status = 3;
+}
+
+message CanvasVersion {
+  message Metadata {
+    string id = 1;
+    string canvas_id = 2;
+    UserRef owner = 3;
+    google.protobuf.Timestamp created_at = 4;
+    google.protobuf.Timestamp updated_at = 5;
+    string commit_message = 6;
+  }
+
+  Metadata metadata = 1;
+  Canvas.Spec spec = 2;
+}
+
+message ListNodeEventsRequest {
+  string canvas_id = 1;
+  string node_id = 2;
+  uint32 limit = 3;
+  google.protobuf.Timestamp before = 4;
+}
+
+message ListNodeEventsResponse {
+  repeated CanvasEvent events = 1;
+  uint32 total_count = 2;
+  bool has_next_page = 3;
+  google.protobuf.Timestamp last_timestamp = 4;
+}
+
+message ReemitTriggerEventRequest {
+  string canvas_id = 1;
+  string node_id = 2;
+  string event_id = 3;
+}
+
+message ReemitTriggerEventResponse {
+  string event_id = 1;
+}
+
+message ListNodeQueueItemsRequest {
+  string canvas_id = 1;
+  string node_id = 2;
+  uint32 limit = 3;
+  google.protobuf.Timestamp before = 4;
+}
+
+message ListNodeQueueItemsResponse {
+  repeated CanvasNodeQueueItem items = 1;
+  uint32 total_count = 2;
+  bool has_next_page = 3;
+  google.protobuf.Timestamp last_timestamp = 4;
+}
+
+message DeleteNodeQueueItemRequest {
+  string canvas_id = 1;
+  string node_id = 2;
+  string item_id = 3;
+}
+
+message DeleteNodeQueueItemResponse {}
+
+message ListNodeExecutionsRequest {
+  string canvas_id = 1;
+  string node_id = 2;
+  repeated CanvasNodeExecution.State states = 3;
+  repeated CanvasNodeExecution.Result results = 4;
+  uint32 limit = 5;
+  google.protobuf.Timestamp before = 6;
+}
+
+message ListNodeExecutionsResponse {
+  repeated CanvasNodeExecution executions = 1;
+  uint32 total_count = 2;
+  bool has_next_page = 3;
+  google.protobuf.Timestamp last_timestamp = 4;
+}
+
+//
+// More succint description of a canvas node execution.
+// No input, outputs, or root event.
+// Used to embed execution information into other messages.
+//
+message CanvasNodeExecutionRef {
+  string id = 1;
+  string node_id = 2;
+  CanvasNodeExecution.State state = 3;
+  CanvasNodeExecution.Result result = 4;
+  CanvasNodeExecution.ResultReason result_reason = 5;
+  string result_message = 6;
+  google.protobuf.Timestamp created_at = 7;
+  google.protobuf.Timestamp updated_at = 8;
+  repeated CanvasRunRef runs = 9;
+}
+
+//
+// Full description of a canvas node execution.
+// Should only be used for endpoints specific to executions.
+//
+message CanvasNodeExecution {
+  enum State {
+    STATE_UNKNOWN = 0;
+    STATE_PENDING = 1;
+    STATE_STARTED = 2;
+    STATE_FINISHED = 3;
+    STATE_CANCELLING = 4;
+  }
+
+  enum Result {
+    RESULT_UNKNOWN = 0;
+    RESULT_PASSED = 1;
+    RESULT_FAILED = 2;
+    RESULT_CANCELLED = 3;
+  }
+
+  enum ResultReason {
+    RESULT_REASON_OK = 0;
+    RESULT_REASON_ERROR = 1;
+    RESULT_REASON_ERROR_RESOLVED = 2;
+  }
+
+  string id = 1;
+  string canvas_id = 2;
+  string node_id = 3;
+  string previous_execution_id = 4;
+  State state = 5;
+  Result result = 6;
+  ResultReason result_reason = 7;
+  string result_message = 8;
+  google.protobuf.Struct outputs = 9;
+  google.protobuf.Timestamp created_at = 10;
+  google.protobuf.Timestamp updated_at = 11;
+  google.protobuf.Struct metadata = 12;
+  google.protobuf.Struct configuration = 13;
+  CanvasEvent root_event = 14;
+  UserRef cancelled_by = 15;
+  string run_id = 16;
+  google.protobuf.Timestamp cancelled_at = 17;
+}
+
+message CanvasNodeQueueItem {
+  string id = 1;
+  string canvas_id = 2;
+  string node_id = 3;
+  google.protobuf.Struct input = 4;
+  CanvasEvent root_event = 5;
+  google.protobuf.Timestamp created_at = 6;
+}
+
+message InvokeNodeExecutionHookRequest {
+  string canvas_id = 1;
+  string execution_id = 2;
+  string hook_name = 3;
+  google.protobuf.Struct parameters = 4;
+}
+
+message InvokeNodeExecutionHookResponse {}
+
+message InvokeNodeTriggerHookRequest {
+  string canvas_id = 1;
+  string node_id = 2;
+  string hook_name = 3;
+  google.protobuf.Struct parameters = 4;
+}
+
+message InvokeNodeTriggerHookResponse {
+  google.protobuf.Struct result = 1;
+}
+
+message ListRunsRequest {
+  string canvas_id = 1;
+  uint32 limit = 2;
+  google.protobuf.Timestamp before = 3;
+  repeated CanvasRun.State states = 4;
+  repeated CanvasRun.Result results = 5;
+}
+
+message ListRunsResponse {
+  repeated CanvasRun runs = 1;
+  uint32 total_count = 2;
+  bool has_next_page = 3;
+  google.protobuf.Timestamp last_timestamp = 4;
+}
+
+message DescribeRunRequest {
+  string canvas_id = 1;
+  string run_id = 2;
+}
+
+message DescribeRunResponse {
+  CanvasRun run = 1;
+}
+
+message CancelRunRequest {
+  string canvas_id = 1;
+  string run_id = 2;
+}
+
+message CancelRunResponse {
+  CanvasRun run = 1;
+}
+
+message CanvasMemory {
+  enum Source {
+    SOURCE_UNKNOWN = 0;
+    SOURCE_NODE = 1;
+    SOURCE_MANUAL = 2;
+  }
+
+  string id = 1;
+  string namespace = 2;
+  google.protobuf.Value values = 3;
+  Source source = 4;
+  google.protobuf.Timestamp created_at = 5;
+  google.protobuf.Timestamp updated_at = 6;
+}
+
+message ListCanvasMemoriesRequest {
+  string canvas_id = 1;
+}
+
+message ListCanvasMemoriesResponse {
+  repeated CanvasMemory items = 1;
+}
+
+message DeleteCanvasMemoryRequest {
+  string canvas_id = 1;
+  string memory_id = 2;
+}
+
+message DeleteCanvasMemoryResponse {}
+
+message CreateCanvasMemoryNamespaceRequest {
+  string canvas_id = 1;
+  string namespace = 2;
+  repeated google.protobuf.Value entries = 3;
+}
+
+message CreateCanvasMemoryNamespaceResponse {
+  string namespace = 1;
+  repeated CanvasMemory items = 2;
+}
+
+message UpdateCanvasMemoryNamespaceRequest {
+  string canvas_id = 1;
+  string namespace = 2;
+  string new_namespace = 3;
+  repeated google.protobuf.Value entries = 4;
+}
+
+message UpdateCanvasMemoryNamespaceResponse {
+  string namespace = 1;
+  repeated CanvasMemory items = 2;
+}
+
+message CanvasEvent {
+  string id = 1;
+  string canvas_id = 2;
+  string node_id = 3;
+  string channel = 4;
+  string custom_name = 5;
+  google.protobuf.Struct data = 6;
+  google.protobuf.Timestamp created_at = 7;
+  bool root = 8;
+  string run_id = 9;
+}
+
+message CanvasRun {
+  enum State {
+    STATE_UNKNOWN = 0;
+    STATE_PENDING = 1;
+    STATE_STARTED = 2;
+    STATE_CANCELLING = 3;
+    STATE_FINISHED = 4;
+  }
+
+  enum Result {
+    RESULT_UNKNOWN = 0;
+    RESULT_PASSED = 1;
+    RESULT_FAILED = 2;
+    RESULT_CANCELLED = 3;
+  }
+
+  string id = 1;
+  string canvas_id = 2;
+  CanvasEvent root_event = 3;
+  State state = 4;
+  Result result = 5;
+  repeated CanvasNodeExecutionRef executions = 6;
+  google.protobuf.Timestamp created_at = 7;
+  google.protobuf.Timestamp updated_at = 8;
+  google.protobuf.Timestamp finished_at = 9;
+  string version_id = 10;
+  repeated CanvasNodeQueueItem queue_items = 11;
+  google.protobuf.Timestamp cancelled_at = 12;
+  CanvasRunRef parent = 13;
+  repeated string errors = 14;
+  UserRef cancelled_by = 15;
+  // Ledger totals for this run tree. UI hides zero values.
+  int64 total_tokens = 16;
+  int64 cost_cents = 17;
+  // Models that recorded spend on this run tree.
+  repeated string models = 18;
+}
+
+message CanvasRunRef {
+  string id = 1;
+  string canvas_id = 2;
+  CanvasRun.State state = 3;
+  CanvasRun.Result result = 4;
+  repeated string errors = 5;
+  google.protobuf.Timestamp created_at = 6;
+  google.protobuf.Timestamp updated_at = 7;
+  google.protobuf.Timestamp finished_at = 8;
+  string description = 9;
+}
+
+message ListEventExecutionsRequest {
+  string canvas_id = 1;
+  string event_id = 2;
+}
+
+message ListEventExecutionsResponse {
+  repeated CanvasNodeExecution executions = 1;
+}
+
+message CancelExecutionRequest {
+  string canvas_id = 1;
+  string execution_id = 2;
+}
+
+message CancelExecutionResponse {}
+
+message ResolveExecutionErrorsRequest {
+  string canvas_id = 1;
+  repeated string execution_ids = 2;
+}
+
+message ResolveExecutionErrorsResponse {}
+
+//
+// Standalone messages
+//
+
+message CanvasNodeEventMessage {
+  string id = 1;
+  string canvas_id = 2;
+  string node_id = 3;
+  google.protobuf.Timestamp timestamp = 4;
+  string organization_id = 5;
+}
+
+message CanvasNodeExecutionMessage {
+  string id = 1;
+  string canvas_id = 2;
+  string node_id = 3;
+  google.protobuf.Timestamp timestamp = 4;
+}
+
+message CanvasNodeQueueItemMessage {
+  string id = 1;
+  string canvas_id = 2;
+  string node_id = 3;
+  google.protobuf.Timestamp timestamp = 4;
+  string run_id = 5;
+}
+
+message CanvasRunMessage {
+  string id = 1;
+  string canvas_id = 2;
+  google.protobuf.Timestamp timestamp = 3;
+}
+
+message CanvasEventTerminalMessage {
+  string event_id = 1;
+  string canvas_id = 2;
+  string run_id = 3;
+  google.protobuf.Timestamp timestamp = 4;
+}
+
+message CanvasMessage {
+  string id = 1;
+  string canvas_id = 2;
+  google.protobuf.Timestamp timestamp = 3;
+  string organization_id = 4;
+}
+
+message CanvasVersionMessage {
+  string canvas_id = 1;
+  string version_id = 2;
+  google.protobuf.Timestamp timestamp = 3;
+}
+
+message CanvasStagingMessage {
+  string canvas_id = 1;
+  string user_id = 2;
+  google.protobuf.Timestamp timestamp = 3;
+}
+
+message Console {
+  message Panel {
+    string id = 1;
+    string type = 2;
+    google.protobuf.Value content = 3;
+  }
+
+  message LayoutItem {
+    string i = 1;
+    int32 x = 2;
+    int32 y = 3;
+    int32 w = 4;
+    int32 h = 5;
+    optional int32 min_w = 6;
+    optional int32 min_h = 7;
+  }
+
+  string canvas_id = 1;
+  repeated Panel panels = 2;
+  repeated LayoutItem layout = 3;
+  google.protobuf.Timestamp updated_at = 4;
+  string version_id = 5;
+}

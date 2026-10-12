@@ -1,0 +1,124 @@
+package public
+
+import (
+	"encoding/json"
+	"net/http"
+
+	log "github.com/sirupsen/logrus"
+	"github.com/superplanehq/superplane/pkg/authentication"
+	"github.com/superplanehq/superplane/pkg/crypto"
+	"github.com/superplanehq/superplane/pkg/database"
+	"github.com/superplanehq/superplane/pkg/models"
+	"github.com/superplanehq/superplane/pkg/public/middleware"
+	"gorm.io/gorm"
+)
+
+type SetupOwnerRequest struct {
+	Email     string `json:"email"`
+	FirstName string `json:"first_name"`
+	LastName  string `json:"last_name"`
+	Password  string `json:"password"`
+}
+
+type SetupOwnerResponse struct {
+	OrganizationID   string `json:"organization_id"`
+	OrganizationSlug string `json:"organization_slug"`
+}
+
+func (s *Server) setupOwner(w http.ResponseWriter, r *http.Request) {
+	if !middleware.OwnerSetupEnabled() {
+		http.Error(w, "Not found", http.StatusNotFound)
+		return
+	}
+
+	if !middleware.IsOwnerSetupRequired() {
+		http.Error(w, "Instance already initialized", http.StatusConflict)
+		return
+	}
+
+	var req SetupOwnerRequest
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.Email == "" || req.FirstName == "" || req.LastName == "" || req.Password == "" {
+		http.Error(w, "All fields are required", http.StatusBadRequest)
+		return
+	}
+
+	fullName := req.FirstName + " " + req.LastName
+
+	var organization *models.Organization
+	var account *models.Account
+	var user *models.User
+
+	err := database.Conn().Transaction(func(tx *gorm.DB) error {
+		var err error
+
+		account, err = models.CreateAccountInTransaction(tx, fullName, req.Email)
+		if err != nil {
+			return err
+		}
+
+		// The first account is automatically an installation admin
+		if err := tx.Model(account).Update("installation_admin", true).Error; err != nil {
+			return err
+		}
+		account.InstallationAdmin = true
+
+		// Hash and store password
+		passwordHash, err := crypto.HashPassword(req.Password)
+		if err != nil {
+			return err
+		}
+
+		_, err = models.CreateAccountPasswordAuthInTransaction(tx, account.ID, passwordHash)
+		if err != nil {
+			return err
+		}
+
+		organization, err = models.CreateOrganizationInTransaction(tx, "Demo", "")
+		if err != nil {
+			return err
+		}
+
+		user, err = models.CreateUserInTransaction(tx, organization.ID, account.ID, req.Email, fullName)
+		if err != nil {
+			return err
+		}
+
+		err = s.authService.SetupOrganization(tx, organization.ID.String(), user.ID.String())
+		if err != nil {
+			return err
+		}
+
+		if err := models.SetOrganizationCreatedByAccount(tx, organization.ID, account.ID); err != nil {
+			return err
+		}
+		return models.GrantWelcomeCredit(tx, organization.ID, account.ID)
+	})
+
+	if err != nil {
+		log.Errorf("Failed to set up owner account: %v", err)
+		http.Error(w, "Failed to set up owner account", http.StatusInternalServerError)
+		return
+	}
+
+	// Mark setup as completed so we stop redirecting to /setup
+	middleware.MarkOwnerSetupCompleted()
+	s.registry.HTTPContext().InvalidatePolicyCache()
+
+	if err := authentication.IssueAccountSession(w, r, s.jwt, account.ID.String()); err != nil {
+		log.Errorf("Failed to generate account token for owner: %v", err)
+		http.Error(w, "Failed to create owner session", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(SetupOwnerResponse{
+		OrganizationID:   organization.ID.String(),
+		OrganizationSlug: organization.Slug,
+	})
+}

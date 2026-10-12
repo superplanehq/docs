@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Run Bun UI unit tests with compact dots output and a JUnit report
+# at the repo root (same path Semaphore publishes for Go tests).
+#
+# Usage:
+#   bash scripts/test_ui_autoparallel.sh
+#   FILES="src/lib/duration.spec.ts" bash scripts/test_ui_autoparallel.sh
+#   SHARD_INDEX=1 SHARD_COUNT=2 bash scripts/test_ui_autoparallel.sh
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repo_root="$(cd "${script_dir}/.." && pwd)"
+cd "${repo_root}/web_src"
+
+junit_file="${JUNIT_FILE:-${repo_root}/junit-report.xml}"
+args=(
+  --dots
+  --reporter=junit
+  --reporter-outfile="${junit_file}"
+)
+
+if [[ -n "${SHARD_COUNT:-}" ]]; then
+  source "${script_dir}/lib/shard_args.sh"
+  echo "Running UI unit tests shard ${SHARD_INDEX}/${SHARD_COUNT}"
+  args+=(--parallel --shard="${SHARD_INDEX}/${SHARD_COUNT}")
+else
+  args+=(--isolate)
+fi
+
+file_args=()
+if [[ -n "${FILES:-}" ]]; then
+  read -r -a file_args <<< "${FILES}"
+fi
+
+bun_status=0
+bun test "${args[@]}" "${file_args[@]}" || bun_status=$?
+
+bun "${script_dir}/flatten_junit.mjs" "${junit_file}"
+exit "${bun_status}"

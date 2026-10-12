@@ -1,0 +1,92 @@
+package noop
+
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+
+	"github.com/superplanehq/superplane/pkg/core"
+	"github.com/superplanehq/superplane/test/support/contexts"
+)
+
+func TestNoop_Execute_EmitsEmptyEvents(t *testing.T) {
+	tests := []struct {
+		name      string
+		inputData any
+	}{
+		{
+			name:      "noop with simple data emits empty event",
+			inputData: map[string]any{"test": "value"},
+		},
+		{
+			name:      "noop with complex data emits empty event",
+			inputData: map[string]any{"nested": map[string]any{"key": "value"}, "array": []any{1, 2, 3}},
+		},
+		{
+			name:      "noop with nil data emits empty event",
+			inputData: nil,
+		},
+		{
+			name:      "noop with string data emits empty event",
+			inputData: "test string",
+		},
+		{
+			name:      "noop with numeric data emits empty event",
+			inputData: 42,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			noop := &NoOp{}
+
+			stateCtx := &contexts.ExecutionStateContext{}
+
+			ctx := core.ExecutionContext{
+				Data:           tt.inputData,
+				ExecutionState: stateCtx,
+			}
+
+			err := noop.Execute(ctx)
+
+			assert.NoError(t, err)
+			assert.True(t, stateCtx.Passed)
+			assert.True(t, stateCtx.Finished)
+			assert.Equal(t, "default", stateCtx.Channel)
+			assert.Equal(t, "noop.finished", stateCtx.Type)
+			assert.Len(t, stateCtx.Payloads, 1)
+			payload := stateCtx.Payloads[0].(map[string]any)
+			assert.Equal(t, make(map[string]any), payload["data"])
+		})
+	}
+}
+
+func TestNoop_Execute_AlwaysEmitsEmpty(t *testing.T) {
+	t.Run("noop should never pass through original data", func(t *testing.T) {
+		noop := &NoOp{}
+		stateCtx := &contexts.ExecutionStateContext{}
+
+		originalData := map[string]any{
+			"important": "data",
+			"that":      "should not be passed through",
+		}
+
+		ctx := core.ExecutionContext{
+			Data:           originalData,
+			ExecutionState: stateCtx,
+		}
+
+		err := noop.Execute(ctx)
+		assert.NoError(t, err)
+		assert.True(t, stateCtx.Passed)
+		assert.True(t, stateCtx.Finished)
+
+		// Verify that the output is an empty map, not the original data
+		assert.Equal(t, "default", stateCtx.Channel)
+		assert.Equal(t, "noop.finished", stateCtx.Type)
+		assert.Len(t, stateCtx.Payloads, 1)
+		payload := stateCtx.Payloads[0].(map[string]any)
+		assert.Equal(t, make(map[string]any), payload["data"])
+		assert.NotEqual(t, originalData, payload["data"])
+	})
+}

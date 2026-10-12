@@ -1,0 +1,582 @@
+import { Children, createContext, isValidElement, useContext, useState } from "react";
+import type { ComponentProps, ReactNode } from "react";
+import ReactMarkdown from "react-markdown";
+import { defaultUrlTransform } from "react-markdown";
+import type { ExtraProps } from "react-markdown";
+import rehypeRaw from "rehype-raw";
+import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
+import remarkBreaks from "remark-breaks";
+import remarkGfm from "remark-gfm";
+
+import { IntegrationButton } from "@/components/AgentSidebar/widgets/IntegrationButton";
+import { MarkdownCode } from "@/components/AgentSidebar/widgets/MarkdownCode";
+import { MermaidWidget } from "@/components/AgentSidebar/widgets/MermaidWidget";
+import { NodeChipFromLink } from "@/components/AgentSidebar/widgets/NodeChip";
+import { isGitHubAttachmentAutolink, isGitHubUserAttachmentUrl } from "@/lib/githubAttachments";
+import { parseHostedVideoUrl } from "@/lib/hostedVideo";
+import {
+  isReachableWorkOrderFileUrl,
+  isWorkOrderMediaSource,
+  parseWorkOrderFileId,
+  resolveWorkOrderFileSrc,
+  workOrderFileContentTypeForSrc,
+  workOrderFileDownloadMap,
+  type WorkOrderFileRef,
+} from "@/lib/workOrderFiles";
+import type { WorkOrderMentionCandidate } from "@/lib/workOrderMentions";
+import {
+  forgetWorkspaceMarkdownImageLoad,
+  rememberWorkspaceMarkdownImageLoad,
+  workspaceMarkdownImageIsLoaded,
+} from "@/lib/workspaceMarkdownImages";
+import { cn } from "@/lib/utils";
+
+import { CONSOLE_CODE_BADGE_ANCHOR_SELECTOR_CLASSES } from "./console/consoleCodeStyles";
+import { CONSOLE_LINK_ANCHOR_SELECTOR_CLASSES } from "./console/consoleLinkStyles";
+import { MarkdownAlert } from "./markdownAlerts";
+import { parseGithubAlertChildren } from "./markdownAlertParse";
+import { MarkdownSection } from "./markdownSection";
+import { parseGithubSectionChildren } from "./markdownSectionParse";
+import { markdownHeadingClassName } from "./markdownHeadingStyles";
+import { highlightMentionChildren } from "./markdownMentionHighlight";
+import { GitHubAttachmentMedia } from "./GitHubAttachmentMedia";
+import { HostedVideoEmbed } from "./HostedVideoEmbed";
+import { WorkOrderVideo } from "./WorkOrderVideo";
+import {
+  MARKDOWN_TABLE_CLASSES,
+  MARKDOWN_TABLE_DATA_CLASSES,
+  MARKDOWN_TABLE_EMPHASIS_CLASSES,
+  MARKDOWN_TABLE_HEAD_CLASSES,
+} from "./markdownTableStyles";
+
+/** Shared chrome for markdown thematic breaks (`___`, `---`, `***`). */
+export const MARKDOWN_DIVIDER_CLASSES =
+  "my-5 h-0 border-0 border-t-2 border-solid border-slate-300 dark:border-gray-600";
+
+/**
+ * Tailwind class string shared by every full-document markdown renderer in the
+ * app (Console panels and Files `.md` preview). We deliberately do not use the
+ * official `prose` plugin so headings, code blocks, tables, and `<details>`
+ * stay visually consistent with the canvas chrome at small panel sizes.
+ *
+ * Link and inline-code colors come from the shared console tokens so Files and
+ * Console markdown match HTML panels and table cells.
+ *
+ * Heading spacing is applied on the rendered `<h1>`–`<h4>` elements (see
+ * `markdownHeadingComponents`) because parent `[&_h2]:mt-*` utilities are not
+ * reliably generated/applied in our Tailwind v4 setup.
+ */
+const MARKDOWN_CONTENT_CLASSES = cn(
+  "max-w-none text-[13px] text-slate-800 dark:text-gray-100 " +
+    "[&_p]:mb-2 [&_p]:leading-relaxed " +
+    "[&_strong]:font-semibold [&_b]:font-semibold " +
+    "[&_ol]:mb-2 [&_ol]:ml-5 [&_ol]:list-decimal " +
+    "[&_ul]:mb-2 [&_ul]:ml-5 [&_ul]:list-disc [&_li]:mb-1 " +
+    "[&_blockquote]:my-2 [&_blockquote]:border-l-2 [&_blockquote]:border-slate-300 [&_blockquote]:pl-3 dark:[&_blockquote]:border-gray-600 " +
+    "[&_pre]:my-2 [&_pre]:overflow-auto [&_pre]:rounded [&_pre]:bg-slate-100 [&_pre]:p-2 dark:[&_pre]:bg-gray-800 " +
+    "[&_pre_code]:bg-transparent [&_pre_code]:p-0 " +
+    "[&_details]:my-3 [&_details]:rounded-md [&_details]:border [&_details]:border-slate-200 [&_details]:bg-slate-50/60 [&_details]:px-3 [&_details]:py-2 dark:[&_details]:border-gray-700 dark:[&_details]:bg-gray-800/60 " +
+    "[&_details>summary]:flex [&_details>summary]:items-center [&_details>summary]:cursor-pointer [&_details>summary]:select-none [&_details>summary]:text-[13px] [&_details>summary]:font-semibold [&_details>summary]:text-slate-900 [&_details>summary]:list-none [&_details>summary]:marker:hidden [&_details>summary]:hover:text-gray-600 dark:[&_details>summary]:text-gray-100 dark:[&_details>summary]:hover:text-gray-400 " +
+    "[&_details>summary]:before:content-['▸'] [&_details>summary]:before:mr-2 [&_details>summary]:before:text-slate-500 [&_details>summary]:before:transition-transform [&_details>summary]:before:duration-200 dark:[&_details>summary]:before:text-gray-400 " +
+    "[&_details[open]>summary]:mb-3 [&_details[open]>summary]:before:rotate-90 " +
+    "[&_details>*:last-child]:mb-0",
+  CONSOLE_LINK_ANCHOR_SELECTOR_CLASSES,
+  CONSOLE_CODE_BADGE_ANCHOR_SELECTOR_CLASSES,
+);
+
+const WORKSPACE_MARKDOWN_CONTENT_CLASSES = "workspace-markdown";
+
+const WORKSPACE_MARKDOWN_HEADING_CLASSES = {
+  h1: "workspace-markdown-heading workspace-markdown-heading-h1",
+  h2: "workspace-markdown-heading workspace-markdown-heading-h2",
+  h3: "workspace-markdown-heading workspace-markdown-heading-h3",
+  h4: "workspace-markdown-heading workspace-markdown-heading-h4",
+} as const;
+/**
+ * Sanitize schema extending the rehype-sanitize defaults with `<details>` /
+ * `<summary>` (plus the `open` attribute) so collapsible sections can be
+ * authored directly in markdown without weakening the rest of the policy
+ * around scripts, event handlers, and inline styles.
+ */
+const MARKDOWN_SANITIZE_SCHEMA = {
+  ...defaultSchema,
+  tagNames: [...(defaultSchema.tagNames ?? []), "details", "summary", "u"],
+  attributes: {
+    ...(defaultSchema.attributes ?? {}),
+    a: [...(defaultSchema.attributes?.a ?? []), "title"],
+    details: [...(defaultSchema.attributes?.details ?? []), "open"],
+  },
+  protocols: {
+    ...(defaultSchema.protocols ?? {}),
+    href: [...(defaultSchema.protocols?.href ?? []), "node", "integration", "sp-file"],
+    src: [...(defaultSchema.protocols?.src ?? ["http", "https"]), "sp-file"],
+  },
+};
+
+interface MarkdownContentProps {
+  content: string;
+  className?: string;
+  variant?: "default" | "workspace";
+  canvasId?: string;
+  organizationId?: string;
+  mentionPeople?: WorkOrderMentionCandidate[];
+  files?: WorkOrderFileRef[];
+  openLinksInNewTab?: boolean;
+  linkClassName?: string;
+  "data-testid"?: string;
+}
+
+type MarkdownVariant = NonNullable<MarkdownContentProps["variant"]>;
+
+interface MarkdownRenderContextValue {
+  mentionPeople?: WorkOrderMentionCandidate[];
+  canvasId?: string;
+  organizationId?: string;
+  openLinksInNewTab: boolean;
+  linkClassName?: string;
+  files?: WorkOrderFileRef[];
+  fileUrls: Record<string, string>;
+  variant: MarkdownVariant;
+}
+
+const MarkdownRenderContext = createContext<MarkdownRenderContextValue>({
+  openLinksInNewTab: false,
+  fileUrls: {},
+  variant: "default",
+});
+
+function useMarkdownRender(): MarkdownRenderContextValue {
+  return useContext(MarkdownRenderContext);
+}
+
+/**
+ * Render a markdown string with the standard GFM + line-break + sanitized-raw
+ * HTML pipeline used across the app (console panels, file viewer, etc).
+ * Returns `null` when the content is empty (or whitespace-only) so the caller
+ * can decide whether to show its own empty state.
+ *
+ * Only line endings are normalized; leading/trailing whitespace is preserved
+ * so file viewers render exactly what's on disk (e.g. an indented code block
+ * at the very start of a file stays an indented code block).
+ */
+export function MarkdownContent({
+  content,
+  className,
+  variant = "default",
+  canvasId,
+  organizationId,
+  mentionPeople,
+  files,
+  openLinksInNewTab = false,
+  linkClassName,
+  "data-testid": dataTestId,
+}: MarkdownContentProps) {
+  const normalized = content.replace(/\r\n/g, "\n");
+  if (!normalized.trim()) return null;
+  const fileUrls = workOrderFileDownloadMap(files);
+  const contentClassName = variant === "workspace" ? WORKSPACE_MARKDOWN_CONTENT_CLASSES : MARKDOWN_CONTENT_CLASSES;
+  return (
+    <MarkdownRenderContext.Provider
+      value={{
+        mentionPeople,
+        canvasId,
+        organizationId,
+        openLinksInNewTab,
+        linkClassName,
+        files,
+        fileUrls,
+        variant,
+      }}
+    >
+      <div className={cn(contentClassName, className)} data-testid={dataTestId}>
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm, remarkBreaks]}
+          rehypePlugins={[rehypeRaw, [rehypeSanitize, MARKDOWN_SANITIZE_SCHEMA]]}
+          urlTransform={(url) => markdownUrlTransform(url, fileUrls)}
+          components={MARKDOWN_COMPONENTS}
+        >
+          {normalized}
+        </ReactMarkdown>
+      </div>
+    </MarkdownRenderContext.Provider>
+  );
+}
+
+const MARKDOWN_COMPONENTS = {
+  p: MarkdownParagraph,
+  li: MarkdownListItem,
+  h1: MarkdownH1,
+  h2: MarkdownH2,
+  h3: MarkdownH3,
+  h4: MarkdownH4,
+  table: MarkdownTable,
+  th: MarkdownTableHeader,
+  td: MarkdownTableCell,
+  strong: MarkdownStrong,
+  b: MarkdownBold,
+  a: MarkdownAnchor,
+  img: MarkdownImageRenderer,
+  blockquote: MarkdownBlockquote,
+  code: MarkdownCodeWithDiagrams,
+  pre: MarkdownPre,
+  hr: MarkdownDivider,
+};
+
+function WorkspaceMarkdownImage({ src, alt, className, ...props }: ComponentProps<"img">) {
+  const [loadedSrc, setLoadedSrc] = useState<string>();
+  const srcString = typeof src === "string" ? src : undefined;
+  const isLoaded = Boolean(srcString && (loadedSrc === srcString || workspaceMarkdownImageIsLoaded(srcString)));
+
+  return (
+    <img
+      {...props}
+      src={src}
+      alt={alt}
+      className={cn(className, !isLoaded && "opacity-0")}
+      onLoad={() => {
+        if (srcString) {
+          rememberWorkspaceMarkdownImageLoad(srcString);
+        }
+        setLoadedSrc(srcString);
+      }}
+      onError={() => {
+        if (srcString) {
+          forgetWorkspaceMarkdownImageLoad(srcString);
+        }
+        setLoadedSrc(undefined);
+      }}
+    />
+  );
+}
+
+type MarkdownNode = NonNullable<ExtraProps["node"]>;
+type MarkdownElementChild = Extract<MarkdownNode["children"][number], { type: "element" }>;
+
+function mentionAwareChildren(people: WorkOrderMentionCandidate[] | undefined, children: ReactNode): ReactNode {
+  return people?.length ? highlightMentionChildren(children, people) : children;
+}
+
+function markdownHeadingClass(
+  level: keyof typeof WORKSPACE_MARKDOWN_HEADING_CLASSES,
+  variant: MarkdownVariant,
+): string {
+  return variant === "workspace" ? WORKSPACE_MARKDOWN_HEADING_CLASSES[level] : markdownHeadingClassName(level);
+}
+
+function MarkdownParagraph({ children, node: _node, ...props }: ComponentProps<"p"> & ExtraProps) {
+  const { mentionPeople } = useMarkdownRender();
+  return <p {...props}>{mentionAwareChildren(mentionPeople, children)}</p>;
+}
+
+function MarkdownListItem({ children, node: _node, ...props }: ComponentProps<"li"> & ExtraProps) {
+  const { mentionPeople } = useMarkdownRender();
+  return <li {...props}>{mentionAwareChildren(mentionPeople, children)}</li>;
+}
+
+function MarkdownH1({ children, node: _node, ...props }: ComponentProps<"h1"> & ExtraProps) {
+  const { mentionPeople, variant } = useMarkdownRender();
+  return (
+    <h1 className={markdownHeadingClass("h1", variant)} {...props}>
+      {mentionAwareChildren(mentionPeople, children)}
+    </h1>
+  );
+}
+
+function MarkdownH2({ children, node: _node, ...props }: ComponentProps<"h2"> & ExtraProps) {
+  const { mentionPeople, variant } = useMarkdownRender();
+  return (
+    <h2 className={markdownHeadingClass("h2", variant)} {...props}>
+      {mentionAwareChildren(mentionPeople, children)}
+    </h2>
+  );
+}
+
+function MarkdownH3({ children, node: _node, ...props }: ComponentProps<"h3"> & ExtraProps) {
+  const { mentionPeople, variant } = useMarkdownRender();
+  return (
+    <h3 className={markdownHeadingClass("h3", variant)} {...props}>
+      {mentionAwareChildren(mentionPeople, children)}
+    </h3>
+  );
+}
+
+function MarkdownH4({ children, node: _node, ...props }: ComponentProps<"h4"> & ExtraProps) {
+  const { mentionPeople, variant } = useMarkdownRender();
+  return (
+    <h4 className={markdownHeadingClass("h4", variant)} {...props}>
+      {mentionAwareChildren(mentionPeople, children)}
+    </h4>
+  );
+}
+
+function MarkdownTable({ children, node: _node, ...props }: ComponentProps<"table"> & ExtraProps) {
+  return (
+    <table className={MARKDOWN_TABLE_CLASSES} {...props}>
+      {children}
+    </table>
+  );
+}
+
+function MarkdownTableHeader({ children, node: _node, ...props }: ComponentProps<"th"> & ExtraProps) {
+  const { mentionPeople } = useMarkdownRender();
+  return (
+    <th className={MARKDOWN_TABLE_HEAD_CLASSES} {...props}>
+      {mentionAwareChildren(mentionPeople, children)}
+    </th>
+  );
+}
+
+function MarkdownTableCell({ children, node: _node, ...props }: ComponentProps<"td"> & ExtraProps) {
+  const { mentionPeople } = useMarkdownRender();
+  return (
+    <td className={MARKDOWN_TABLE_DATA_CLASSES} {...props}>
+      {mentionAwareChildren(mentionPeople, children)}
+    </td>
+  );
+}
+
+function MarkdownStrong({ children, node: _node, ...props }: ComponentProps<"strong"> & ExtraProps) {
+  return (
+    <strong className={MARKDOWN_TABLE_EMPHASIS_CLASSES} {...props}>
+      {children}
+    </strong>
+  );
+}
+
+function MarkdownBold({ children, node: _node, ...props }: ComponentProps<"b"> & ExtraProps) {
+  return (
+    <b className={MARKDOWN_TABLE_EMPHASIS_CLASSES} {...props}>
+      {children}
+    </b>
+  );
+}
+
+function MarkdownAnchor({
+  children,
+  href,
+  className: anchorClassName,
+  node: _node,
+  ...props
+}: ComponentProps<"a"> & ExtraProps) {
+  const { canvasId, organizationId, openLinksInNewTab, linkClassName } = useMarkdownRender();
+  return (
+    <MarkdownLink
+      href={href}
+      canvasId={canvasId}
+      organizationId={organizationId}
+      openInNewTab={openLinksInNewTab}
+      className={cn(linkClassName, anchorClassName)}
+      {...props}
+    >
+      {children}
+    </MarkdownLink>
+  );
+}
+
+function MarkdownImageRenderer({ node: _node, ...props }: ComponentProps<"img"> & ExtraProps) {
+  const { files, fileUrls, variant } = useMarkdownRender();
+  return <MarkdownImage files={files} fileUrls={fileUrls} hideUntilLoaded={variant === "workspace"} {...props} />;
+}
+
+function MarkdownPre({ children, node, ...props }: ComponentProps<"pre"> & ExtraProps) {
+  if (hasLanguageCodeNode(node) || hasLanguageCodeChild(children)) {
+    return <>{children}</>;
+  }
+
+  return <pre {...props}>{children}</pre>;
+}
+
+function MarkdownDivider(props: ComponentProps<"hr">) {
+  return <hr {...props} role="separator" data-testid="markdown-divider" className={MARKDOWN_DIVIDER_CLASSES} />;
+}
+
+function MarkdownCodeWithDiagrams({
+  className,
+  children,
+  ...props
+}: ComponentProps<"code"> & { children?: ReactNode }) {
+  const language = /language-(\w+)/.exec(className || "")?.[1];
+  const code = (children == null ? "" : String(children)).replace(/\n$/, "");
+
+  if (language === "mermaid") {
+    return <MermaidWidget content={code} />;
+  }
+
+  return (
+    <MarkdownCode className={className} {...props}>
+      {children}
+    </MarkdownCode>
+  );
+}
+
+function MarkdownBlockquote({ children, node: _node, ...props }: ComponentProps<"blockquote"> & ExtraProps) {
+  const section = parseGithubSectionChildren(children);
+  if (section) {
+    return (
+      <MarkdownSection title={section.title} trailing={section.trailing} presetId={section.presetId}>
+        {section.body}
+      </MarkdownSection>
+    );
+  }
+
+  const alert = parseGithubAlertChildren(children);
+  if (alert) {
+    return <MarkdownAlert type={alert.type}>{alert.body}</MarkdownAlert>;
+  }
+
+  return <blockquote {...props}>{children}</blockquote>;
+}
+
+function markdownAnchorLabel(children: ReactNode): string {
+  return Children.toArray(children)
+    .map((child) => {
+      if (typeof child === "string" || typeof child === "number") {
+        return String(child);
+      }
+      if (isValidElement<{ children?: ReactNode }>(child)) {
+        return markdownAnchorLabel(child.props.children);
+      }
+      return "";
+    })
+    .join("");
+}
+
+function MarkdownLink({
+  href,
+  children,
+  canvasId,
+  organizationId,
+  openInNewTab = false,
+  target,
+  rel,
+  ...props
+}: ComponentProps<"a"> & { canvasId?: string; organizationId?: string; openInNewTab?: boolean }) {
+  const label = markdownAnchorLabel(children);
+
+  const integrationMatch = href?.match(/^integration:(.+)$/);
+  if (integrationMatch) {
+    return <IntegrationButton integrationRef={integrationMatch[1]} label={label || undefined} />;
+  }
+
+  const nodeMatch = href?.match(/^node:(.+)$/);
+  if (nodeMatch && canvasId && organizationId) {
+    return (
+      <NodeChipFromLink
+        nodeId={nodeMatch[1]}
+        rawLabel={label || undefined}
+        canvasId={canvasId}
+        organizationId={organizationId}
+      />
+    );
+  }
+
+  if (!isReachableWorkOrderFileUrl(href) && parseWorkOrderFileId(href)) {
+    return <span>{children}</span>;
+  }
+
+  return (
+    <MarkdownHref href={href} label={label} openInNewTab={openInNewTab} target={target} rel={rel} {...props}>
+      {children}
+    </MarkdownHref>
+  );
+}
+
+function MarkdownHref({
+  href,
+  label,
+  children,
+  openInNewTab,
+  target,
+  rel,
+  ...props
+}: ComponentProps<"a"> & { label: string; openInNewTab: boolean }) {
+  if (href && isGitHubAttachmentAutolink(href, label)) {
+    return <GitHubAttachmentMedia src={href} alt={label} />;
+  }
+
+  return (
+    <a
+      {...props}
+      href={href}
+      target={openInNewTab ? "_blank" : target}
+      rel={openInNewTab ? "noopener noreferrer" : rel}
+    >
+      {children}
+    </a>
+  );
+}
+
+function MarkdownImage({
+  src,
+  alt,
+  className,
+  files,
+  fileUrls,
+  hideUntilLoaded,
+  node: _node,
+  ...props
+}: ComponentProps<"img"> &
+  ExtraProps & {
+    files?: WorkOrderFileRef[];
+    fileUrls?: Record<string, string>;
+    hideUntilLoaded?: boolean;
+  }) {
+  const resolved = resolveWorkOrderFileSrc(src, fileUrls);
+  const hosted = parseHostedVideoUrl(resolved) ?? parseHostedVideoUrl(src ?? "");
+  if (hosted) {
+    return <HostedVideoEmbed video={hosted} className={className} />;
+  }
+  if (!isReachableWorkOrderFileUrl(resolved)) {
+    return <span>{alt?.trim() || "image"}</span>;
+  }
+  const contentType = workOrderFileContentTypeForSrc(src, files) ?? workOrderFileContentTypeForSrc(resolved, files);
+  if (isWorkOrderMediaSource({ contentType, src: resolved, alt })) {
+    return <WorkOrderVideo src={resolved} alt={alt} className={className} contentType={contentType} />;
+  }
+  if (!contentType && isGitHubUserAttachmentUrl(resolved)) {
+    return <GitHubAttachmentMedia src={resolved} alt={alt} className={className} />;
+  }
+  if (hideUntilLoaded) {
+    return <WorkspaceMarkdownImage src={resolved} alt={alt} className={className} {...props} />;
+  }
+  return <img src={resolved} alt={alt} className={className} {...props} />;
+}
+
+function markdownUrlTransform(url: string, fileUrls: Record<string, string>): string {
+  if (isSpecialMarkdownLink(url)) {
+    return url;
+  }
+  const id = parseWorkOrderFileId(url);
+  if (id) {
+    return fileUrls[id] ?? url;
+  }
+  return defaultUrlTransform(url);
+}
+
+function isSpecialMarkdownLink(url: string): boolean {
+  return url.startsWith("node:") || url.startsWith("integration:");
+}
+
+function hasLanguageCodeChild(children: ReactNode): boolean {
+  const child = Children.toArray(children)[0];
+  return isValidElement<{ className?: string }>(child) && /^language-\w+/.test(child.props.className || "");
+}
+
+function hasLanguageCodeNode(node?: ExtraProps["node"]): boolean {
+  const codeNode = node?.children?.find(
+    (child): child is MarkdownElementChild => child.type === "element" && child.tagName === "code",
+  );
+  return getClassNames(codeNode?.properties?.className).some((className) => /^language-\w+$/.test(className));
+}
+
+function getClassNames(className: unknown): string[] {
+  if (typeof className === "string") {
+    return className.split(/\s+/).filter(Boolean);
+  }
+
+  if (Array.isArray(className)) {
+    return className.filter((name): name is string => typeof name === "string");
+  }
+
+  return [];
+}

@@ -1,0 +1,42 @@
+import React, { useEffect, useRef } from "react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import type { FieldRendererProps } from "./types";
+import { toTestId } from "@/lib/testID";
+
+export const SelectFieldRenderer: React.FC<FieldRendererProps> = ({ field, value, onChange, readOnly = false }) => {
+  const selectOptions = field.typeOptions?.select?.options ?? [];
+  const hasSetDefault = useRef(false);
+
+  useEffect(() => {
+    if (readOnly) return;
+
+    if (!hasSetDefault.current && (value === undefined || value === null) && field.defaultValue !== undefined) {
+      const defaultVal = field.defaultValue as string;
+      if (defaultVal && defaultVal !== "") {
+        onChange(defaultVal);
+        hasSetDefault.current = true;
+      }
+    }
+  }, [readOnly, value, field.defaultValue, onChange]);
+
+  const testId = field.name ? toTestId(`field-${field.name}-select`) : undefined;
+
+  return (
+    <Select
+      value={(value as string) ?? (field.defaultValue as string) ?? ""}
+      onValueChange={(val) => onChange(val || undefined)}
+      disabled={readOnly}
+    >
+      <SelectTrigger className="w-full" data-testid={testId}>
+        <SelectValue placeholder={`Select ${field.label || field.name}`} />
+      </SelectTrigger>
+      <SelectContent position="popper" className="max-h-60">
+        {selectOptions.map((opt) => (
+          <SelectItem key={opt.value} value={opt.value ?? ""} title={opt.description || undefined}>
+            {opt.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+};

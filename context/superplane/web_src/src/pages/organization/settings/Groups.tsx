@@ -1,0 +1,344 @@
+import { Timestamp } from "@/components/Timestamp";
+import { useMemo, useState } from "react";
+import { useNavigate } from "react-router";
+import { usePageTitle } from "@/hooks/usePageTitle";
+import { useReportPageReady } from "@/hooks/useReportPageReady";
+import { Icon } from "../../../components/Icon";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Link } from "../../../components/Link/link";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../../components/Table/table";
+import { PermissionTooltip } from "@/components/PermissionGate";
+import { usePermissions } from "@/contexts/usePermissions";
+import {
+  useDeleteGroup,
+  useOrganizationGroups,
+  useOrganizationRoles,
+  useUpdateGroup,
+} from "../../../hooks/useOrganizationData";
+import { Button } from "@/components/ui/button";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/ui/dropdownMenu";
+import { cn } from "@/lib/utils";
+import { showErrorToast } from "@/lib/toast";
+import {
+  settingsEmptyStateIconClassName,
+  settingsEmptyStateTitleClassName,
+  settingsErrorClassName,
+  settingsRowActionClassName,
+  settingsRowMenuClassName,
+  settingsTableCardClassName,
+  settingsTableLinkClassName,
+} from "./settingsPageStyles";
+
+interface GroupsProps {
+  organizationId: string;
+}
+
+export function Groups({ organizationId }: GroupsProps) {
+  usePageTitle(["Groups"]);
+  const navigate = useNavigate();
+  const { canAct, isLoading: permissionsLoading } = usePermissions();
+  const [sortConfig, setSortConfig] = useState<{
+    key: string | null;
+    direction: "asc" | "desc";
+  }>({
+    key: null,
+    direction: "asc",
+  });
+
+  // Use React Query hooks for data fetching
+  const { data: groups = [], isLoading: loadingGroups, error: groupsError } = useOrganizationGroups(organizationId);
+  const { data: roles = [], error: rolesError } = useOrganizationRoles(organizationId);
+
+  // Mutations
+  const updateGroupMutation = useUpdateGroup(organizationId);
+  const deleteGroupMutation = useDeleteGroup(organizationId);
+  const canCreateGroups = canAct("groups", "create");
+  const canUpdateGroups = canAct("groups", "update");
+  const canDeleteGroups = canAct("groups", "delete");
+
+  const error = groupsError || rolesError;
+
+  useReportPageReady(!loadingGroups && !permissionsLoading, {
+    failed: !!error,
+  });
+
+  const handleCreateGroup = () => {
+    if (!canCreateGroups) return;
+    navigate(`/${organizationId}/settings/create-group`);
+  };
+
+  const getGroupMembersPath = (groupName: string) =>
+    `/${organizationId}/settings/groups/${encodeURIComponent(groupName)}/members`;
+
+  const handleDeleteGroup = async (groupName: string) => {
+    if (!canDeleteGroups) return;
+    const confirmed = window.confirm(
+      `Are you sure you want to delete the group "${groupName}"? This cannot be undone.`,
+    );
+
+    if (!confirmed) return;
+
+    try {
+      await deleteGroupMutation.mutateAsync({
+        groupName,
+        organizationId,
+      });
+    } catch {
+      showErrorToast("Failed to delete group");
+    }
+  };
+
+  const handleRoleUpdate = async (groupName: string, newRoleName: string) => {
+    if (!canUpdateGroups) return;
+    try {
+      await updateGroupMutation.mutateAsync({
+        groupName,
+        organizationId,
+        role: newRoleName,
+      });
+    } catch {
+      showErrorToast("Failed to update group role");
+    }
+  };
+
+  const handleSort = (key: string) => {
+    setSortConfig((prevConfig) => ({
+      key,
+      direction: prevConfig.key === key && prevConfig.direction === "asc" ? "desc" : "asc",
+    }));
+  };
+
+  const getSortIcon = (columnKey: string) => {
+    if (sortConfig.key !== columnKey) {
+      return "chevrons-up-down";
+    }
+    return sortConfig.direction === "asc" ? "chevron-up" : "chevron-down";
+  };
+
+  const filteredAndSortedGroups = useMemo(() => {
+    const source = groups;
+
+    if (!sortConfig.key) return source;
+
+    return [...source].sort((a, b) => {
+      let aValue: string | number;
+      let bValue: string | number;
+
+      switch (sortConfig.key) {
+        case "name":
+          aValue = (a.metadata?.name || "").toLowerCase();
+          bValue = (b.metadata?.name || "").toLowerCase();
+          break;
+        case "role":
+          aValue = (a.spec?.role || "").toLowerCase();
+          bValue = (b.spec?.role || "").toLowerCase();
+          break;
+        case "created":
+          aValue = a.metadata?.createdAt ? new Date(a.metadata.createdAt).getTime() : 0;
+          bValue = b.metadata?.createdAt ? new Date(b.metadata.createdAt).getTime() : 0;
+          break;
+        case "members":
+          aValue = a.status?.membersCount || 0;
+          bValue = b.status?.membersCount || 0;
+          break;
+        default:
+          return 0;
+      }
+
+      if (aValue < bValue) {
+        return sortConfig.direction === "asc" ? -1 : 1;
+      }
+      if (aValue > bValue) {
+        return sortConfig.direction === "asc" ? 1 : -1;
+      }
+      return 0;
+    });
+  }, [groups, sortConfig]);
+
+  return (
+    <div className="space-y-6 pt-6">
+      {error && (
+        <div className={settingsErrorClassName}>
+          <p>{error instanceof Error ? error.message : "Failed to fetch data"}</p>
+        </div>
+      )}
+
+      <div className={settingsTableCardClassName}>
+        {filteredAndSortedGroups.length > 0 && (
+          <div className="px-6 pt-6 pb-4 flex items-center justify-start">
+            <PermissionTooltip
+              allowed={canCreateGroups || permissionsLoading}
+              message="You don't have permission to create groups."
+            >
+              <Button className="flex items-center" onClick={handleCreateGroup} disabled={!canCreateGroups}>
+                <Icon name="plus" />
+                Create New Group
+              </Button>
+            </PermissionTooltip>
+          </div>
+        )}
+        <div className="px-6 pb-6 min-h-96">
+          {loadingGroups ? (
+            <div className="flex justify-center items-center h-32">
+              <p className="text-gray-500 dark:text-gray-400">Loading groups...</p>
+            </div>
+          ) : filteredAndSortedGroups.length === 0 ? (
+            <div className="flex min-h-96 flex-col items-center justify-center text-center">
+              <div className={settingsEmptyStateIconClassName}>
+                <Icon name="users" size="xl" />
+              </div>
+              <p className={settingsEmptyStateTitleClassName}>Create your first group</p>
+              <PermissionTooltip
+                allowed={canCreateGroups || permissionsLoading}
+                message="You don't have permission to create groups."
+              >
+                <Button className="mt-4 flex items-center" onClick={handleCreateGroup} disabled={!canCreateGroups}>
+                  <Icon name="plus" />
+                  Create New Group
+                </Button>
+              </PermissionTooltip>
+            </div>
+          ) : (
+            <Table dense>
+              <TableHead>
+                <TableRow>
+                  <TableHeader
+                    className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50"
+                    onClick={() => handleSort("name")}
+                  >
+                    <div className="flex items-center gap-2">
+                      Team name
+                      <Icon name={getSortIcon("name")} size="sm" className="text-gray-400 dark:text-gray-500" />
+                    </div>
+                  </TableHeader>
+                  <TableHeader
+                    className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50"
+                    onClick={() => handleSort("created")}
+                  >
+                    <div className="flex items-center gap-2">
+                      Created
+                      <Icon name={getSortIcon("created")} size="sm" className="text-gray-400 dark:text-gray-500" />
+                    </div>
+                  </TableHeader>
+                  <TableHeader
+                    className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50"
+                    onClick={() => handleSort("members")}
+                  >
+                    <div className="flex items-center gap-2">
+                      Members
+                      <Icon name={getSortIcon("members")} size="sm" className="text-gray-400 dark:text-gray-500" />
+                    </div>
+                  </TableHeader>
+                  <TableHeader
+                    className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50"
+                    onClick={() => handleSort("role")}
+                  >
+                    <div className="flex items-center gap-2">
+                      Role
+                      <Icon name={getSortIcon("role")} size="sm" className="text-gray-400 dark:text-gray-500" />
+                    </div>
+                  </TableHeader>
+                  <TableHeader></TableHeader>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {filteredAndSortedGroups.map((group, index) => (
+                  <TableRow key={index} className="last:[&>td]:border-b-0">
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <Icon name="users" size="sm" className="text-gray-800 dark:text-gray-100" />
+                        <Link
+                          href={group.metadata?.name ? getGroupMembersPath(group.metadata.name) : "#"}
+                          className={settingsTableLinkClassName}
+                        >
+                          {group.spec?.displayName}
+                        </Link>
+                      </div>
+                    </TableCell>
+
+                    <TableCell>
+                      <Timestamp
+                        date={group.metadata?.createdAt}
+                        display="relative"
+                        className="text-sm text-gray-500 dark:text-gray-400"
+                        fallback={<span className="text-sm text-gray-500 dark:text-gray-400">N/A</span>}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <span className="text-sm text-gray-500 dark:text-gray-400">
+                        {group.status?.membersCount || 0} member{group.status?.membersCount === 1 ? "" : "s"}
+                      </span>
+                    </TableCell>
+                    <TableCell>
+                      <PermissionTooltip
+                        allowed={canUpdateGroups || permissionsLoading}
+                        message="You don't have permission to update groups."
+                      >
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <button
+                              className={cn(
+                                "flex items-center justify-between gap-2 text-sm",
+                                settingsRowMenuClassName,
+                              )}
+                              disabled={updateGroupMutation.isPending || !canUpdateGroups}
+                            >
+                              {updateGroupMutation.isPending
+                                ? "Updating..."
+                                : roles.find((r) => r?.metadata?.name === group.spec?.role)?.spec?.displayName ||
+                                  "Select Role"}
+                              <Icon name="chevron-down" />
+                            </button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent>
+                            {roles.map((role) => (
+                              <DropdownMenuItem
+                                key={role.metadata?.name}
+                                onClick={() => handleRoleUpdate(group.metadata!.name!, role.metadata!.name!)}
+                                className="flex flex-col items-start gap-1"
+                                disabled={!canUpdateGroups}
+                              >
+                                <span className="text-sm font-medium text-gray-800 dark:text-gray-100">
+                                  {role.spec?.displayName || role.metadata!.name}
+                                </span>
+                              </DropdownMenuItem>
+                            ))}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </PermissionTooltip>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex justify-end">
+                        <PermissionTooltip
+                          allowed={canDeleteGroups || permissionsLoading}
+                          message="You don't have permission to delete groups."
+                        >
+                          <TooltipProvider delayDuration={200}>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteGroup(group.metadata!.name!)}
+                                  className={settingsRowActionClassName}
+                                  aria-label="Delete group"
+                                  disabled={deleteGroupMutation.isPending || !canDeleteGroups}
+                                >
+                                  <Icon name="trash-2" size="sm" />
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent side="top">Delete Group</TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        </PermissionTooltip>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

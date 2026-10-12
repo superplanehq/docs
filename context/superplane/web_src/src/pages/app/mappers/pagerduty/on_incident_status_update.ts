@@ -1,0 +1,130 @@
+import { getBackgroundColorClass } from "@/lib/colors";
+import type React from "react";
+import { renderTimeAgo, renderWithTimeAgo } from "@/components/TimeAgo";
+import type { TriggerEventContext, TriggerRenderer, TriggerRendererContext } from "../types";
+import { truncate } from "../safeMappers";
+import type { TriggerProps } from "@/ui/trigger";
+import pdIcon from "@/assets/icons/integrations/pagerduty.svg";
+import type { Agent } from "./types";
+
+interface OnIncidentStatusUpdateMetadata {
+  service?: {
+    id: string;
+    name: string;
+    html_url: string;
+  };
+}
+
+interface IncidentReference {
+  id?: string;
+  html_url?: string;
+  summary?: string;
+  type?: string;
+}
+
+interface StatusUpdate {
+  id?: string;
+  message?: string;
+  subject?: string;
+  incident?: IncidentReference;
+}
+
+interface OnIncidentStatusUpdateEventData {
+  agent?: Agent;
+  incident?: IncidentReference;
+  status_update?: StatusUpdate;
+}
+
+/**
+ * Renderer for the "pagerduty.onIncidentStatusUpdate" trigger type
+ */
+export const onIncidentStatusUpdateTriggerRenderer: TriggerRenderer = {
+  getTitleAndSubtitle: (context: TriggerEventContext): { title: string; subtitle: string | React.ReactNode } => {
+    const eventData = (context.event?.data as { data?: OnIncidentStatusUpdateEventData } | undefined)?.data;
+    const incident = eventData?.incident;
+    const statusUpdate = eventData?.status_update;
+    const subtitle = buildSubtitle(truncate(statusUpdate?.message, 50), context.event?.createdAt);
+
+    return {
+      title: incident?.summary || incident?.id || "Status Update",
+      subtitle,
+    };
+  },
+
+  getRootEventValues: (context: TriggerEventContext): Record<string, string> => {
+    const eventData = (context.event?.data as { data?: OnIncidentStatusUpdateEventData } | undefined)?.data;
+    const incident = eventData?.incident;
+    const statusUpdate = eventData?.status_update;
+    const values: Record<string, string> = {};
+
+    addDetail(values, "Incident ID", incident?.id);
+    addDetail(values, "Incident Summary", incident?.summary);
+    addDetail(values, "Incident URL", incident?.html_url);
+    addDetail(values, "Status Update Message", statusUpdate?.message);
+    addUpdatedAt(values, context.event?.createdAt);
+    addDetail(values, "Agent", eventData?.agent?.summary);
+
+    return values;
+  },
+
+  getTriggerProps: (context: TriggerRendererContext) => {
+    const { node, definition, lastEvent } = context;
+    const metadata = node.metadata as unknown as OnIncidentStatusUpdateMetadata;
+    const metadataItems = [];
+
+    if (metadata?.service?.name) {
+      metadataItems.push({
+        icon: "bell",
+        label: metadata.service.name,
+      });
+    }
+
+    const props: TriggerProps = {
+      title: node.name || definition.label || "Unnamed trigger",
+      iconSrc: pdIcon,
+      collapsedBackground: getBackgroundColorClass(definition.color),
+      metadata: metadataItems,
+    };
+
+    if (lastEvent) {
+      const eventData = lastEvent.data as OnIncidentStatusUpdateEventData;
+      const incident = eventData?.incident;
+      const statusUpdate = eventData?.status_update;
+      const subtitle = buildSubtitle(truncate(statusUpdate?.message, 50), lastEvent.createdAt);
+
+      props.lastEventData = {
+        title: incident?.summary || incident?.id || "Status Update",
+        subtitle,
+        receivedAt: new Date(lastEvent.createdAt),
+        state: "triggered",
+        eventId: lastEvent.id,
+      };
+    }
+
+    return props;
+  },
+};
+
+function addDetail(details: Record<string, string>, key: string, value: string | undefined) {
+  if (value) {
+    details[key] = value;
+  }
+}
+
+function addUpdatedAt(details: Record<string, string>, createdAt?: string) {
+  if (createdAt) {
+    details["Updated At"] = new Date(createdAt || "").toLocaleString();
+  }
+}
+
+function buildSubtitle(content: string, createdAt?: string): string | React.ReactNode {
+  if (content && createdAt) {
+    return renderWithTimeAgo(content, new Date(createdAt));
+  }
+
+  if (createdAt) {
+    return renderTimeAgo(new Date(createdAt));
+  }
+
+  return content;
+}

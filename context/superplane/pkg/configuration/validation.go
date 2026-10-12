@@ -1,0 +1,801 @@
+package configuration
+
+import (
+	"encoding/json"
+	"fmt"
+	"regexp"
+	"slices"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/mitchellh/mapstructure"
+	"github.com/robfig/cron/v3"
+)
+
+var ExpressionPlaceholderRegex = regexp.MustCompile(`(?s)\{\{.*?\}\}`)
+
+func ValidateConfiguration(fields []Field, config map[string]any) error {
+	for _, field := range fields {
+		value, exists := config[field.Name]
+
+		// Check if field is required (either always or conditionally)
+		isRequired := field.Required
+		if !isRequired && len(field.RequiredConditions) > 0 {
+			isRequired = isRequiredByCondition(field, config)
+		}
+
+		if isRequired && (!exists || value == nil) {
+			return fmt.Errorf("field '%s' is required", field.Name)
+		}
+
+		if !exists || value == nil {
+			continue
+		}
+
+		err := validateFieldValue(field, value)
+		if err != nil {
+			return fmt.Errorf("field '%s': %w", field.Name, err)
+		}
+	}
+
+	return nil
+}
+
+func validateNumber(field Field, value any) error {
+	var num float64
+	switch v := value.(type) {
+	case float64:
+		num = v
+	case int:
+		num = float64(v)
+	case int32:
+		num = float64(v)
+	case int64:
+		num = float64(v)
+	default:
+		return fmt.Errorf("must be a number")
+	}
+
+	if field.TypeOptions == nil || field.TypeOptions.Number == nil {
+		return nil
+	}
+
+	options := field.TypeOptions.Number
+	if options.Min != nil && num < float64(*options.Min) {
+		return fmt.Errorf("must be at least %d", *options.Min)
+	}
+
+	if options.Max != nil && num > float64(*options.Max) {
+		return fmt.Errorf("must be at most %d", *options.Max)
+	}
+
+	return nil
+}
+
+func validateString(field Field, value any) error {
+	text, ok := value.(string)
+	if !ok {
+		return fmt.Errorf("must be a string")
+	}
+
+	if field.TypeOptions == nil || field.TypeOptions.String == nil {
+		return nil
+	}
+
+	options := field.TypeOptions.String
+	if options.AllowExpressions != nil && !*options.AllowExpressions && ExpressionPlaceholderRegex.MatchString(text) {
+		return fmt.Errorf("expressions are not supported for this field")
+	}
+
+	textLength := len(text)
+
+	if options.MinLength != nil && textLength < *options.MinLength {
+		return fmt.Errorf("must be at least %d characters", *options.MinLength)
+	}
+
+	if options.MaxLength != nil && textLength > *options.MaxLength {
+		return fmt.Errorf("must be at most %d characters", *options.MaxLength)
+	}
+
+	return nil
+}
+
+func validateExpression(field Field, value any) error {
+	text, ok := value.(string)
+	if !ok {
+		return fmt.Errorf("must be an expression string")
+	}
+
+	if field.TypeOptions == nil || field.TypeOptions.Expression == nil {
+		return nil
+	}
+
+	options := field.TypeOptions.Expression
+	textLength := len(text)
+
+	if options.MinLength != nil && textLength < *options.MinLength {
+		return fmt.Errorf("must be at least %d characters", *options.MinLength)
+	}
+
+	if options.MaxLength != nil && textLength > *options.MaxLength {
+		return fmt.Errorf("must be at most %d characters", *options.MaxLength)
+	}
+
+	return nil
+}
+
+func validateText(field Field, value any) error {
+	text, ok := value.(string)
+	if !ok {
+		return fmt.Errorf("must be a string")
+	}
+
+	if field.TypeOptions == nil || field.TypeOptions.Text == nil {
+		return nil
+	}
+
+	options := field.TypeOptions.Text
+	textLength := len(text)
+
+	if options.MinLength != nil && textLength < *options.MinLength {
+		return fmt.Errorf("must be at least %d characters", *options.MinLength)
+	}
+
+	if options.MaxLength != nil && textLength > *options.MaxLength {
+		return fmt.Errorf("must be at most %d characters", *options.MaxLength)
+	}
+
+	return nil
+}
+
+func validateSelect(field Field, value any) error {
+	selected, ok := value.(string)
+	if !ok {
+		return fmt.Errorf("must be a string")
+	}
+
+	if field.TypeOptions == nil || field.TypeOptions.Select == nil {
+		return nil
+	}
+
+	options := field.TypeOptions.Select
+	if len(options.Options) == 0 {
+		return nil
+	}
+
+	valid := slices.ContainsFunc(options.Options, func(opt FieldOption) bool {
+		return opt.Value == selected
+	})
+
+	if !valid {
+		validValues := make([]string, len(options.Options))
+		for i, opt := range options.Options {
+			validValues[i] = opt.Value
+		}
+
+		return fmt.Errorf("must be one of: %s", strings.Join(validValues, ", "))
+	}
+
+	return nil
+}
+
+func validateMultiSelect(field Field, value any) error {
+	selectedValues, ok := value.([]any)
+	if !ok {
+		return fmt.Errorf("must be a list of values")
+	}
+
+	if field.TypeOptions == nil || field.TypeOptions.MultiSelect == nil {
+		return nil
+	}
+
+	typeOptions := field.TypeOptions.MultiSelect
+	if len(typeOptions.Options) == 0 {
+		return nil
+	}
+
+	for _, selectedValue := range selectedValues {
+		v, ok := selectedValue.(string)
+		if !ok {
+			return fmt.Errorf("all items must be strings")
+		}
+
+		valid := slices.ContainsFunc(typeOptions.Options, func(opt FieldOption) bool {
+			return opt.Value == v
+		})
+
+		if valid {
+			continue
+		}
+
+		validValues := make([]string, len(typeOptions.Options))
+		for i, opt := range typeOptions.Options {
+			validValues[i] = opt.Value
+		}
+
+		return fmt.Errorf("value '%s' must be one of: %s", v, strings.Join(validValues, ", "))
+	}
+
+	return nil
+}
+
+func validateDaysOfWeek(_ Field, value any) error {
+	var selectedValues []string
+	switch v := value.(type) {
+	case []any:
+		for _, item := range v {
+			dayValue, ok := item.(string)
+			if !ok {
+				return fmt.Errorf("all items must be strings")
+			}
+			selectedValues = append(selectedValues, dayValue)
+		}
+	case []string:
+		selectedValues = append(selectedValues, v...)
+	default:
+		return fmt.Errorf("must be a list of values")
+	}
+
+	if len(selectedValues) == 0 {
+		return fmt.Errorf("must contain at least one day")
+	}
+
+	validDays := []string{
+		"monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
+	}
+
+	for _, day := range selectedValues {
+		if !slices.Contains(validDays, day) {
+			return fmt.Errorf("invalid day '%s': must be one of monday, tuesday, wednesday, thursday, friday, saturday, sunday", day)
+		}
+	}
+
+	return nil
+}
+
+func validateObject(field Field, value any) error {
+	if text, ok := value.(string); ok {
+		normalized := text
+		hasExpressions := ExpressionPlaceholderRegex.MatchString(text)
+		if hasExpressions {
+			normalized = ExpressionPlaceholderRegex.ReplaceAllString(text, "{}")
+		}
+
+		var parsed any
+		if err := json.Unmarshal([]byte(normalized), &parsed); err != nil {
+			return fmt.Errorf("must be valid JSON")
+		}
+
+		if field.TypeOptions != nil && field.TypeOptions.Object != nil && len(field.TypeOptions.Object.Schema) > 0 {
+			obj, ok := parsed.(map[string]any)
+			if !ok {
+				return fmt.Errorf("must be an object")
+			}
+			if hasExpressions {
+				return nil
+			}
+			return ValidateConfiguration(field.TypeOptions.Object.Schema, obj)
+		}
+
+		switch parsed.(type) {
+		case map[string]any:
+			return nil
+		case []any:
+			return nil
+		default:
+			return fmt.Errorf("must be an object or array")
+		}
+	}
+
+	if field.TypeOptions != nil && field.TypeOptions.Object != nil && len(field.TypeOptions.Object.Schema) > 0 {
+		obj, ok := value.(map[string]any)
+		if !ok {
+			return fmt.Errorf("must be an object")
+		}
+
+		return ValidateConfiguration(field.TypeOptions.Object.Schema, obj)
+	}
+
+	switch value.(type) {
+	case map[string]any:
+		return nil
+	case []any:
+		return nil
+	default:
+		return fmt.Errorf("must be an object or array")
+	}
+}
+
+func validateList(field Field, value any) error {
+	list, ok := value.([]any)
+	if !ok {
+		return fmt.Errorf("must be a list of values")
+	}
+
+	if field.Required && len(list) == 0 {
+		return fmt.Errorf("must contain at least one item")
+	}
+
+	if field.TypeOptions == nil || field.TypeOptions.List == nil {
+		return nil
+	}
+
+	listOptions := field.TypeOptions.List
+
+	if listOptions.MaxItems != nil {
+		if *listOptions.MaxItems <= 0 {
+			return fmt.Errorf("invalid max_items configuration: must be greater than 0")
+		}
+		if len(list) > *listOptions.MaxItems {
+			return fmt.Errorf("must contain at most %d items", *listOptions.MaxItems)
+		}
+	}
+
+	if listOptions.ItemDefinition == nil {
+		return nil
+	}
+
+	itemDef := listOptions.ItemDefinition
+	for i, item := range list {
+		if itemDef.Type == FieldTypeObject && len(itemDef.Schema) > 0 {
+			itemMap, ok := item.(map[string]any)
+			if !ok {
+				return fmt.Errorf("item at index %d must be an object", i)
+			}
+
+			err := ValidateConfiguration(itemDef.Schema, itemMap)
+			if err != nil {
+				return fmt.Errorf("item at index %d: %w", i, err)
+			}
+		} else if itemDef.Type != "" {
+			if item == nil {
+				return fmt.Errorf("item at index %d cannot be empty", i)
+			}
+
+			err := validateFieldValue(Field{Type: itemDef.Type, Required: true}, item)
+			if err != nil {
+				return fmt.Errorf("item at index %d: %w", i, err)
+			}
+		}
+	}
+
+	return nil
+}
+
+func validateAnyPredicateList(field Field, value any) error {
+	var predicates []Predicate
+	err := mapstructure.Decode(value, &predicates)
+	if err != nil {
+		return fmt.Errorf("must be a list of predicates")
+	}
+
+	if field.Required && len(predicates) == 0 {
+		return fmt.Errorf("must contain at least one predicate")
+	}
+
+	// Get valid operators if defined
+	var validOperators []string
+	if field.TypeOptions != nil && field.TypeOptions.AnyPredicateList != nil {
+		for _, op := range field.TypeOptions.AnyPredicateList.Operators {
+			validOperators = append(validOperators, op.Value)
+		}
+	}
+
+	for i, predicate := range predicates {
+		// Validate type field
+		if predicate.Type == "" {
+			return fmt.Errorf("predicate at index %d: 'type' must be a non-empty string", i)
+		}
+
+		// Validate operator is valid if operators are defined
+		if len(validOperators) > 0 {
+			valid := slices.Contains(validOperators, predicate.Type)
+			if !valid {
+				return fmt.Errorf("predicate at index %d: '%s' is not a valid operator. Must be one of: %s", i, predicate.Type, strings.Join(validOperators, ", "))
+			}
+		}
+
+		// Validate value field
+		if predicate.Value == "" {
+			return fmt.Errorf("predicate at index %d: 'value' must be a non-empty string", i)
+		}
+	}
+
+	return nil
+}
+
+func validateTime(field Field, value any) error {
+	timeStr, ok := value.(string)
+	if !ok {
+		return fmt.Errorf("must be a string")
+	}
+
+	// Default time format is HH:MM
+	format := "15:04"
+	if field.TypeOptions != nil && field.TypeOptions.Time != nil && field.TypeOptions.Time.Format != "" {
+		format = field.TypeOptions.Time.Format
+	}
+
+	_, err := time.Parse(format, timeStr)
+	if err != nil {
+		return fmt.Errorf("must be a valid time in format %s", format)
+	}
+
+	return nil
+}
+
+func validateTimeRange(_ Field, value any) error {
+	timeRangeStr, ok := value.(string)
+	if !ok {
+		return fmt.Errorf("must be a string")
+	}
+
+	if timeRangeStr == "" {
+		return fmt.Errorf("time range cannot be empty")
+	}
+
+	startStr, endStr, err := parseTimeRange(timeRangeStr)
+	if err != nil {
+		return err
+	}
+
+	startTime, err := time.Parse("15:04", startStr)
+	if err != nil {
+		return fmt.Errorf("start time must be a valid time in format HH:MM")
+	}
+
+	endTime, err := time.Parse("15:04", endStr)
+	if err != nil {
+		return fmt.Errorf("end time must be a valid time in format HH:MM")
+	}
+
+	if !startTime.Before(endTime) {
+		return fmt.Errorf("start time must be before end time")
+	}
+
+	return nil
+}
+
+func validateDate(field Field, value any) error {
+	dateStr, ok := value.(string)
+	if !ok {
+		return fmt.Errorf("must be a string")
+	}
+
+	// Default date format is YYYY-MM-DD
+	format := "2006-01-02"
+	if field.TypeOptions != nil && field.TypeOptions.Date != nil && field.TypeOptions.Date.Format != "" {
+		format = field.TypeOptions.Date.Format
+	}
+
+	_, err := time.Parse(format, dateStr)
+	if err != nil {
+		return fmt.Errorf("must be a valid date in format %s", format)
+	}
+
+	return nil
+}
+
+func validateDateTime(field Field, value any) error {
+	dateTimeStr, ok := value.(string)
+	if !ok {
+		return fmt.Errorf("must be a string")
+	}
+
+	// Default datetime format is YYYY-MM-DDTHH:MM
+	format := "2006-01-02T15:04"
+	if field.TypeOptions != nil && field.TypeOptions.DateTime != nil && field.TypeOptions.DateTime.Format != "" {
+		format = field.TypeOptions.DateTime.Format
+	}
+
+	_, err := time.Parse(format, dateTimeStr)
+	if err != nil {
+		return fmt.Errorf("must be a valid datetime in format %s", format)
+	}
+
+	return nil
+}
+
+func validateTimezone(_ Field, value any) error {
+	timezoneStr, ok := value.(string)
+	if !ok {
+		return fmt.Errorf("must be a string")
+	}
+
+	if timezoneStr == "" {
+		return fmt.Errorf("timezone cannot be empty")
+	}
+
+	if timezoneStr == "current" {
+		return fmt.Errorf("timezone value 'current' should be replaced with actual timezone offset before submission")
+	}
+
+	var offsetHours float64
+	var err error
+
+	// Handle cases with or without + prefix
+	cleanTz := strings.TrimPrefix(timezoneStr, "+")
+	offsetHours, err = strconv.ParseFloat(cleanTz, 64)
+	if err != nil {
+		return fmt.Errorf("invalid timezone format: must be a numeric offset like '-5', '0', '5.5', or '+8'")
+	}
+
+	// Check valid range: UTC-12 to UTC+14
+	if offsetHours < -12 || offsetHours > 14 {
+		return fmt.Errorf("timezone offset must be between -12 and +14 hours, got: %g", offsetHours)
+	}
+
+	// Additional validation: only allow .5 decimal for half-hour timezones
+	if offsetHours != float64(int(offsetHours)) && offsetHours != float64(int(offsetHours))+0.5 {
+		return fmt.Errorf("timezone offset must be a whole number or half hour (e.g., 5.5), got: %g", offsetHours)
+	}
+
+	return nil
+}
+
+func parseTimeRange(timeRangeStr string) (string, string, error) {
+	parts := strings.Split(timeRangeStr, "-")
+	if len(parts) != 2 {
+		return "", "", fmt.Errorf("time range must be in format HH:MM-HH:MM")
+	}
+
+	startStr := strings.TrimSpace(parts[0])
+	endStr := strings.TrimSpace(parts[1])
+	if startStr == "" || endStr == "" {
+		return "", "", fmt.Errorf("time range must be in format HH:MM-HH:MM")
+	}
+
+	return startStr, endStr, nil
+}
+
+func validateDayInYear(field Field, value any) error {
+	dayStr, ok := value.(string)
+	if !ok {
+		return fmt.Errorf("must be a string")
+	}
+
+	format := "MM/DD"
+	var month, day int
+	var extra string
+	n, err := fmt.Sscanf(dayStr, "%d/%d%s", &month, &day, &extra)
+
+	if n < 2 || n > 2 {
+		return fmt.Errorf("must be a valid day in format %s (e.g., 12/25)", format)
+	}
+
+	if err != nil && n < 2 {
+		return fmt.Errorf("must be a valid day in format %s (e.g., 12/25)", format)
+	}
+
+	if month < 1 || month > 12 || day < 1 || day > 31 {
+		return fmt.Errorf("invalid day values: month must be 1-12, day must be 1-31")
+	}
+
+	daysInMonth := []int{0, 31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31}
+	if day > daysInMonth[month] {
+		return fmt.Errorf("invalid day '%d' for month '%d'", day, month)
+	}
+
+	return nil
+}
+
+func validateCron(_ Field, value any) error {
+	cronStr, ok := value.(string)
+	if !ok {
+		return fmt.Errorf("must be a string")
+	}
+
+	if cronStr == "" {
+		return fmt.Errorf("cron expression cannot be empty")
+	}
+
+	// Validate allowed wildcards: * , - /
+	validChars := "0123456789*,-/ abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	for _, char := range cronStr {
+		if !strings.ContainsRune(validChars, char) {
+			return fmt.Errorf("cron expression contains invalid character '%c'. Valid wildcards are: * , - /", char)
+		}
+	}
+
+	fields := strings.Fields(cronStr)
+
+	var parser cron.Parser
+	var formatDescription string
+
+	switch len(fields) {
+	case 5:
+		// Standard 5-field cron: minute, hour, day of month, month, day of week
+		parser = cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor)
+		formatDescription = "5-field format (minute hour day month dayofweek)"
+	case 6:
+		// Extended 6-field cron: second, minute, hour, day of month, month, day of week
+		parser = cron.NewParser(cron.Second | cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor)
+		formatDescription = "6-field format (second minute hour day month dayofweek)"
+	default:
+		return fmt.Errorf("cron expression must have either 5 fields (minute hour day month dayofweek) or 6 fields (second minute hour day month dayofweek), got %d fields", len(fields))
+	}
+
+	_, err := parser.Parse(cronStr)
+	if err != nil {
+		return fmt.Errorf("invalid cron expression for %s: %w", formatDescription, err)
+	}
+
+	return nil
+}
+
+func validateFieldValue(field Field, value any) error {
+	switch field.Type {
+	case FieldTypeString:
+		return validateString(field, value)
+
+	case FieldTypeExpression:
+		return validateExpression(field, value)
+
+	case FieldTypeText:
+		return validateText(field, value)
+
+	case FieldTypeNumber:
+		return validateNumber(field, value)
+
+	case FieldTypeBool:
+		if _, ok := value.(bool); !ok {
+			return fmt.Errorf("must be a boolean")
+		}
+
+	case FieldTypeSelect:
+		return validateSelect(field, value)
+
+	case FieldTypeMultiSelect:
+		return validateMultiSelect(field, value)
+
+	case FieldTypeDaysOfWeek:
+		return validateDaysOfWeek(field, value)
+
+	case FieldTypeIntegrationResource:
+		// If Multi is true, validate as array of strings
+		// Otherwise, validate as a single string
+		if field.TypeOptions != nil && field.TypeOptions.Resource != nil && field.TypeOptions.Resource.Multi {
+			selectedValues, ok := value.([]any)
+			if !ok {
+				return fmt.Errorf("must be a list of values")
+			}
+			// Validate all items are strings
+			for _, selectedValue := range selectedValues {
+				if _, ok := selectedValue.(string); !ok {
+					return fmt.Errorf("all items must be strings")
+				}
+			}
+			return nil
+		}
+		if _, ok := value.(string); !ok {
+			return fmt.Errorf("must be a string")
+		}
+
+	case FieldTypeGitRef:
+		// Git reference is represented as a string (e.g., refs/heads/main, refs/tags/v1.0.0)
+		if _, ok := value.(string); !ok {
+			return fmt.Errorf("must be a string")
+		}
+
+	case FieldTypeUser:
+		if _, ok := value.(string); !ok {
+			return fmt.Errorf("must be a string")
+		}
+
+	case FieldTypeRole:
+		if _, ok := value.(string); !ok {
+			return fmt.Errorf("must be a string")
+		}
+
+	case FieldTypeGroup:
+		if _, ok := value.(string); !ok {
+			return fmt.Errorf("must be a string")
+		}
+
+	case FieldTypeList:
+		return validateList(field, value)
+
+	case FieldTypeAnyPredicateList:
+		return validateAnyPredicateList(field, value)
+
+	case FieldTypeObject:
+		return validateObject(field, value)
+
+	case FieldTypeTime:
+		return validateTime(field, value)
+
+	case FieldTypeTimeRange:
+		return validateTimeRange(field, value)
+
+	case FieldTypeDate:
+		return validateDate(field, value)
+
+	case FieldTypeDateTime:
+		return validateDateTime(field, value)
+
+	case FieldTypeDayInYear:
+		return validateDayInYear(field, value)
+
+	case FieldTypeCron:
+		return validateCron(field, value)
+
+	case FieldTypeTimezone:
+		return validateTimezone(field, value)
+
+	case FieldTypeIntegration:
+		return validateIntegration(value)
+
+	case FieldTypeSecret:
+		return validateSecret(value)
+
+	case FieldTypeHostedModel:
+		return validateHostedModel(value)
+
+	case FieldTypeRunnerFleet:
+		return validateRunnerFleet(value)
+	}
+
+	return nil
+}
+
+func validateIntegration(value any) error {
+	ref, err := DecodeIntegrationRef(value)
+	if err != nil {
+		return err
+	}
+
+	if !ref.IsSet() {
+		return fmt.Errorf("integration is required")
+	}
+
+	return nil
+}
+
+func validateSecret(value any) error {
+	ref, err := DecodeSecretRef(value)
+	if err != nil {
+		return err
+	}
+
+	if !ref.IsSet() {
+		return fmt.Errorf("secret is required")
+	}
+
+	return nil
+}
+
+func validateHostedModel(value any) error {
+	if _, ok := value.(string); !ok {
+		return fmt.Errorf("must be a string")
+	}
+	return nil
+}
+
+func validateRunnerFleet(value any) error {
+	if _, ok := value.(string); !ok {
+		return fmt.Errorf("must be a string")
+	}
+	return nil
+}
+
+func isRequiredByCondition(field Field, config map[string]any) bool {
+	for _, condition := range field.RequiredConditions {
+		// A missing or nil field compares as the empty string, matching
+		// the frontend evaluator (isFieldVisible in web_src) — so a
+		// condition can include "" to also match configs that omit the
+		// field and rely on its default.
+		value := ""
+		if conditionValue, exists := config[condition.Field]; exists && conditionValue != nil {
+			value = fmt.Sprintf("%v", conditionValue)
+		}
+
+		// Any satisfied condition makes the field required (OR logic),
+		// matching isFieldRequired in web_src.
+		if slices.Contains(condition.Values, value) {
+			return true
+		}
+	}
+
+	return false
+}

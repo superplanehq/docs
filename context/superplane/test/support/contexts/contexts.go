@@ -1,0 +1,859 @@
+package contexts
+
+import (
+	"fmt"
+	"net/http"
+	"slices"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/superplanehq/superplane/pkg/core"
+)
+
+type EventContext struct {
+	Payloads []Payload
+}
+
+type Payload struct {
+	Type string
+	Data any
+}
+
+func (e *EventContext) Emit(payloadType string, payload any) error {
+	e.Payloads = append(e.Payloads, Payload{Type: payloadType, Data: payload})
+	return nil
+}
+
+func (e *EventContext) Count() int {
+	return len(e.Payloads)
+}
+
+type NodeWebhookContext struct {
+	Secret string
+}
+
+func (w *NodeWebhookContext) GetSecret() ([]byte, error) {
+	return []byte(w.Secret), nil
+}
+
+func (w *NodeWebhookContext) ResetSecret() ([]byte, []byte, error) {
+	return []byte(w.Secret), []byte(w.Secret), nil
+}
+
+func (w *NodeWebhookContext) SetSecret(secret []byte) error {
+	w.Secret = string(secret)
+	return nil
+}
+
+func (w *NodeWebhookContext) Setup() (string, error) {
+	id := uuid.New()
+	return id.String(), nil
+}
+
+func (w *NodeWebhookContext) GetBaseURL() string {
+	return "http://localhost:3000/api/v1"
+}
+
+type WebhookContext struct {
+	ID                string
+	URL               string
+	Secret            []byte
+	Metadata          any
+	Configuration     any
+	ActiveCallbacks   map[string]bool
+	CallbackLookupErr error
+}
+
+func (w *WebhookContext) GetID() string              { return w.ID }
+func (w *WebhookContext) GetURL() string             { return w.URL }
+func (w *WebhookContext) GetSecret() ([]byte, error) { return w.Secret, nil }
+func (w *WebhookContext) GetMetadata() any           { return w.Metadata }
+func (w *WebhookContext) GetConfiguration() any      { return w.Configuration }
+func (w *WebhookContext) SetSecret(secret []byte) error {
+	w.Secret = secret
+	return nil
+}
+
+func (w *WebhookContext) CallbackHasActiveNodes(webhookID string) (bool, error) {
+	if w.CallbackLookupErr != nil {
+		return false, w.CallbackLookupErr
+	}
+	if w.ActiveCallbacks == nil {
+		return false, nil
+	}
+	return w.ActiveCallbacks[webhookID], nil
+}
+
+type MetadataContext struct {
+	Metadata any
+}
+
+func (m *MetadataContext) Get() any {
+	return m.Metadata
+}
+
+func (m *MetadataContext) Set(metadata any) error {
+	m.Metadata = metadata
+	return nil
+}
+
+type IntegrationContext struct {
+	NewSetupFlow      bool
+	IntegrationID     string
+	Configuration     map[string]any
+	Metadata          any
+	State             string
+	StateDescription  string
+	BrowserAction     *core.BrowserAction
+	CurrentSecrets    map[string]core.IntegrationSecret
+	CurrentProperties map[string]any
+	WebhookRequests   []any
+	ResyncRequests    []time.Duration
+	ActionRequests    []ActionRequest
+	Subscriptions     []Subscription
+	// NodeConfigurations is what ListNodeConfigurations returns.
+	NodeConfigurations []any
+	// ScheduleActionCallErr, when set, is returned from ScheduleActionCall after recording the request.
+	ScheduleActionCallErr error
+}
+
+type ActionRequest struct {
+	ActionName string
+	Parameters any
+	Interval   time.Duration
+}
+
+type Subscription struct {
+	ID            uuid.UUID
+	Configuration any
+	SendErr       error
+}
+
+func (c *IntegrationContext) ID() uuid.UUID {
+	if c.IntegrationID != "" {
+		return uuid.MustParse(c.IntegrationID)
+	}
+
+	c.IntegrationID = uuid.New().String()
+	return uuid.MustParse(c.IntegrationID)
+}
+
+func (c *IntegrationContext) GetMetadata() any {
+	return c.Metadata
+}
+
+func (c *IntegrationContext) SetMetadata(metadata any) {
+	c.Metadata = metadata
+}
+
+func (c *IntegrationContext) Persist() error {
+	return nil
+}
+
+func (c *IntegrationContext) GetConfig(name string) ([]byte, error) {
+	if c.Configuration == nil {
+		return nil, fmt.Errorf("config not found: %s", name)
+	}
+
+	value, ok := c.Configuration[name]
+	if !ok {
+		return nil, fmt.Errorf("config not found: %s", name)
+	}
+
+	s, ok := value.(string)
+	if !ok {
+		return nil, fmt.Errorf("config is not a string: %s", name)
+	}
+
+	return []byte(s), nil
+}
+
+func (c *IntegrationContext) GetState() string {
+	return ""
+}
+
+func (c *IntegrationContext) Ready() {
+	c.State = "ready"
+	c.StateDescription = ""
+}
+
+func (c *IntegrationContext) Error(message string) {
+	c.State = "error"
+	c.StateDescription = message
+}
+
+func (c *IntegrationContext) NewBrowserAction(action core.BrowserAction) {
+	c.BrowserAction = &action
+}
+
+func (c *IntegrationContext) RemoveBrowserAction() {
+	c.BrowserAction = nil
+}
+
+func (c *IntegrationContext) SetSecret(name string, value []byte) error {
+	if c.CurrentSecrets == nil {
+		c.CurrentSecrets = make(map[string]core.IntegrationSecret)
+	}
+	c.CurrentSecrets[name] = core.IntegrationSecret{Name: name, Value: value}
+	return nil
+}
+
+func (c *IntegrationContext) GetSecrets() ([]core.IntegrationSecret, error) {
+	secrets := make([]core.IntegrationSecret, 0, len(c.CurrentSecrets))
+	for _, secret := range c.CurrentSecrets {
+		secrets = append(secrets, secret)
+	}
+	return secrets, nil
+}
+
+func (c *IntegrationContext) RequestWebhook(configuration any) error {
+	c.WebhookRequests = append(c.WebhookRequests, configuration)
+	return nil
+}
+
+func (c *IntegrationContext) ScheduleResync(interval time.Duration) error {
+	c.ResyncRequests = append(c.ResyncRequests, interval)
+	return nil
+}
+
+func (c *IntegrationContext) ScheduleActionCall(actionName string, parameters any, interval time.Duration) error {
+	c.ActionRequests = append(c.ActionRequests, ActionRequest{ActionName: actionName, Parameters: parameters, Interval: interval})
+	if c.ScheduleActionCallErr != nil {
+		return c.ScheduleActionCallErr
+	}
+	return nil
+}
+
+func (c *IntegrationContext) ListNodeConfigurations() ([]any, error) {
+	if c.NodeConfigurations == nil {
+		return nil, nil
+	}
+	return c.NodeConfigurations, nil
+}
+
+func (c *IntegrationContext) ListSubscriptions() ([]core.IntegrationSubscriptionContext, error) {
+	subscriptions := make([]core.IntegrationSubscriptionContext, 0, len(c.Subscriptions))
+	for _, subscription := range c.Subscriptions {
+		subscriptions = append(subscriptions, &SubscriptionContext{config: subscription.Configuration, sendErr: subscription.SendErr})
+	}
+	return subscriptions, nil
+}
+
+func (c *IntegrationContext) FindSubscription(predicate func(core.IntegrationSubscriptionContext) bool) (core.IntegrationSubscriptionContext, error) {
+	return nil, nil
+}
+
+func (c *IntegrationContext) Subscribe(subscription any) (*uuid.UUID, error) {
+	s := Subscription{ID: uuid.New(), Configuration: subscription}
+	c.Subscriptions = append(c.Subscriptions, s)
+	return &s.ID, nil
+}
+
+func (c *IntegrationContext) LegacySetup() bool {
+	return !c.NewSetupFlow
+}
+
+func (c *IntegrationContext) Properties() core.IntegrationPropertyStorage {
+	return &IntegrationPropertyStorage{parentContext: c}
+}
+
+func (c *IntegrationContext) Secrets() core.IntegrationSecretStorage {
+	return &IntegrationSecretStorage{parentContext: c}
+}
+
+type SubscriptionContext struct {
+	config   any
+	messages []any
+	sendErr  error
+}
+
+func (s *SubscriptionContext) Configuration() any {
+	return s.config
+}
+
+func (s *SubscriptionContext) SendMessage(message any) error {
+	if s.sendErr != nil {
+		return s.sendErr
+	}
+	s.messages = append(s.messages, message)
+	return nil
+}
+
+type ExecutionStateContext struct {
+	Finished       bool
+	Cancelling     bool
+	Passed         bool
+	Cancelled      bool
+	FailureReason  string
+	FailureMessage string
+	Channel        string
+	Type           string
+	Payloads       []any
+	KVs            map[string]string
+}
+
+func (c *ExecutionStateContext) IsFinished() bool {
+	return c.Finished
+}
+
+func (c *ExecutionStateContext) IsCancelling() bool {
+	return c.Cancelling
+}
+
+func (c *ExecutionStateContext) Pass() error {
+	c.Finished = true
+	c.Passed = true
+	return nil
+}
+
+func (c *ExecutionStateContext) Emit(channel, payloadType string, payloads []any) error {
+	c.Finished = true
+	c.Passed = true
+	c.Channel = channel
+	c.Type = payloadType
+
+	// Wrap payloads like the real ExecutionStateContext does
+	wrappedPayloads := make([]any, 0, len(payloads))
+	for _, payload := range payloads {
+		wrappedPayloads = append(wrappedPayloads, map[string]any{
+			"type":      payloadType,
+			"timestamp": time.Now(),
+			"data":      payload,
+		})
+	}
+	c.Payloads = wrappedPayloads
+	return nil
+}
+
+func (c *ExecutionStateContext) EmitAndContinue(channel, payloadType string, payloads []any) error {
+	c.Finished = false
+	c.Passed = true
+	c.Channel = channel
+	c.Type = payloadType
+
+	wrappedPayloads := make([]any, 0, len(payloads))
+	for _, payload := range payloads {
+		wrappedPayloads = append(wrappedPayloads, map[string]any{
+			"type":      payloadType,
+			"timestamp": time.Now(),
+			"data":      payload,
+		})
+	}
+	c.Payloads = wrappedPayloads
+	return nil
+}
+
+func (c *ExecutionStateContext) Fail(reason, message string) error {
+	c.Finished = true
+	c.Passed = false
+	c.FailureReason = reason
+	c.FailureMessage = message
+	return nil
+}
+
+func (c *ExecutionStateContext) Cancel() error {
+	c.Finished = true
+	c.Passed = false
+	c.Cancelled = true
+	return nil
+}
+
+func (c *ExecutionStateContext) SetKV(key, value string) error {
+	if c.KVs == nil {
+		c.KVs = map[string]string{}
+	}
+	c.KVs[key] = value
+	return nil
+}
+
+func (c *ExecutionStateContext) GetKV(key string) (string, error) {
+	if c.KVs == nil {
+		return "", core.ErrExecutionKVNotFound
+	}
+	v, ok := c.KVs[key]
+	if !ok {
+		return "", core.ErrExecutionKVNotFound
+	}
+	return v, nil
+}
+
+type AuthContext struct {
+	User   *core.User
+	Users  map[string]*core.User
+	Roles  map[string]*core.RoleRef
+	Groups map[string]*core.GroupRef
+}
+
+func (c *AuthContext) AuthenticatedUser() *core.User {
+	return c.User
+}
+
+func (c *AuthContext) GetUser(id uuid.UUID) (*core.User, error) {
+	if c.Users != nil {
+		if user, ok := c.Users[id.String()]; ok {
+			return user, nil
+		}
+	}
+
+	return nil, fmt.Errorf("user not found: %s", id.String())
+}
+
+func (c *AuthContext) GetRole(name string) (*core.RoleRef, error) {
+	if c.Roles != nil {
+		if role, ok := c.Roles[name]; ok {
+			return role, nil
+		}
+	}
+	return nil, fmt.Errorf("role not found: %s", name)
+}
+
+func (c *AuthContext) GetGroup(name string) (*core.GroupRef, error) {
+	if c.Groups != nil {
+		if group, ok := c.Groups[name]; ok {
+			return group, nil
+		}
+	}
+	return nil, fmt.Errorf("group not found: %s", name)
+}
+
+func (c *AuthContext) HasRole(role string) (bool, error) {
+	if c.User == nil {
+		return false, fmt.Errorf("user not authenticated")
+	}
+
+	if c.Roles == nil {
+		return false, nil
+	}
+
+	_, ok := c.Roles[role]
+	return ok, nil
+}
+
+func (c *AuthContext) InGroup(group string) (bool, error) {
+	if c.User == nil {
+		return false, fmt.Errorf("user not authenticated")
+	}
+
+	if c.Groups == nil {
+		return false, nil
+	}
+
+	_, ok := c.Groups[group]
+	return ok, nil
+}
+
+type RequestContext struct {
+	Duration time.Duration
+	Action   string
+	Params   map[string]any
+}
+
+func (c *RequestContext) ScheduleActionCall(action string, params map[string]any, duration time.Duration) error {
+	c.Action = action
+	c.Params = params
+	c.Duration = duration
+	return nil
+}
+
+type HTTPContext struct {
+	Requests  []*http.Request
+	Responses []*http.Response
+
+	// ResponsesByPath routes concurrent requests by URL path. Use it when
+	// the caller issues requests in parallel. A nil map keeps the FIFO queue.
+	ResponsesByPath map[string][]*http.Response
+
+	// mu guards Requests and Responses so components that issue concurrent
+	// requests (e.g. metric fan-out) can safely share a single mock context.
+	mu sync.Mutex
+}
+
+func (c *HTTPContext) Do(request *http.Request) (*http.Response, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.Requests = append(c.Requests, request)
+
+	if c.ResponsesByPath != nil {
+		queue := c.ResponsesByPath[request.URL.Path]
+		if len(queue) == 0 {
+			return nil, fmt.Errorf("no response mocked for %s", request.URL.Path)
+		}
+		response := queue[0]
+		c.ResponsesByPath[request.URL.Path] = queue[1:]
+		return response, nil
+	}
+
+	if len(c.Responses) == 0 {
+		return nil, fmt.Errorf("no response mocked")
+	}
+
+	response := c.Responses[0]
+	c.Responses = c.Responses[1:]
+	return response, nil
+}
+
+type SecretsContext struct {
+	Values               map[string][]byte
+	SecretKeys           map[string]map[string][]byte
+	IntegrationKeys      map[string]map[string][]byte
+	IntegrationUsage     map[string]string
+	IntegrationSetup     map[string]string
+	IntegrationSetupName map[string]string
+}
+
+func (c *SecretsContext) GetKey(secretName, keyName string) ([]byte, error) {
+	value, ok := c.Values[secretName+"/"+keyName]
+	if !ok {
+		return nil, fmt.Errorf("secret not found: %s/%s", secretName, keyName)
+	}
+
+	return value, nil
+}
+
+func (c *SecretsContext) GetSecretKeys(secretName string) (map[string][]byte, error) {
+	if c.SecretKeys == nil {
+		return nil, fmt.Errorf("secret keys not configured")
+	}
+
+	keys, ok := c.SecretKeys[secretName]
+	if !ok {
+		return nil, fmt.Errorf("secret keys not found for %q", secretName)
+	}
+
+	return keys, nil
+}
+
+func (c *SecretsContext) GetIntegrationSecrets(installationName string) (core.IntegrationSecrets, error) {
+	if c.IntegrationKeys == nil {
+		return core.IntegrationSecrets{}, fmt.Errorf("integration secrets not configured")
+	}
+
+	name := strings.TrimSpace(installationName)
+	keys, ok := c.IntegrationKeys[name]
+	if !ok {
+		return core.IntegrationSecrets{}, fmt.Errorf("integration secrets not found for ref %q", name)
+	}
+
+	return core.IntegrationSecrets{
+		Values:    keys,
+		Usage:     c.IntegrationUsage[name],
+		Setup:     c.IntegrationSetup[name],
+		SetupName: c.IntegrationSetupName[name],
+	}, nil
+}
+
+type HostedLLMContext struct {
+	Access        core.HostedLLMAccess
+	CreditErr     error
+	ResolveErr    error
+	SelectableErr error
+	Default       core.DefaultHostedLLMModel
+	DefaultErr    error
+}
+
+func (c *HostedLLMContext) Resolve(provider string) (core.HostedLLMAccess, error) {
+	if c.ResolveErr != nil {
+		return core.HostedLLMAccess{}, c.ResolveErr
+	}
+	return c.Access, nil
+}
+
+func (c *HostedLLMContext) AssertCreditAvailable() error {
+	return c.CreditErr
+}
+
+func (c *HostedLLMContext) AssertModelSelectable(provider, fundingSource, model string) error {
+	return c.SelectableErr
+}
+
+func (c *HostedLLMContext) DefaultModel() (core.DefaultHostedLLMModel, error) {
+	if c.DefaultErr != nil {
+		return core.DefaultHostedLLMModel{}, c.DefaultErr
+	}
+	return c.Default, nil
+}
+
+type ExpressionContext struct {
+	Output                any
+	Error                 error
+	WithVariablesOutputs  map[string]any
+	WithVariablesOutputFn func(expression string, variables map[string]any) (any, error)
+}
+
+func (c *ExpressionContext) Run(expression string) (any, error) {
+	return c.Output, c.Error
+}
+
+func (c *ExpressionContext) RunWithExtraVariables(expression string, variables map[string]any) (any, error) {
+	if c.WithVariablesOutputFn != nil {
+		return c.WithVariablesOutputFn(expression, variables)
+	}
+	if c.WithVariablesOutputs != nil {
+		if v, ok := c.WithVariablesOutputs[expression]; ok {
+			return v, nil
+		}
+	}
+	return c.Output, c.Error
+}
+
+type IntegrationSecretStorage struct {
+	parentContext *IntegrationContext
+}
+
+func (s *IntegrationSecretStorage) Get(name string) (string, error) {
+	v, ok := s.parentContext.CurrentSecrets[name]
+	if !ok {
+		return "", fmt.Errorf("secret not found: %s", name)
+	}
+
+	return string(v.Value), nil
+}
+
+func (s *IntegrationSecretStorage) Delete(name string) error {
+	delete(s.parentContext.CurrentSecrets, name)
+	return nil
+}
+
+func (s *IntegrationSecretStorage) Create(def core.IntegrationSecretDefinition) error {
+	if len(s.parentContext.CurrentSecrets) == 0 {
+		s.parentContext.CurrentSecrets = make(map[string]core.IntegrationSecret)
+	}
+
+	s.parentContext.CurrentSecrets[def.Name] = core.IntegrationSecret{Name: def.Name, Value: []byte(def.Value)}
+	return nil
+}
+
+func (s *IntegrationSecretStorage) CreateMany(defs []core.IntegrationSecretDefinition) error {
+	for _, def := range defs {
+		err := s.Create(def)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *IntegrationSecretStorage) Update(name string, value string) error {
+	if len(s.parentContext.CurrentSecrets) == 0 {
+		s.parentContext.CurrentSecrets = make(map[string]core.IntegrationSecret)
+	}
+
+	s.parentContext.CurrentSecrets[name] = core.IntegrationSecret{Name: name, Value: []byte(value)}
+	return nil
+}
+
+type IntegrationPropertyStorage struct {
+	parentContext *IntegrationContext
+}
+
+func NewIntegrationPropertyStorage(parentContext *IntegrationContext) *IntegrationPropertyStorage {
+	return &IntegrationPropertyStorage{parentContext: parentContext}
+}
+
+func (s *IntegrationPropertyStorage) Get(name string) (any, error) {
+	v, ok := s.parentContext.CurrentProperties[name]
+	if !ok {
+		return nil, fmt.Errorf("property not found: %s", name)
+	}
+
+	return v, nil
+}
+
+func (s *IntegrationPropertyStorage) GetString(name string) (string, error) {
+	property, err := s.Get(name)
+	if err != nil {
+		return "", err
+	}
+
+	v, ok := property.(string)
+	if !ok {
+		return "", fmt.Errorf("property is not a string: %s", name)
+	}
+
+	return v, nil
+}
+
+func (s *IntegrationPropertyStorage) Delete(names ...string) error {
+	for _, n := range names {
+		delete(s.parentContext.CurrentProperties, n)
+	}
+
+	return nil
+}
+
+func (s *IntegrationPropertyStorage) Create(def core.IntegrationPropertyDefinition) error {
+	if len(s.parentContext.CurrentProperties) == 0 {
+		s.parentContext.CurrentProperties = make(map[string]any)
+	}
+
+	s.parentContext.CurrentProperties[def.Name] = def.Value
+	return nil
+}
+
+func (s *IntegrationPropertyStorage) CreateMany(defs []core.IntegrationPropertyDefinition) error {
+	for _, def := range defs {
+		err := s.Create(def)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+type CapabilityContext struct {
+	RequestedCapabilties    []string
+	EnabledCapabilities     []string
+	DisabledCapabilities    []string
+	AvailableCapabilities   []string
+	UnavailableCapabilities []string
+}
+
+func (c *CapabilityContext) Request(capabilities ...string) {
+	c.RequestedCapabilties = append(c.RequestedCapabilties, capabilities...)
+}
+
+func (c *CapabilityContext) Enable(capabilities ...string) {
+	c.EnabledCapabilities = append(c.EnabledCapabilities, capabilities...)
+}
+
+func (c *CapabilityContext) Disable(capabilities ...string) {
+	c.DisabledCapabilities = append(c.DisabledCapabilities, capabilities...)
+}
+
+func (c *CapabilityContext) Available(capabilities ...string) {
+	c.AvailableCapabilities = append(c.AvailableCapabilities, capabilities...)
+}
+
+func (c *CapabilityContext) Unavailable(capabilities ...string) {
+	c.UnavailableCapabilities = append(c.UnavailableCapabilities, capabilities...)
+}
+
+func (c *CapabilityContext) Clear() {
+	c.RequestedCapabilties = []string{}
+	c.EnabledCapabilities = []string{}
+	c.DisabledCapabilities = []string{}
+	c.AvailableCapabilities = []string{}
+	c.UnavailableCapabilities = []string{}
+}
+
+func (c *CapabilityContext) IsRequested(capabilities ...string) bool {
+	for _, capability := range capabilities {
+		if !slices.Contains(c.RequestedCapabilties, capability) {
+			return false
+		}
+	}
+
+	return true
+}
+
+func (c *CapabilityContext) Requested() []string {
+	return c.RequestedCapabilties
+}
+
+func (c *CapabilityContext) Enabled() []string {
+	return c.EnabledCapabilities
+}
+
+type AppContext struct {
+	CanvasID         string
+	Apps             map[string]*core.App
+	GetErrFor        map[string]error
+	SubscribeErrFor  map[string]error
+	SubscribeCalls   []string
+	UnsubscribeCalls int
+}
+
+func (c *AppContext) RegisterApp(app *core.App) {
+	if c.Apps == nil {
+		c.Apps = map[string]*core.App{}
+	}
+
+	c.Apps[app.ID] = app
+	c.Apps[app.Name] = app
+}
+
+func (c *AppContext) Get(idOrName string) (*core.App, error) {
+	if c.GetErrFor != nil {
+		if err, ok := c.GetErrFor[idOrName]; ok {
+			return nil, err
+		}
+	}
+
+	app, ok := c.Apps[idOrName]
+	if !ok {
+		return nil, core.ErrNotFound
+	}
+
+	return app, nil
+}
+
+func (c *AppContext) GetNode(app, node string) (*core.CanvasNode, error) {
+	return nil, fmt.Errorf("not implemented yet")
+}
+
+func (c *AppContext) Subscribe(id string) error {
+	if c.SubscribeErrFor != nil {
+		if err, ok := c.SubscribeErrFor[id]; ok {
+			return err
+		}
+	}
+
+	app, err := c.Get(id)
+	if err != nil {
+		return err
+	}
+
+	if app.ID == c.CanvasID {
+		return fmt.Errorf("cannot self-subscribe to messages")
+	}
+
+	c.SubscribeCalls = append(c.SubscribeCalls, id)
+	return nil
+}
+
+func (c *AppContext) Unsubscribe() error {
+	c.UnsubscribeCalls++
+	return nil
+}
+
+type RunExecutionContext struct {
+	CreateRunID      uuid.UUID
+	CreateErr        error
+	CancelErr        error
+	CancelCalled     bool
+	LastCreateParams *core.RunCreationParams
+	AddErrorCalls    []string
+	AddErrorErr      error
+}
+
+func (c *RunExecutionContext) Create(params core.RunCreationParams) (*core.Run, error) {
+	if c.CreateErr != nil {
+		return nil, c.CreateErr
+	}
+
+	runID := c.CreateRunID
+	if runID == uuid.Nil {
+		runID = uuid.New()
+	}
+
+	c.LastCreateParams = &params
+
+	return &core.Run{
+		ID:    runID,
+		AppID: uuid.MustParse(params.App),
+	}, nil
+}
+
+func (c *RunExecutionContext) Cancel() error {
+	c.CancelCalled = true
+	return c.CancelErr
+}
+
+func (c *RunExecutionContext) AddError(message string) error {
+	c.AddErrorCalls = append(c.AddErrorCalls, message)
+	return c.AddErrorErr
+}

@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package Superplane.Authorization;
+
+option go_package = "github.com/superplanehq/superplane/pkg/protos/authorization";
+
+// Enums
+enum DomainType {
+  DOMAIN_TYPE_UNSPECIFIED = 0;
+  DOMAIN_TYPE_ORGANIZATION = 1;
+}
+
+// Common data structures
+message Permission {
+  string resource = 1;
+  string action = 2;
+  DomainType domain_type = 3;
+}

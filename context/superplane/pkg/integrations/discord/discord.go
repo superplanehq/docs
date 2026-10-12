@@ -1,0 +1,186 @@
+package discord
+
+import (
+	"fmt"
+
+	"github.com/superplanehq/superplane/pkg/configuration"
+	"github.com/superplanehq/superplane/pkg/core"
+	"github.com/superplanehq/superplane/pkg/registry"
+)
+
+func init() {
+	registry.RegisterIntegration("discord", &Discord{})
+}
+
+type Discord struct{}
+
+type Configuration struct {
+	BotToken string `json:"botToken" mapstructure:"botToken"`
+}
+
+type Metadata struct {
+	BotID    string `json:"botId" mapstructure:"botId"`
+	Username string `json:"username" mapstructure:"username"`
+}
+
+func (d *Discord) Name() string {
+	return "discord"
+}
+
+func (d *Discord) Label() string {
+	return "Discord"
+}
+
+func (d *Discord) Icon() string {
+	return "discord"
+}
+
+func (d *Discord) Description() string {
+	return "Send messages to Discord channels and fetch mentions"
+}
+
+func (d *Discord) Instructions() string {
+	return `To set up Discord integration:
+
+1. Go to the **Discord Developer Portal** (https://discord.com/developers/applications)
+2. Click **New Application** and give it a name
+3. Go to **OAuth2** → **URL Generator**:
+   - Under **Scopes**, select **bot**
+   - Under **Bot Permissions**, select **View Channels**, **Send Messages**, **Attach Files**, and **Read Message History**. **Attach Files** is required for the Send Text Message component to upload file attachments.
+   - Copy the generated URL and open it in a new tab to invite the bot to your server
+4. Go to the **Bot** section:
+   - Click **Add Bot** (if not already added)
+   - Uncheck the **Public Bot** option
+   - Under **Token**, click **Reset Token** then **Copy** to get your bot token
+5. Paste the **Bot Token** in the **Bot Token** field below`
+}
+
+func (d *Discord) Configuration() []configuration.Field {
+	return []configuration.Field{
+		{
+			Name:        "botToken",
+			Label:       "Bot Token",
+			Type:        configuration.FieldTypeString,
+			Required:    true,
+			Sensitive:   true,
+			Description: "Discord bot token from the Developer Portal",
+		},
+	}
+}
+
+func (d *Discord) Actions() []core.Action {
+	return []core.Action{
+		&SendTextMessage{},
+		&GetLastMention{},
+	}
+}
+
+func (d *Discord) Triggers() []core.Trigger {
+	return []core.Trigger{}
+}
+
+func (d *Discord) Sync(ctx core.SyncContext) error {
+	botTokenBytes, err := ctx.Integration.GetConfig("botToken")
+	if err != nil {
+		return fmt.Errorf("botToken is required")
+	}
+
+	botToken := string(botTokenBytes)
+	if botToken == "" {
+		return fmt.Errorf("botToken is required")
+	}
+
+	client, err := NewClient(ctx.Integration)
+	if err != nil {
+		return err
+	}
+
+	botUser, err := client.GetCurrentUser()
+	if err != nil {
+		return fmt.Errorf("failed to verify bot token: %v", err)
+	}
+
+	ctx.Integration.SetMetadata(Metadata{
+		BotID:    botUser.ID,
+		Username: botUser.Username,
+	})
+
+	ctx.Integration.Ready()
+	return nil
+}
+
+func (d *Discord) HandleRequest(ctx core.HTTPRequestContext) {
+	// no-op: Discord integration doesn't receive mention events through HTTP webhooks.
+}
+
+func (d *Discord) Cleanup(ctx core.IntegrationCleanupContext) error {
+	return nil
+}
+
+func (d *Discord) ListResources(resourceType string, ctx core.ListResourcesContext) ([]core.IntegrationResource, error) {
+	if resourceType != "channel" {
+		return []core.IntegrationResource{}, nil
+	}
+
+	client, err := NewClient(ctx.Integration)
+	if err != nil {
+		if ctx.Logger != nil {
+			ctx.Logger.Errorf("Discord: failed to create client: %v", err)
+		}
+		return nil, fmt.Errorf("failed to create client: %w", err)
+	}
+
+	guilds, err := client.GetCurrentUserGuilds()
+	if err != nil {
+		if ctx.Logger != nil {
+			ctx.Logger.Errorf("Discord: failed to get guilds: %v", err)
+		}
+		return nil, fmt.Errorf("failed to get guilds: %w", err)
+	}
+
+	if ctx.Logger != nil {
+		ctx.Logger.Infof("Discord: found %d guilds", len(guilds))
+	}
+
+	var resources []core.IntegrationResource
+	for _, guild := range guilds {
+		if ctx.Logger != nil {
+			ctx.Logger.Infof("Discord: fetching channels for guild %s (%s)", guild.ID, guild.Name)
+		}
+		channels, err := client.GetGuildChannels(guild.ID)
+		if err != nil {
+			if ctx.Logger != nil {
+				ctx.Logger.Warnf("Discord: failed to get channels for guild %s: %v", guild.ID, err)
+			}
+			continue
+		}
+
+		if ctx.Logger != nil {
+			ctx.Logger.Infof("Discord: found %d channels in guild %s", len(channels), guild.Name)
+		}
+
+		for _, channel := range channels {
+			if channel.Type == 0 {
+				resources = append(resources, core.IntegrationResource{
+					Type: "channel",
+					ID:   channel.ID,
+					Name: fmt.Sprintf("#%s (%s)", channel.Name, guild.Name),
+				})
+			}
+		}
+	}
+
+	if ctx.Logger != nil {
+		ctx.Logger.Infof("Discord: returning %d channel resources", len(resources))
+	}
+
+	return resources, nil
+}
+
+func (d *Discord) Hooks() []core.Hook {
+	return []core.Hook{}
+}
+
+func (d *Discord) HandleHook(ctx core.IntegrationHookContext) error {
+	return nil
+}

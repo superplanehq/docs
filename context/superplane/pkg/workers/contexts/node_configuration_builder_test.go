@@ -1,0 +1,2885 @@
+package contexts
+
+import (
+	"encoding/json"
+	"fmt"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/superplanehq/superplane/pkg/configuration"
+	"github.com/superplanehq/superplane/pkg/core"
+	"github.com/superplanehq/superplane/pkg/database"
+	"github.com/superplanehq/superplane/pkg/models"
+	"github.com/superplanehq/superplane/pkg/models/factory"
+	"github.com/superplanehq/superplane/test/support"
+	"gorm.io/datatypes"
+)
+
+func Test_NodeConfigurationBuilder_WorkflowLevelNode_Root(t *testing.T) {
+	r := support.Setup(t)
+	defer r.Close()
+
+	//
+	// Create a simple canvas with a trigger and a component node
+	//
+	triggerNode := "trigger-1"
+	componentNode := "component-1"
+	canvas, _ := support.CreateCanvas(
+		t,
+		r.Organization.ID,
+		r.User,
+		[]models.CanvasNode{
+			{
+				NodeID: triggerNode,
+				Name:   triggerNode,
+				Type:   models.NodeTypeTrigger,
+				Ref:    datatypes.NewJSONType(models.NodeRef{Trigger: &models.TriggerRef{Name: "start"}}),
+			},
+			{
+				NodeID: componentNode,
+				Name:   componentNode,
+				Type:   models.NodeTypeComponent,
+				Ref:    datatypes.NewJSONType(models.NodeRef{Component: &models.ComponentRef{Name: "noop"}}),
+			},
+		},
+		[]models.Edge{
+			{SourceID: triggerNode, TargetID: componentNode, Channel: "default"},
+		},
+	)
+
+	//
+	// Emit root event
+	//
+	rootEventData := map[string]any{
+		"user":    "john",
+		"action":  "login",
+		"success": true,
+		"count":   42,
+	}
+	rootEvent := support.EmitCanvasEventForNodeWithData(t, canvas.ID, triggerNode, "default", nil, rootEventData)
+
+	//
+	// Use message chain access to get information from the root event
+	//
+	builder := NewNodeConfigurationBuilder(database.Conn(), canvas.ID).
+		WithRootEvent(&rootEvent.ID).
+		WithInput(map[string]any{triggerNode: rootEventData})
+
+	configuration := map[string]any{
+		"user":    "{{ $[\"" + triggerNode + "\"].user }}",
+		"action":  "{{ $[\"" + triggerNode + "\"].action }}",
+		"success": "{{ $[\"" + triggerNode + "\"].success }}",
+		"count":   "{{ $[\"" + triggerNode + "\"].count }}",
+	}
+
+	result, err := builder.Build(configuration)
+	require.NoError(t, err)
+	assert.Equal(t, "john", result["user"])
+	assert.Equal(t, "login", result["action"])
+	assert.Equal(t, "true", result["success"])
+	assert.Equal(t, "42", result["count"])
+}
+
+func Test_NodeConfigurationBuilder_RunFunction(t *testing.T) {
+	r := support.Setup(t)
+	defer r.Close()
+
+	triggerNode := "trigger-1"
+	componentNode := "component-1"
+	canvas, _ := support.CreateCanvas(
+		t,
+		r.Organization.ID,
+		r.User,
+		[]models.CanvasNode{
+			{
+				NodeID: triggerNode,
+				Name:   triggerNode,
+				Type:   models.NodeTypeTrigger,
+				Ref:    datatypes.NewJSONType(models.NodeRef{Trigger: &models.TriggerRef{Name: "start"}}),
+			},
+			{
+				NodeID: componentNode,
+				Name:   componentNode,
+				Type:   models.NodeTypeComponent,
+				Ref:    datatypes.NewJSONType(models.NodeRef{Component: &models.ComponentRef{Name: "noop"}}),
+			},
+		},
+		[]models.Edge{
+			{SourceID: triggerNode, TargetID: componentNode, Channel: "default"},
+		},
+	)
+
+	rootEvent := support.EmitCanvasEventForNodeWithData(t, canvas.ID, triggerNode, "default", nil, map[string]any{"user": "john"})
+
+	//
+	// Associate the root event with a run so run() can resolve it.
+	//
+	run, err := models.FindOrCreateCanvasRunForRootEventInTransaction(database.Conn(), rootEvent)
+	require.NoError(t, err)
+
+	builder := NewNodeConfigurationBuilder(database.Conn(), canvas.ID).
+		WithRootEvent(&rootEvent.ID).
+		WithInput(map[string]any{triggerNode: map[string]any{"user": "john"}})
+
+	t.Run("returns id, url, and started_at", func(t *testing.T) {
+		result, err := builder.ResolveExpression(`run()`)
+		require.NoError(t, err)
+
+		payload, ok := result.(map[string]any)
+		require.True(t, ok)
+
+		assert.Equal(t, run.ID.String(), payload["id"])
+
+		expectedURLSuffix := fmt.Sprintf("/%s/apps/%s?run=%s", canvas.OrganizationID.String(), canvas.ID.String(), run.ID.String())
+		assert.Contains(t, payload["url"], expectedURLSuffix)
+		assert.NotContains(t, payload["url"], "view=runs")
+
+		startedAt, ok := payload["started_at"].(time.Time)
+		require.True(t, ok)
+		require.NotNil(t, run.CreatedAt)
+		assert.WithinDuration(t, *run.CreatedAt, startedAt, time.Second)
+	})
+
+	t.Run("fields are usable in templates", func(t *testing.T) {
+		result, err := builder.Build(map[string]any{
+			"runID":  "{{ run().id }}",
+			"runURL": "{{ run().url }}",
+		})
+		require.NoError(t, err)
+		assert.Equal(t, run.ID.String(), result["runID"])
+		assert.Contains(t, result["runURL"], run.ID.String())
+		assert.Contains(t, result["runURL"], "?run=")
+		assert.NotContains(t, result["runURL"], "view=runs")
+	})
+}
+
+func Test_NodeConfigurationBuilder_AppFunction(t *testing.T) {
+	r := support.Setup(t)
+	defer r.Close()
+
+	canvas, _ := support.CreateCanvas(
+		t,
+		r.Organization.ID,
+		r.User,
+		[]models.CanvasNode{
+			{
+				NodeID: "trigger-1",
+				Name:   "trigger-1",
+				Type:   models.NodeTypeTrigger,
+				Ref:    datatypes.NewJSONType(models.NodeRef{Trigger: &models.TriggerRef{Name: "start"}}),
+			},
+		},
+		[]models.Edge{},
+	)
+	require.NoError(t, database.Conn().Model(canvas).Update("description", "Deploy pipeline").Error)
+	canvas.Description = "Deploy pipeline"
+
+	builder := NewNodeConfigurationBuilder(database.Conn(), canvas.ID).
+		WithInput(map[string]any{})
+
+	t.Run("returns id, name, description, and url", func(t *testing.T) {
+		result, err := builder.ResolveExpression(`app()`)
+		require.NoError(t, err)
+
+		payload, ok := result.(map[string]any)
+		require.True(t, ok)
+
+		assert.Equal(t, canvas.ID.String(), payload["id"])
+		assert.Equal(t, canvas.Name, payload["name"])
+		assert.Equal(t, "Deploy pipeline", payload["description"])
+
+		expectedURLSuffix := fmt.Sprintf("/%s/apps/%s", canvas.OrganizationID.String(), canvas.ID.String())
+		assert.Contains(t, payload["url"], expectedURLSuffix)
+		assert.NotContains(t, payload["url"], "?run=")
+	})
+
+	t.Run("fields are usable in templates", func(t *testing.T) {
+		result, err := builder.Build(map[string]any{
+			"appName": "{{ app().name }}",
+			"appURL":  "{{ app().url }}",
+		})
+		require.NoError(t, err)
+		assert.Equal(t, canvas.Name, result["appName"])
+		assert.Contains(t, result["appURL"], canvas.ID.String())
+	})
+}
+
+func Test_NodeConfigurationBuilder_WorkspaceFunction(t *testing.T) {
+	r := support.Setup(t)
+	defer r.Close()
+
+	factoryModel, err := models.CreateFactory(database.Conn(), r.Organization.ID, support.RandomName("factory"), "", "WK")
+	require.NoError(t, err)
+	repository := "acme/service"
+	defaultBranch := "develop"
+	require.NoError(t, factoryModel.UpdateOnboarding(database.Conn(), models.FactoryOnboardingPatch{
+		AppRepository:     &repository,
+		BacklogRepository: &repository,
+		DefaultBranch:     &defaultBranch,
+	}))
+	canvas := support.CreateFactoryCanvas(t, r, factoryModel.ID, "Workspace app")
+
+	builder := NewNodeConfigurationBuilder(database.Conn(), canvas.ID).WithInput(map[string]any{})
+	value, err := builder.ResolveExpression(`workspace()`)
+	require.NoError(t, err)
+	payload, ok := value.(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, factoryModel.ID.String(), payload["id"])
+	assert.Equal(t, "WK", payload["key"])
+	assert.Equal(t, repository, payload["repository"])
+	assert.Equal(t, defaultBranch, payload["default_branch"])
+
+	_, err = builder.ResolveExpression(`workspace(1)`)
+	require.ErrorContains(t, err, "workspace() takes no arguments")
+}
+
+func Test_NodeConfigurationBuilder_OrderFunction(t *testing.T) {
+	r := support.Setup(t)
+	defer r.Close()
+
+	factoryModel, err := models.CreateFactory(database.Conn(), r.Organization.ID, support.RandomName("factory"), "", "")
+	require.NoError(t, err)
+	repository := "acme/service"
+	defaultBranch := "main"
+	require.NoError(t, factoryModel.UpdateOnboarding(database.Conn(), models.FactoryOnboardingPatch{
+		AppRepository: &repository,
+	}))
+
+	sourceCanvas, _ := support.CreateCanvas(
+		t,
+		r.Organization.ID,
+		r.User,
+		[]models.CanvasNode{
+			{
+				NodeID: "source-trigger",
+				Name:   "source-trigger",
+				Type:   models.NodeTypeTrigger,
+				Ref:    datatypes.NewJSONType(models.NodeRef{Trigger: &models.TriggerRef{Name: "start"}}),
+			},
+		},
+		nil,
+	)
+	sourceRoot := support.EmitCanvasEventForNodeWithData(
+		t,
+		sourceCanvas.ID,
+		"source-trigger",
+		"default",
+		nil,
+		map[string]any{
+			"type": "github.issues",
+			"data": map[string]any{
+				"issue": map[string]any{"number": 42, "title": "Fix login"},
+			},
+		},
+	)
+	sourceRun, err := models.FindOrCreateCanvasRunForRootEventInTransaction(database.Conn(), sourceRoot)
+	require.NoError(t, err)
+	sourceExecution := support.CreateCanvasNodeExecution(t, sourceCanvas.ID, "source-trigger", sourceRoot.ID, sourceRoot.ID)
+	sourceExecution.RunID = sourceRun.ID
+	require.NoError(t, database.Conn().Save(sourceExecution).Error)
+
+	canvas, nodeExecution, run := setupFactoryAppExecution(t, r, factoryModel.ID)
+
+	order, err := factoryModel.CreateWorkOrder(
+		database.Conn(),
+		"Ship feature",
+		"Implement and open PR",
+		&r.User,
+		nil,
+		&sourceRun.ID,
+	)
+	require.NoError(t, err)
+	linkRunToWorkOrder(t, r, factoryModel, order.ID, run.ID)
+
+	markdownArtifact, err := order.CreateArtifact(database.Conn(), models.FactoryWorkOrderArtifactParams{
+		Type: models.FactoryWorkOrderArtifactTypeMarkdown,
+		Data: map[string]any{"body": "notes from implement"},
+	})
+	require.NoError(t, err)
+
+	linkArtifact, err := order.CreateArtifact(database.Conn(), models.FactoryWorkOrderArtifactParams{
+		Type: models.FactoryWorkOrderArtifactTypeLink,
+		Data: map[string]any{"url": "https://preview.example.com/pr-7", "title": "Preview"},
+	})
+	require.NoError(t, err)
+
+	userIDStr := r.User.String()
+	_, err = order.RecordCommentAdded(database.Conn(), models.FactoryWorkOrderCommentParams{
+		Body: "Kicking this off",
+		Author: factory.WorkOrderCommentAuthor{
+			Kind:   factory.CommentAuthorKindUser,
+			UserID: &userIDStr,
+		},
+	})
+	require.NoError(t, err)
+	_, err = order.RecordCommentAdded(database.Conn(), models.FactoryWorkOrderCommentParams{
+		Body: "Opened the PR",
+		Author: factory.WorkOrderCommentAuthor{
+			Kind: factory.CommentAuthorKindAutomation,
+			Automation: &factory.AutomationRef{
+				NodeID:   "implement",
+				NodeName: "Implement",
+			},
+		},
+		Run: &factory.RunRef{ID: run.ID, State: "running"},
+	})
+	require.NoError(t, err)
+
+	builder := NewNodeConfigurationBuilder(database.Conn(), canvas.ID).
+		WithRootEvent(&nodeExecution.RootEventID).
+		WithInput(map[string]any{})
+
+	t.Run("returns live work order fields and source", func(t *testing.T) {
+		result, err := builder.ResolveExpression(`order()`)
+		require.NoError(t, err)
+
+		payload, ok := result.(map[string]any)
+		require.True(t, ok)
+
+		assert.Equal(t, order.ID.String(), payload["id"])
+		assert.Equal(t, "Ship feature", payload["title"])
+		assert.Equal(t, "Implement and open PR", payload["description"])
+		assert.Equal(t, factoryModel.ID.String(), payload["factory_id"])
+		assert.Equal(t, models.FactoryWorkOrderStateDraft, payload["state"])
+		assert.Equal(t, "", payload["result"])
+		assert.Equal(t, repository, payload["repository"])
+		assert.Equal(t, "https://github.com/"+repository+".git", payload["repository_url"])
+		assert.Equal(t, defaultBranch, payload["default_branch"])
+		assert.Equal(t, false, payload["visual_evidence_enabled"])
+		assert.NotContains(t, payload, "url")
+		assert.NotContains(t, payload, "artifacts")
+		assert.NotContains(t, payload, "comments")
+		assert.NotContains(t, payload, "assignees")
+		assert.NotContains(t, payload, "origin")
+
+		source, ok := payload["source"].(map[string]any)
+		require.True(t, ok)
+		issue, ok := source["issue"].(map[string]any)
+		require.True(t, ok)
+		assert.Equal(t, float64(42), issue["number"])
+		assert.Equal(t, "Fix login", issue["title"])
+
+		closingLine, err := builder.Build(map[string]any{
+			"body": `{{ task().origin != nil ? "Closes " + task().origin.label : "" }}`,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "", closingLine["body"])
+
+		hasGitHubIssueOrigin, err := builder.ResolveExpression(
+			`task().origin != nil && split(task().origin.url, "https://github.com/")[0] == "" && len(split(task().origin.url, "/issues/")) == 2`,
+		)
+		require.NoError(t, err)
+		assert.Equal(t, false, hasGitHubIssueOrigin)
+	})
+
+	t.Run("keeps the retired visual evidence expression disabled", func(t *testing.T) {
+		configuration := map[string]any{
+			"prompt": `Implement the task.{{ task().visual_evidence_enabled ? "\nCapture visual evidence." : "" }}`,
+		}
+
+		built, err := builder.Build(configuration)
+		require.NoError(t, err)
+		assert.Equal(t, "Implement the task.", built["prompt"])
+	})
+
+	t.Run("exposes origin for GitHub closing keywords", func(t *testing.T) {
+		originURL := "https://github.com/acme/payments/issues/12"
+		originLabel := "acme/payments#12"
+		require.NoError(t, database.Conn().Model(order).Updates(map[string]any{
+			"origin_url":   originURL,
+			"origin_label": originLabel,
+		}).Error)
+
+		result, err := builder.ResolveExpression(`task().origin`)
+		require.NoError(t, err)
+		origin, ok := result.(map[string]any)
+		require.True(t, ok)
+		assert.Equal(t, originURL, origin["url"])
+		assert.Equal(t, originLabel, origin["label"])
+
+		label, err := builder.ResolveExpression(`task().origin.label`)
+		require.NoError(t, err)
+		assert.Equal(t, originLabel, label)
+
+		built, err := builder.Build(map[string]any{
+			"body":        `{{ task().origin != nil ? "Closes " + task().origin.label : "" }}`,
+			"repository":  `{{ split(split(task().origin.url, "https://github.com/")[1], "/issues/")[0] }}`,
+			"issueNumber": `{{ split(task().origin.url, "/issues/")[1] }}`,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "Closes acme/payments#12", built["body"])
+		assert.Equal(t, "acme/payments", built["repository"])
+		assert.Equal(t, "12", built["issueNumber"])
+
+		hasGitHubIssueOrigin, err := builder.ResolveExpression(
+			`task().origin != nil && split(task().origin.url, "https://github.com/")[0] == "" && len(split(task().origin.url, "/issues/")) == 2`,
+		)
+		require.NoError(t, err)
+		assert.Equal(t, true, hasGitHubIssueOrigin)
+	})
+
+	t.Run("uses workspace values for legacy work orders", func(t *testing.T) {
+		require.NoError(t, database.Conn().Model(order).Updates(map[string]any{
+			"repository":     nil,
+			"default_branch": nil,
+		}).Error)
+
+		result, err := builder.ResolveExpression(`order()`)
+		require.NoError(t, err)
+		payload, ok := result.(map[string]any)
+		require.True(t, ok)
+		assert.Equal(t, repository, payload["repository"])
+		assert.Equal(t, "https://github.com/"+repository+".git", payload["repository_url"])
+		assert.Equal(t, defaultBranch, payload["default_branch"])
+	})
+
+	t.Run("uses workspace values for partial work order snapshots", func(t *testing.T) {
+		currentRepository := "acme/current-service"
+		currentDefaultBranch := "develop"
+		require.NoError(t, factoryModel.UpdateOnboarding(database.Conn(), models.FactoryOnboardingPatch{
+			AppRepository: &currentRepository,
+			DefaultBranch: &currentDefaultBranch,
+		}))
+		require.NoError(t, database.Conn().Model(order).Updates(map[string]any{
+			"repository":     "acme/previous-service",
+			"default_branch": nil,
+		}).Error)
+
+		result, err := builder.ResolveExpression(`order()`)
+		require.NoError(t, err)
+		payload, ok := result.(map[string]any)
+		require.True(t, ok)
+		assert.Equal(t, currentRepository, payload["repository"])
+		assert.Equal(t, "https://github.com/"+currentRepository+".git", payload["repository_url"])
+		assert.Equal(t, currentDefaultBranch, payload["default_branch"])
+	})
+
+	t.Run("field access and templates", func(t *testing.T) {
+		id, err := builder.ResolveExpression(`order().id`)
+		require.NoError(t, err)
+		assert.Equal(t, order.ID.String(), id)
+
+		title, err := builder.ResolveExpression(`order().title`)
+		require.NoError(t, err)
+		assert.Equal(t, "Ship feature", title)
+
+		repositoryURL, err := builder.ResolveExpression(`order().repository_url`)
+		require.NoError(t, err)
+		assert.Equal(t, "https://github.com/acme/current-service.git", repositoryURL)
+
+		issueNumber, err := builder.ResolveExpression(`order().source.issue.number`)
+		require.NoError(t, err)
+		assert.Equal(t, float64(42), issueNumber)
+
+		built, err := builder.Build(map[string]any{
+			"orderID": "{{ order().id }}",
+			"title":   "{{ order().title }}",
+		})
+		require.NoError(t, err)
+		assert.Equal(t, order.ID.String(), built["orderID"])
+		assert.Equal(t, "Ship feature", built["title"])
+	})
+
+	t.Run("task is an alias of order", func(t *testing.T) {
+		id, err := builder.ResolveExpression(`task().id`)
+		require.NoError(t, err)
+		assert.Equal(t, order.ID.String(), id)
+
+		title, err := builder.ResolveExpression(`task().title`)
+		require.NoError(t, err)
+		assert.Equal(t, "Ship feature", title)
+
+		count, err := builder.ResolveExpression(`len(task().artifacts)`)
+		require.NoError(t, err)
+		assert.Equal(t, 2, count)
+
+		_, err = builder.ResolveExpression(`task(1)`)
+		require.ErrorContains(t, err, "task() takes no arguments")
+	})
+
+	t.Run("permalink back to the work order", func(t *testing.T) {
+		expectedSuffix := fmt.Sprintf(
+			"/%s/workspaces/%s/work-order/%d",
+			r.Organization.ID.String(), factoryModel.RouteSegment(), order.Number,
+		)
+
+		url, err := builder.ResolveExpression(`order().url`)
+		require.NoError(t, err)
+		assert.Contains(t, url, expectedSuffix)
+
+		bracket, err := builder.ResolveExpression(`order()["url"]`)
+		require.NoError(t, err)
+		assert.Equal(t, url, bracket)
+
+		built, err := builder.Build(map[string]any{
+			"body": "[Work Order]({{ order().url }})",
+		})
+		require.NoError(t, err)
+		assert.Equal(t, fmt.Sprintf("[Work Order](%s)", url), built["body"])
+
+		expectedKey := factoryModel.WorkOrderKey(order.Number)
+
+		key, err := builder.ResolveExpression(`order().key`)
+		require.NoError(t, err)
+		assert.Equal(t, expectedKey, key)
+
+		taskKey, err := builder.ResolveExpression(`task().key`)
+		require.NoError(t, err)
+		assert.Equal(t, expectedKey, taskKey)
+
+		builtKey, err := builder.Build(map[string]any{
+			"body": "[{{ order().key }}]({{ order().url }})",
+		})
+		require.NoError(t, err)
+		assert.Equal(t, fmt.Sprintf("[%s](%s)", expectedKey, url), builtKey["body"])
+	})
+
+	t.Run("artifacts equivalents", func(t *testing.T) {
+		// ListArtifacts orders created_at DESC, id DESC — link was created last.
+		full, err := builder.ResolveExpression(`order().artifacts`)
+		require.NoError(t, err)
+		artifacts, ok := full.([]any)
+		require.True(t, ok)
+		require.Len(t, artifacts, 2)
+
+		bracket, err := builder.ResolveExpression(`order()["artifacts"]`)
+		require.NoError(t, err)
+		assert.Equal(t, full, bracket)
+
+		count, err := builder.ResolveExpression(`len(order().artifacts)`)
+		require.NoError(t, err)
+		assert.Equal(t, 2, count)
+
+		firstType, err := builder.ResolveExpression(`order().artifacts[0].type`)
+		require.NoError(t, err)
+		assert.Equal(t, models.FactoryWorkOrderArtifactTypeLink, firstType)
+
+		firstID, err := builder.ResolveExpression(`order().artifacts[0].id`)
+		require.NoError(t, err)
+		assert.Equal(t, linkArtifact.ID.String(), firstID)
+
+		linkURL, err := builder.ResolveExpression(`order().artifacts[0].data.url`)
+		require.NoError(t, err)
+		assert.Equal(t, "https://preview.example.com/pr-7", linkURL)
+
+		bracketType, err := builder.ResolveExpression(`order()["artifacts"][0]["type"]`)
+		require.NoError(t, err)
+		assert.Equal(t, models.FactoryWorkOrderArtifactTypeLink, bracketType)
+
+		secondType, err := builder.ResolveExpression(`order().artifacts[1].type`)
+		require.NoError(t, err)
+		assert.Equal(t, models.FactoryWorkOrderArtifactTypeMarkdown, secondType)
+
+		body, err := builder.ResolveExpression(`order().artifacts[1].data.body`)
+		require.NoError(t, err)
+		assert.Equal(t, "notes from implement", body)
+		assert.Equal(t, markdownArtifact.ID.String(), mustResolveString(t, builder, `order().artifacts[1].id`))
+	})
+
+	t.Run("comments equivalents", func(t *testing.T) {
+		// ListComments orders created_at ASC, id ASC — oldest first.
+		full, err := builder.ResolveExpression(`order().comments`)
+		require.NoError(t, err)
+		comments, ok := full.([]any)
+		require.True(t, ok)
+		require.Len(t, comments, 2)
+
+		bracket, err := builder.ResolveExpression(`order()["comments"]`)
+		require.NoError(t, err)
+		assert.Equal(t, full, bracket)
+
+		count, err := builder.ResolveExpression(`len(order().comments)`)
+		require.NoError(t, err)
+		assert.Equal(t, 2, count)
+
+		firstBody, err := builder.ResolveExpression(`order().comments[0].body`)
+		require.NoError(t, err)
+		assert.Equal(t, "Kicking this off", firstBody)
+
+		firstAuthorKind, err := builder.ResolveExpression(`order().comments[0].author.kind`)
+		require.NoError(t, err)
+		assert.Equal(t, factory.CommentAuthorKindUser, firstAuthorKind)
+
+		bracketBody, err := builder.ResolveExpression(`order()["comments"][0]["body"]`)
+		require.NoError(t, err)
+		assert.Equal(t, "Kicking this off", bracketBody)
+
+		secondAuthorKind, err := builder.ResolveExpression(`order().comments[1].author.kind`)
+		require.NoError(t, err)
+		assert.Equal(t, factory.CommentAuthorKindAutomation, secondAuthorKind)
+
+		secondAutomationNodeID, err := builder.ResolveExpression(`order().comments[1].author.automation.node_id`)
+		require.NoError(t, err)
+		assert.Equal(t, "implement", secondAutomationNodeID)
+
+		secondRunID, err := builder.ResolveExpression(`order().comments[1].run.id`)
+		require.NoError(t, err)
+		assert.Equal(t, run.ID.String(), secondRunID)
+	})
+
+	t.Run("assignees are omitted until referenced and empty when none are assigned", func(t *testing.T) {
+		full, err := builder.ResolveExpression(`order().assignees`)
+		require.NoError(t, err)
+		assert.Equal(t, []any{}, full)
+
+		count, err := builder.ResolveExpression(`len(order().assignees)`)
+		require.NoError(t, err)
+		assert.Equal(t, 0, count)
+	})
+
+	t.Run("assigned people expose name and email for commit co-authors", func(t *testing.T) {
+		require.NoError(t, order.UpdateAssignees(database.Conn(), []uuid.UUID{r.User}, r.User))
+
+		full, err := builder.ResolveExpression(`order().assignees`)
+		require.NoError(t, err)
+		assignees, ok := full.([]any)
+		require.True(t, ok)
+		require.Len(t, assignees, 1)
+
+		first, ok := assignees[0].(map[string]any)
+		require.True(t, ok)
+		assert.Equal(t, r.User.String(), first["id"])
+		assert.Equal(t, r.UserModel.Name, first["name"])
+		assert.Equal(t, r.UserModel.GetEmail(), first["email"])
+
+		trailer, err := builder.ResolveExpression(
+			`join(map(filter(order().assignees, {#.email != ""}), "Co-authored-by: " + #.name + " <" + #.email + ">"), "\n")`,
+		)
+		require.NoError(t, err)
+		assert.Equal(t, "Co-authored-by: "+r.UserModel.Name+" <"+r.UserModel.GetEmail()+">", trailer)
+	})
+
+	t.Run("none and any over artifact types", func(t *testing.T) {
+		hasNoLink, err := builder.ResolveExpression(`none(order().artifacts, {#.type == "link"})`)
+		require.NoError(t, err)
+		assert.Equal(t, false, hasNoLink)
+
+		hasLink, err := builder.ResolveExpression(`any(order().artifacts, {#.type == "link"})`)
+		require.NoError(t, err)
+		assert.Equal(t, true, hasLink)
+
+		orderWithoutPR, err := factoryModel.CreateWorkOrder(database.Conn(), "No PR yet", "", &r.User, nil, nil)
+		require.NoError(t, err)
+		_, err = orderWithoutPR.CreateArtifact(database.Conn(), models.FactoryWorkOrderArtifactParams{
+			Type: models.FactoryWorkOrderArtifactTypeMarkdown,
+			Data: map[string]any{"body": "still implementing"},
+		})
+		require.NoError(t, err)
+
+		canvas2, nodeExecution2, run2 := setupFactoryAppExecution(t, r, factoryModel.ID)
+		linkRunToWorkOrder(t, r, factoryModel, orderWithoutPR.ID, run2.ID)
+		builderNoPR := NewNodeConfigurationBuilder(database.Conn(), canvas2.ID).
+			WithRootEvent(&nodeExecution2.RootEventID)
+
+		noneLink, err := builderNoPR.ResolveExpression(`none(order().artifacts, {#.type == "link"})`)
+		require.NoError(t, err)
+		assert.Equal(t, true, noneLink)
+
+		// A work order with no comments should still resolve order().comments
+		// as an empty list, not nil, matching artifacts' behavior.
+		noComments, err := builderNoPR.ResolveExpression(`order().comments`)
+		require.NoError(t, err)
+		assert.Equal(t, []any{}, noComments)
+	})
+
+	t.Run("keeps the saved Git host after the workspace switches", func(t *testing.T) {
+		provider := models.ProviderGitHub
+		require.NoError(t, database.Conn().Model(order).Updates(map[string]any{
+			"repository":     repository,
+			"default_branch": defaultBranch,
+			"vcs_provider":   provider,
+		}).Error)
+		bitbucket := models.ProviderBitbucket
+		require.NoError(t, factoryModel.UpdateOnboarding(database.Conn(), models.FactoryOnboardingPatch{
+			VCSProvider: &bitbucket,
+		}))
+
+		result, err := builder.ResolveExpression(`order().repository_url`)
+		require.NoError(t, err)
+		assert.Equal(t, "https://github.com/"+repository+".git", result)
+	})
+}
+
+func Test_NodeConfigurationBuilder_OrderSpecReadsStoredArtifact(t *testing.T) {
+	r := support.Setup(t)
+	defer r.Close()
+
+	factoryModel, err := models.CreateFactory(database.Conn(), r.Organization.ID, support.RandomName("factory"), "", "")
+	require.NoError(t, err)
+	require.NoError(t, factoryModel.UpdatePlanning(database.Conn(), models.FactoryPlanning{Enabled: false, Clarity: true, Confidence: true}))
+	canvas, nodeExecution, run := setupFactoryAppExecution(t, r, factoryModel.ID)
+	order, err := factoryModel.CreateWorkOrder(database.Conn(), "Ship feature", "Implement and open PR", &r.User, nil, nil)
+	require.NoError(t, err)
+	linkRunToWorkOrder(t, r, factoryModel, order.ID, run.ID)
+	_, err = order.CreateArtifact(database.Conn(), models.FactoryWorkOrderArtifactParams{
+		Type: models.FactoryWorkOrderArtifactTypeMarkdown,
+		Key:  models.PlanningSpecArtifactKey + ":" + order.ID.String(),
+		Data: map[string]any{
+			"name":  models.PlanningSpecArtifactTitle,
+			"title": models.PlanningSpecArtifactTitle,
+			"body":  "# Retry refunds\n\n## Executive summary\n\nStop double charges.\n",
+		},
+	})
+	require.NoError(t, err)
+
+	builder := NewNodeConfigurationBuilder(database.Conn(), canvas.ID).
+		WithRootEvent(&nodeExecution.RootEventID).
+		WithInput(map[string]any{})
+
+	spec, err := builder.ResolveExpression(`task().spec`)
+	require.NoError(t, err)
+	assert.Equal(t, "# Retry refunds\n\n## Executive summary\n\nStop double charges.", spec)
+
+	_, err = order.CreateArtifact(database.Conn(), models.FactoryWorkOrderArtifactParams{
+		Type: models.FactoryWorkOrderArtifactTypeMarkdown,
+		Key:  "notes:" + order.ID.String(),
+		Data: map[string]any{
+			"name":  models.PlanningSpecArtifactTitle,
+			"title": models.PlanningSpecArtifactTitle,
+			"body":  "# Wrong spec\n\nThis is a later markdown artifact with the same display name.\n",
+		},
+	})
+	require.NoError(t, err)
+
+	spec, err = builder.ResolveExpression(`task().spec`)
+	require.NoError(t, err)
+	assert.Equal(t, "# Retry refunds\n\n## Executive summary\n\nStop double charges.", spec)
+
+	prompt, err := builder.Build(map[string]any{
+		"body": `{{ task().description }}{{ task().spec != "" ? "\n\nSpec:\n" + task().spec : "" }}`,
+	})
+	require.NoError(t, err)
+	assert.Equal(
+		t,
+		"Implement and open PR\n\nSpec:\n# Retry refunds\n\n## Executive summary\n\nStop double charges.",
+		prompt["body"],
+	)
+
+	aliased, err := builder.ResolveExpression(`let taskData = task(); taskData.spec`)
+	require.NoError(t, err)
+	assert.Equal(t, "# Retry refunds\n\n## Executive summary\n\nStop double charges.", aliased)
+}
+
+func Test_NodeConfigurationBuilder_PRClosureSourceIssueOrigin(t *testing.T) {
+	r := support.Setup(t)
+	defer r.Close()
+
+	findPullRequestNode := "find-pull-request"
+	canvas, _ := support.CreateCanvas(
+		t,
+		r.Organization.ID,
+		r.User,
+		[]models.CanvasNode{
+			{
+				NodeID: findPullRequestNode,
+				Name:   "Find Pull Request",
+				Type:   models.NodeTypeComponent,
+			},
+			{
+				NodeID: "has-github-issue-origin",
+				Name:   "Has GitHub Issue Origin?",
+				Type:   models.NodeTypeComponent,
+			},
+		},
+		[]models.Edge{
+			{SourceID: findPullRequestNode, TargetID: "has-github-issue-origin", Channel: "found"},
+		},
+	)
+
+	originExpression := `$["Find Pull Request"].data.workOrder.origin != nil && split($["Find Pull Request"].data.workOrder.origin.url, "https://github.com/")[0] == "" && len(split($["Find Pull Request"].data.workOrder.origin.url, "/issues/")) == 2`
+	repositoryTemplate := `{{ split(split($["Find Pull Request"].data.workOrder.origin.url, "https://github.com/")[1], "/issues/")[0] }}`
+	issueNumberTemplate := `{{ split($["Find Pull Request"].data.workOrder.origin.url, "/issues/")[1] }}`
+
+	t.Run("parses a GitHub issue origin from Find Pull Request", func(t *testing.T) {
+		raw, err := json.Marshal(map[string]any{
+			"data": map[string]any{
+				"workOrder": &core.WorkOrder{
+					ID: "wo-1",
+					Origin: &core.WorkOrderOrigin{
+						URL:   "https://github.com/acme/payments/issues/12",
+						Label: "acme/payments#12",
+					},
+				},
+			},
+		})
+		require.NoError(t, err)
+
+		var payload map[string]any
+		require.NoError(t, json.Unmarshal(raw, &payload))
+
+		builder := NewNodeConfigurationBuilder(database.Conn(), canvas.ID).
+			WithInput(map[string]any{findPullRequestNode: payload})
+
+		hasGitHubIssueOrigin, err := builder.ResolveExpression(originExpression)
+		require.NoError(t, err)
+		assert.Equal(t, true, hasGitHubIssueOrigin)
+
+		built, err := builder.Build(map[string]any{
+			"repository":  repositoryTemplate,
+			"issueNumber": issueNumberTemplate,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "acme/payments", built["repository"])
+		assert.Equal(t, "12", built["issueNumber"])
+	})
+
+	t.Run("skips when Find Pull Request work order has no origin", func(t *testing.T) {
+		raw, err := json.Marshal(map[string]any{
+			"data": map[string]any{
+				"workOrder": &core.WorkOrder{ID: "wo-1"},
+			},
+		})
+		require.NoError(t, err)
+
+		var payload map[string]any
+		require.NoError(t, json.Unmarshal(raw, &payload))
+
+		builder := NewNodeConfigurationBuilder(database.Conn(), canvas.ID).
+			WithInput(map[string]any{findPullRequestNode: payload})
+
+		hasGitHubIssueOrigin, err := builder.ResolveExpression(originExpression)
+		require.NoError(t, err)
+		assert.Equal(t, false, hasGitHubIssueOrigin)
+	})
+}
+
+func Test_NodeConfigurationBuilder_OrderFunction_NilWhenAbsent(t *testing.T) {
+	r := support.Setup(t)
+	defer r.Close()
+
+	canvas, _ := support.CreateCanvas(
+		t,
+		r.Organization.ID,
+		r.User,
+		[]models.CanvasNode{
+			{
+				NodeID: "trigger-1",
+				Name:   "trigger-1",
+				Type:   models.NodeTypeTrigger,
+				Ref:    datatypes.NewJSONType(models.NodeRef{Trigger: &models.TriggerRef{Name: "start"}}),
+			},
+		},
+		nil,
+	)
+	rootEvent := support.EmitCanvasEventForNodeWithData(t, canvas.ID, "trigger-1", "default", nil, map[string]any{"user": "john"})
+	_, err := models.FindOrCreateCanvasRunForRootEventInTransaction(database.Conn(), rootEvent)
+	require.NoError(t, err)
+
+	builder := NewNodeConfigurationBuilder(database.Conn(), canvas.ID).
+		WithRootEvent(&rootEvent.ID)
+
+	result, err := builder.ResolveExpression(`order()`)
+	require.NoError(t, err)
+	assert.Nil(t, result)
+
+	nilCheck, err := builder.ResolveExpression(`order() == nil`)
+	require.NoError(t, err)
+	assert.Equal(t, true, nilCheck)
+}
+
+func mustResolveString(t *testing.T, builder *NodeConfigurationBuilder, expression string) string {
+	t.Helper()
+	value, err := builder.ResolveExpression(expression)
+	require.NoError(t, err)
+	asString, ok := value.(string)
+	require.True(t, ok)
+	return asString
+}
+
+func Test_NodeConfigurationBuilder_JSONNumberTemplateUsesOriginalToken(t *testing.T) {
+	builder := NewNodeConfigurationBuilder(nil, uuid.New()).
+		WithInput(map[string]any{
+			"trigger": map[string]any{
+				"id":    json.Number("14000000"),
+				"small": json.Number("0.0000001"),
+			},
+		})
+
+	result, err := builder.Build(map[string]any{
+		"id":    "{{ previous().id }}",
+		"small": "{{ previous().small }}",
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, "14000000", result["id"])
+	assert.Equal(t, "0.0000001", result["small"])
+}
+
+func Test_NodeConfigurationBuilder_JSONNumberExpressionsUseNumericTypes(t *testing.T) {
+	builder := NewNodeConfigurationBuilder(nil, uuid.New()).
+		WithInput(map[string]any{
+			"trigger": map[string]any{
+				"count": json.Number("42"),
+				"price": json.Number("10.5"),
+				"items": []any{json.Number("2")},
+			},
+		})
+
+	result, err := builder.ResolveExpression(`previous().count > 10 && previous().price + previous().items[0] == 12.5`)
+
+	require.NoError(t, err)
+	assert.Equal(t, true, result)
+}
+
+func Test_NodeConfigurationBuilder_ObjectFieldPreservesWholeTemplateTypes(t *testing.T) {
+	builder := NewNodeConfigurationBuilder(nil, uuid.New()).
+		WithInput(map[string]any{
+			"trigger": map[string]any{
+				"enabled": true,
+				"poolID":  "pool-a",
+				"weight":  json.Number("0.1"),
+			},
+		}).
+		WithConfigurationFields([]configuration.Field{
+			{Name: "json", Type: configuration.FieldTypeObject},
+			{Name: "name", Type: configuration.FieldTypeString},
+		})
+
+	result, err := builder.Build(map[string]any{
+		"json": map[string]any{
+			"enabled": "{{ previous().enabled }}",
+			"label":   "pool-{{ previous().poolID }}",
+			"nested": map[string]any{
+				"weight": "{{ previous().weight }}",
+			},
+			"weights": []any{"{{ previous().weight }}"},
+		},
+		"name": "{{ previous().weight }}",
+	})
+
+	require.NoError(t, err)
+
+	payload := result["json"].(map[string]any)
+	assert.Equal(t, true, payload["enabled"])
+	assert.Equal(t, "pool-pool-a", payload["label"])
+
+	nested := payload["nested"].(map[string]any)
+	assert.Equal(t, 0.1, nested["weight"])
+
+	weights := payload["weights"].([]any)
+	assert.Equal(t, 0.1, weights[0])
+
+	assert.Equal(t, "0.1", result["name"])
+}
+
+func Test_NodeConfigurationBuilder_ObjectFieldResolvesRawJSONTemplateString(t *testing.T) {
+	builder := NewNodeConfigurationBuilder(nil, uuid.New()).
+		WithInput(map[string]any{
+			"trigger": map[string]any{
+				"canary": true,
+			},
+		}).
+		WithConfigurationFields([]configuration.Field{
+			{Name: "json", Type: configuration.FieldTypeObject},
+		})
+
+	result, err := builder.Build(map[string]any{
+		"json": `{
+			"pool_weights": {
+				"pool-a": {{ previous().canary ? 0.1 : 0.9 }},
+				"pool-b": {{ previous().canary ? 0.9 : 0.1 }}
+			},
+			"enabled": {{ previous().canary }}
+		}`,
+	})
+
+	require.NoError(t, err)
+
+	payload := result["json"].(map[string]any)
+	assert.Equal(t, true, payload["enabled"])
+
+	poolWeights := payload["pool_weights"].(map[string]any)
+	assert.Equal(t, json.Number("0.1"), poolWeights["pool-a"])
+	assert.Equal(t, json.Number("0.9"), poolWeights["pool-b"])
+}
+
+func Test_NodeConfigurationBuilder_ObjectFieldDoesNotReevaluateExpressionOutput(t *testing.T) {
+	builder := NewNodeConfigurationBuilder(nil, uuid.New()).
+		WithInput(map[string]any{
+			"trigger": map[string]any{
+				"note":    "use {{ name }} in templates",
+				"payload": map[string]any{"hint": "keep {{ value }} literal"},
+			},
+		}).
+		WithConfigurationFields([]configuration.Field{
+			{Name: "json", Type: configuration.FieldTypeObject},
+		})
+
+	fromJSONString, err := builder.Build(map[string]any{
+		"json": `{"note": "{{ previous().note }}"}`,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "use {{ name }} in templates", fromJSONString["json"].(map[string]any)["note"])
+
+	fromWholeExpression, err := builder.Build(map[string]any{
+		"json": "{{ previous().payload }}",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "keep {{ value }} literal", fromWholeExpression["json"].(map[string]any)["hint"])
+
+	fromWholeString, err := builder.Build(map[string]any{
+		"json": "{{ previous().note }}",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "use {{ name }} in templates", fromWholeString["json"])
+}
+
+func Test_NodeConfigurationBuilder_SchemedObjectFallsBackForNonMapExpression(t *testing.T) {
+	builder := NewNodeConfigurationBuilder(nil, uuid.New()).
+		WithInput(map[string]any{
+			"trigger": map[string]any{
+				"token": "secret-token",
+				"auth": map[string]any{
+					"type":  "bearer",
+					"token": "from-map",
+				},
+			},
+		}).
+		WithConfigurationFields([]configuration.Field{
+			{
+				Name: "authorization",
+				Type: configuration.FieldTypeObject,
+				TypeOptions: &configuration.TypeOptions{
+					Object: &configuration.ObjectTypeOptions{
+						Schema: []configuration.Field{
+							{Name: "type", Type: configuration.FieldTypeString},
+							{Name: "token", Type: configuration.FieldTypeString},
+						},
+					},
+				},
+			},
+		})
+
+	nonMap, err := builder.Build(map[string]any{
+		"authorization": "{{ previous().token }}",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "secret-token", nonMap["authorization"])
+
+	asMap, err := builder.Build(map[string]any{
+		"authorization": "{{ previous().auth }}",
+	})
+	require.NoError(t, err)
+	auth := asMap["authorization"].(map[string]any)
+	assert.Equal(t, "bearer", auth["type"])
+	assert.Equal(t, "from-map", auth["token"])
+}
+
+func Test_NodeConfigurationBuilder_JSONNumberDivisionUsesFloatSemantics(t *testing.T) {
+	builder := NewNodeConfigurationBuilder(nil, uuid.New()).
+		WithInput(map[string]any{
+			"trigger": map[string]any{
+				"count":   json.Number("10"),
+				"divisor": json.Number("3"),
+			},
+		})
+
+	result, err := builder.ResolveExpression(`previous().count / 3`)
+	require.NoError(t, err)
+	assert.InDelta(t, 10.0/3.0, result, 1e-9)
+
+	resultBoth, err := builder.ResolveExpression(`previous().count / previous().divisor`)
+	require.NoError(t, err)
+	assert.InDelta(t, 10.0/3.0, resultBoth, 1e-9)
+}
+
+func Test_NodeConfigurationBuilder_JSONNumberRootPayloadExpressionsUseNumericTypes(t *testing.T) {
+	builder := NewNodeConfigurationBuilder(nil, uuid.New()).
+		WithRootPayload(map[string]any{
+			"count": json.Number("42"),
+			"nested": map[string]any{
+				"price": json.Number("10.5"),
+			},
+		})
+
+	result, err := builder.ResolveExpression(`root().count >= 42 && root().nested.price * 2 == 21`)
+
+	require.NoError(t, err)
+	assert.Equal(t, true, result)
+}
+
+func Test_NodeConfigurationBuilder_WorkflowLevelNode_RootFunction(t *testing.T) {
+	r := support.Setup(t)
+	defer r.Close()
+
+	triggerNode := "trigger-1"
+	componentNode := "component-1"
+	canvas, _ := support.CreateCanvas(
+		t,
+		r.Organization.ID,
+		r.User,
+		[]models.CanvasNode{
+			{
+				NodeID: triggerNode,
+				Name:   triggerNode,
+				Type:   models.NodeTypeTrigger,
+				Ref:    datatypes.NewJSONType(models.NodeRef{Trigger: &models.TriggerRef{Name: "start"}}),
+			},
+			{
+				NodeID: componentNode,
+				Name:   componentNode,
+				Type:   models.NodeTypeComponent,
+				Ref:    datatypes.NewJSONType(models.NodeRef{Component: &models.ComponentRef{Name: "noop"}}),
+			},
+		},
+		[]models.Edge{
+			{SourceID: triggerNode, TargetID: componentNode, Channel: "default"},
+		},
+	)
+
+	rootEventData := map[string]any{
+		"user":    "john",
+		"action":  "login",
+		"success": true,
+		"count":   42,
+	}
+	rootEvent := support.EmitCanvasEventForNodeWithData(t, canvas.ID, triggerNode, "default", nil, rootEventData)
+
+	builder := NewNodeConfigurationBuilder(database.Conn(), canvas.ID).
+		WithRootEvent(&rootEvent.ID).
+		WithInput(map[string]any{triggerNode: rootEventData})
+
+	configuration := map[string]any{
+		"user":    "{{ root().user }}",
+		"action":  "{{ root().action }}",
+		"success": "{{ root().success }}",
+		"count":   "{{ root().count }}",
+	}
+
+	result, err := builder.Build(configuration)
+	require.NoError(t, err)
+	assert.Equal(t, "john", result["user"])
+	assert.Equal(t, "login", result["action"])
+	assert.Equal(t, "true", result["success"])
+	assert.Equal(t, "42", result["count"])
+}
+
+func Test_NodeConfigurationBuilder_WorkflowLevelNode_Root_ByName(t *testing.T) {
+	r := support.Setup(t)
+	defer r.Close()
+
+	triggerNode := "trigger-1"
+	triggerName := "filter"
+	componentNode := "component-1"
+	canvas, _ := support.CreateCanvas(
+		t,
+		r.Organization.ID,
+		r.User,
+		[]models.CanvasNode{
+			{
+				NodeID: triggerNode,
+				Name:   triggerName,
+				Type:   models.NodeTypeTrigger,
+				Ref:    datatypes.NewJSONType(models.NodeRef{Trigger: &models.TriggerRef{Name: "start"}}),
+			},
+			{
+				NodeID: componentNode,
+				Name:   "processor",
+				Type:   models.NodeTypeComponent,
+				Ref:    datatypes.NewJSONType(models.NodeRef{Component: &models.ComponentRef{Name: "noop"}}),
+			},
+		},
+		[]models.Edge{
+			{SourceID: triggerNode, TargetID: componentNode, Channel: "default"},
+		},
+	)
+
+	rootEventData := map[string]any{
+		"user":    "john",
+		"action":  "login",
+		"success": true,
+		"count":   42,
+	}
+	rootEvent := support.EmitCanvasEventForNodeWithData(t, canvas.ID, triggerNode, "default", nil, rootEventData)
+
+	builder := NewNodeConfigurationBuilder(database.Conn(), canvas.ID).
+		WithRootEvent(&rootEvent.ID).
+		WithInput(map[string]any{triggerNode: rootEventData})
+
+	configuration := map[string]any{
+		"user":    "{{ $[\"" + triggerName + "\"].user }}",
+		"action":  "{{ $[\"" + triggerName + "\"].action }}",
+		"success": "{{ $[\"" + triggerName + "\"].success }}",
+		"count":   "{{ $[\"" + triggerName + "\"].count }}",
+	}
+
+	result, err := builder.Build(configuration)
+	require.NoError(t, err)
+	assert.Equal(t, "john", result["user"])
+	assert.Equal(t, "login", result["action"])
+	assert.Equal(t, "true", result["success"])
+	assert.Equal(t, "42", result["count"])
+}
+
+func Test_NodeConfigurationBuilder_NodeNameNotUnique_UsesClosestInChain(t *testing.T) {
+	r := support.Setup(t)
+	defer r.Close()
+
+	// Create a workflow with two nodes having the same name "filter"
+	// node-1 (filter) -> node-2 (filter) -> node-3 (target)
+	// When node-3 references "filter", it should get node-2's data (the closest one)
+	canvas, _ := support.CreateCanvas(
+		t,
+		r.Organization.ID,
+		r.User,
+		[]models.CanvasNode{
+			{
+				NodeID: "node-1",
+				Name:   "filter",
+				Type:   models.NodeTypeComponent,
+				Ref:    datatypes.NewJSONType(models.NodeRef{Component: &models.ComponentRef{Name: "noop"}}),
+			},
+			{
+				NodeID: "node-2",
+				Name:   "filter",
+				Type:   models.NodeTypeComponent,
+				Ref:    datatypes.NewJSONType(models.NodeRef{Component: &models.ComponentRef{Name: "noop"}}),
+			},
+			{
+				NodeID: "node-3",
+				Name:   "target",
+				Type:   models.NodeTypeComponent,
+				Ref:    datatypes.NewJSONType(models.NodeRef{Component: &models.ComponentRef{Name: "noop"}}),
+			},
+		},
+		[]models.Edge{
+			{SourceID: "node-1", TargetID: "node-2", Channel: "default"},
+			{SourceID: "node-2", TargetID: "node-3", Channel: "default"},
+		},
+	)
+
+	// Create executions for the chain
+	rootEvent := support.EmitCanvasEventForNode(t, canvas.ID, "node-1", "default", nil)
+
+	execution1 := support.CreateCanvasNodeExecution(t, canvas.ID, "node-1", rootEvent.ID, rootEvent.ID)
+	node1Data := map[string]any{"result": "first-filter"}
+	event1 := support.EmitCanvasEventForNodeWithData(t, canvas.ID, "node-1", "default", &execution1.ID, node1Data)
+
+	execution2 := support.CreateNextNodeExecution(t, canvas.ID, "node-2", rootEvent.ID, event1.ID, &execution1.ID)
+	node2Data := map[string]any{"result": "second-filter"}
+	support.EmitCanvasEventForNodeWithData(t, canvas.ID, "node-2", "default", &execution2.ID, node2Data)
+
+	// Build configuration from node-3's perspective - should get node-2's data (closest "filter")
+	builder := NewNodeConfigurationBuilder(database.Conn(), canvas.ID).
+		WithPreviousExecution(&execution2.ID).
+		WithRootEvent(&rootEvent.ID).
+		WithInput(map[string]any{"node-2": node2Data})
+
+	configuration := map[string]any{
+		"field": "{{ $[\"filter\"].result }}",
+	}
+
+	result, err := builder.Build(configuration)
+	require.NoError(t, err)
+	assert.Equal(t, "second-filter", result["field"])
+}
+
+// Test_NodeConfigurationBuilder_CyclicFeedback_UsesCurrentLineage guards against
+// a loop reading a stale iteration's body output. A loop body forms a feedback
+// cycle (loop -> body -> loop), so the body node is reachable "upstream" of the
+// loop and has one execution per iteration. When the loop evaluates an
+// expression (e.g. its until-condition) for the current feedback, $[body] must
+// resolve to the current iteration's output, not an older one.
+func Test_NodeConfigurationBuilder_CyclicFeedback_UsesCurrentLineage(t *testing.T) {
+	r := support.Setup(t)
+	defer r.Close()
+
+	// start -> loop -> body -> loop (feedback). The cycle makes "body" upstream
+	// of "loop", so all of body's per-iteration executions are in scope.
+	canvas, _ := support.CreateCanvas(
+		t,
+		r.Organization.ID,
+		r.User,
+		[]models.CanvasNode{
+			{NodeID: "start", Name: "start", Type: models.NodeTypeTrigger},
+			{
+				NodeID: "loop",
+				Name:   "loop",
+				Type:   models.NodeTypeComponent,
+				Ref:    datatypes.NewJSONType(models.NodeRef{Component: &models.ComponentRef{Name: "loop"}}),
+			},
+			{
+				NodeID: "body",
+				Name:   "body",
+				Type:   models.NodeTypeComponent,
+				Ref:    datatypes.NewJSONType(models.NodeRef{Component: &models.ComponentRef{Name: "noop"}}),
+			},
+		},
+		[]models.Edge{
+			{SourceID: "start", TargetID: "loop", Channel: "default"},
+			{SourceID: "loop", TargetID: "body", Channel: "next"},
+			{SourceID: "body", TargetID: "loop", Channel: "success"},
+		},
+	)
+
+	rootEvent := support.EmitCanvasEventForNode(t, canvas.ID, "start", "default", nil)
+
+	// The long-lived loop session. Each body iteration branches off it (as in the
+	// real feedback-model loop), so the body executions are siblings.
+	loopExecution := support.CreateCanvasNodeExecution(t, canvas.ID, "loop", rootEvent.ID, rootEvent.ID)
+
+	body1 := support.CreateNextNodeExecution(t, canvas.ID, "body", rootEvent.ID, rootEvent.ID, &loopExecution.ID)
+	support.EmitCanvasEventForNodeWithData(t, canvas.ID, "body", "success", &body1.ID, map[string]any{"result": "tail"})
+
+	body2 := support.CreateNextNodeExecution(t, canvas.ID, "body", rootEvent.ID, rootEvent.ID, &loopExecution.ID)
+	support.EmitCanvasEventForNodeWithData(t, canvas.ID, "body", "success", &body2.ID, map[string]any{"result": "tail"})
+
+	// Current iteration: body flips "head". The feedback into the loop is this event.
+	body3 := support.CreateNextNodeExecution(t, canvas.ID, "body", rootEvent.ID, rootEvent.ID, &loopExecution.ID)
+	body3Event := support.EmitCanvasEventForNodeWithData(t, canvas.ID, "body", "success", &body3.ID, map[string]any{"result": "head"})
+
+	// Evaluate from the loop's perspective for the current feedback (body3).
+	builder := NewNodeConfigurationBuilder(database.Conn(), canvas.ID).
+		WithNodeID("loop").
+		WithRootEvent(&rootEvent.ID).
+		WithPreviousExecution(&body3.ID).
+		WithIncomingEventID(&body3Event.ID)
+
+	// $[body] must be the current iteration (head), not the oldest (tail).
+	value, err := builder.ResolveExpression(`$["body"].result`)
+	require.NoError(t, err)
+	assert.Equal(t, "head", value)
+
+	done, err := builder.ResolveExpression(`$["body"].result == "head"`)
+	require.NoError(t, err)
+	assert.Equal(t, true, done)
+}
+
+func Test_NodeConfigurationBuilder_ReferencedUpstreamNodeWithNoOutputsResolvesToNil(t *testing.T) {
+	r := support.Setup(t)
+	defer r.Close()
+
+	canvas, _ := support.CreateCanvas(
+		t,
+		r.Organization.ID,
+		r.User,
+		[]models.CanvasNode{
+			{NodeID: "start", Name: "start", Type: models.NodeTypeTrigger},
+			{NodeID: "build-a", Name: "Build A", Type: models.NodeTypeComponent},
+			{NodeID: "build-b", Name: "Build B", Type: models.NodeTypeComponent},
+			{NodeID: "merge", Name: "merge", Type: models.NodeTypeComponent},
+		},
+		[]models.Edge{
+			{SourceID: "start", TargetID: "build-a", Channel: "default"},
+			{SourceID: "start", TargetID: "build-b", Channel: "default"},
+			{SourceID: "build-a", TargetID: "merge", Channel: "passed"},
+			{SourceID: "build-b", TargetID: "merge", Channel: "passed"},
+		},
+	)
+
+	rootEvent := support.EmitCanvasEventForNode(t, canvas.ID, "start", "default", nil)
+	buildAExecution := support.CreateCanvasNodeExecution(t, canvas.ID, "build-a", rootEvent.ID, rootEvent.ID)
+	buildAEvent := support.EmitCanvasEventForNodeWithData(
+		t,
+		canvas.ID,
+		"build-a",
+		"passed",
+		&buildAExecution.ID,
+		map[string]any{"status": "succeeded"},
+	)
+
+	// The sibling execution exists in the same run but has not emitted an event yet.
+	support.CreateCanvasNodeExecution(t, canvas.ID, "build-b", rootEvent.ID, rootEvent.ID)
+
+	builder := NewNodeConfigurationBuilder(database.Conn(), canvas.ID).
+		WithNodeID("merge").
+		WithPreviousExecution(&buildAExecution.ID).
+		WithIncomingEventID(&buildAEvent.ID).
+		WithRootEvent(&rootEvent.ID).
+		WithInput(map[string]any{"build-a": map[string]any{"status": "succeeded"}})
+
+	missing, err := builder.ResolveExpression(`$["Build B"] == nil`)
+	require.NoError(t, err)
+	assert.Equal(t, true, missing)
+}
+
+func setCanvasEventCreatedAt(t *testing.T, eventID uuid.UUID, createdAt time.Time) {
+	t.Helper()
+
+	err := database.Conn().
+		Model(&models.CanvasEvent{}).
+		Where("id = ?", eventID).
+		Update("created_at", createdAt).
+		Error
+	require.NoError(t, err)
+}
+
+func Test_NodeConfigurationBuilder_PreviousFallsBackToLatestUpstreamOutput(t *testing.T) {
+	r := support.Setup(t)
+	defer r.Close()
+
+	canvas, _ := support.CreateCanvas(
+		t,
+		r.Organization.ID,
+		r.User,
+		[]models.CanvasNode{
+			{NodeID: "start", Name: "start", Type: models.NodeTypeTrigger},
+			{NodeID: "build-a", Name: "Build A", Type: models.NodeTypeComponent},
+			{NodeID: "build-b", Name: "Build B", Type: models.NodeTypeComponent},
+			{NodeID: "merge", Name: "merge", Type: models.NodeTypeComponent},
+		},
+		[]models.Edge{
+			{SourceID: "start", TargetID: "build-a", Channel: "default"},
+			{SourceID: "start", TargetID: "build-b", Channel: "default"},
+			{SourceID: "build-a", TargetID: "merge", Channel: "passed"},
+			{SourceID: "build-b", TargetID: "merge", Channel: "passed"},
+		},
+	)
+
+	rootEvent := support.EmitCanvasEventForNode(t, canvas.ID, "start", "default", nil)
+	buildAExecution := support.CreateCanvasNodeExecution(t, canvas.ID, "build-a", rootEvent.ID, rootEvent.ID)
+	buildAEvent := support.EmitCanvasEventForNodeWithData(
+		t,
+		canvas.ID,
+		"build-a",
+		"passed",
+		&buildAExecution.ID,
+		map[string]any{"status": "succeeded"},
+	)
+	buildBExecution := support.CreateCanvasNodeExecution(t, canvas.ID, "build-b", rootEvent.ID, rootEvent.ID)
+	buildBEvent := support.EmitCanvasEventForNodeWithData(
+		t,
+		canvas.ID,
+		"build-b",
+		"failed",
+		&buildBExecution.ID,
+		map[string]any{"status": "failed"},
+	)
+	createdAt := time.Now()
+	setCanvasEventCreatedAt(t, buildAEvent.ID, createdAt)
+	setCanvasEventCreatedAt(t, buildBEvent.ID, createdAt.Add(time.Second))
+
+	builder := NewNodeConfigurationBuilder(database.Conn(), canvas.ID).
+		WithNodeID("merge").
+		WithPreviousExecution(&buildAExecution.ID).
+		WithIncomingEventID(&buildBEvent.ID).
+		WithRootEvent(&rootEvent.ID)
+
+	status, err := builder.ResolveExpression(`previous().status`)
+	require.NoError(t, err)
+	assert.Equal(t, "failed", status)
+
+	status, err = builder.ResolveExpression(`previous(2).status`)
+	require.NoError(t, err)
+	assert.Equal(t, "succeeded", status)
+}
+
+func Test_NodeConfigurationBuilder_PreviousPrefersCurrentInputOverLatestUpstreamOutput(t *testing.T) {
+	r := support.Setup(t)
+	defer r.Close()
+
+	canvas, _ := support.CreateCanvas(
+		t,
+		r.Organization.ID,
+		r.User,
+		[]models.CanvasNode{
+			{NodeID: "start", Name: "start", Type: models.NodeTypeTrigger},
+			{NodeID: "build-a", Name: "Build A", Type: models.NodeTypeComponent},
+			{NodeID: "build-b", Name: "Build B", Type: models.NodeTypeComponent},
+			{NodeID: "merge", Name: "merge", Type: models.NodeTypeComponent},
+		},
+		[]models.Edge{
+			{SourceID: "start", TargetID: "build-a", Channel: "default"},
+			{SourceID: "start", TargetID: "build-b", Channel: "default"},
+			{SourceID: "build-a", TargetID: "merge", Channel: "passed"},
+			{SourceID: "build-b", TargetID: "merge", Channel: "passed"},
+		},
+	)
+
+	rootEvent := support.EmitCanvasEventForNode(t, canvas.ID, "start", "default", nil)
+	buildAExecution := support.CreateCanvasNodeExecution(t, canvas.ID, "build-a", rootEvent.ID, rootEvent.ID)
+	buildAEvent := support.EmitCanvasEventForNodeWithData(
+		t,
+		canvas.ID,
+		"build-a",
+		"passed",
+		&buildAExecution.ID,
+		map[string]any{"status": "succeeded"},
+	)
+	buildBExecution := support.CreateCanvasNodeExecution(t, canvas.ID, "build-b", rootEvent.ID, rootEvent.ID)
+	buildBEvent := support.EmitCanvasEventForNodeWithData(
+		t,
+		canvas.ID,
+		"build-b",
+		"failed",
+		&buildBExecution.ID,
+		map[string]any{"status": "failed"},
+	)
+	createdAt := time.Now()
+	setCanvasEventCreatedAt(t, buildAEvent.ID, createdAt)
+	setCanvasEventCreatedAt(t, buildBEvent.ID, createdAt.Add(time.Second))
+
+	builder := NewNodeConfigurationBuilder(database.Conn(), canvas.ID).
+		WithNodeID("merge").
+		WithPreviousExecution(&buildAExecution.ID).
+		WithIncomingEventID(&buildAEvent.ID).
+		WithRootEvent(&rootEvent.ID).
+		WithInput(map[string]any{"build-a": map[string]any{"status": "succeeded"}})
+
+	status, err := builder.ResolveExpression(`previous().status`)
+	require.NoError(t, err)
+	assert.Equal(t, "succeeded", status)
+
+	nextStatus, err := builder.ResolveExpression(`previous(2).status`)
+	require.NoError(t, err)
+	assert.Equal(t, "failed", nextStatus)
+}
+
+func Test_NodeConfigurationBuilder_PreviousFallbackUsesDirectParentsOnly(t *testing.T) {
+	r := support.Setup(t)
+	defer r.Close()
+
+	canvas, _ := support.CreateCanvas(
+		t,
+		r.Organization.ID,
+		r.User,
+		[]models.CanvasNode{
+			{NodeID: "start", Name: "start", Type: models.NodeTypeTrigger},
+			{NodeID: "prepare", Name: "Prepare", Type: models.NodeTypeComponent},
+			{NodeID: "build-a", Name: "Build A", Type: models.NodeTypeComponent},
+			{NodeID: "build-b", Name: "Build B", Type: models.NodeTypeComponent},
+			{NodeID: "merge", Name: "merge", Type: models.NodeTypeComponent},
+		},
+		[]models.Edge{
+			{SourceID: "start", TargetID: "prepare", Channel: "default"},
+			{SourceID: "prepare", TargetID: "build-a", Channel: "default"},
+			{SourceID: "prepare", TargetID: "build-b", Channel: "default"},
+			{SourceID: "build-a", TargetID: "merge", Channel: "passed"},
+			{SourceID: "build-b", TargetID: "merge", Channel: "passed"},
+		},
+	)
+
+	rootEvent := support.EmitCanvasEventForNode(t, canvas.ID, "start", "default", nil)
+	buildAExecution := support.CreateCanvasNodeExecution(t, canvas.ID, "build-a", rootEvent.ID, rootEvent.ID)
+	buildAEvent := support.EmitCanvasEventForNodeWithData(
+		t,
+		canvas.ID,
+		"build-a",
+		"passed",
+		&buildAExecution.ID,
+		map[string]any{"status": "build-a"},
+	)
+	buildBExecution := support.CreateCanvasNodeExecution(t, canvas.ID, "build-b", rootEvent.ID, rootEvent.ID)
+	buildBEvent := support.EmitCanvasEventForNodeWithData(
+		t,
+		canvas.ID,
+		"build-b",
+		"passed",
+		&buildBExecution.ID,
+		map[string]any{"status": "build-b"},
+	)
+	prepareExecution := support.CreateCanvasNodeExecution(t, canvas.ID, "prepare", rootEvent.ID, rootEvent.ID)
+	prepareEvent := support.EmitCanvasEventForNodeWithData(
+		t,
+		canvas.ID,
+		"prepare",
+		"passed",
+		&prepareExecution.ID,
+		map[string]any{"status": "prepare"},
+	)
+	createdAt := time.Now()
+	setCanvasEventCreatedAt(t, buildAEvent.ID, createdAt)
+	setCanvasEventCreatedAt(t, buildBEvent.ID, createdAt.Add(time.Second))
+	setCanvasEventCreatedAt(t, prepareEvent.ID, createdAt.Add(2*time.Second))
+
+	builder := NewNodeConfigurationBuilder(database.Conn(), canvas.ID).
+		WithNodeID("merge").
+		WithPreviousExecution(&buildAExecution.ID).
+		WithRootEvent(&rootEvent.ID)
+
+	status, err := builder.ResolveExpression(`previous().status`)
+	require.NoError(t, err)
+	assert.Equal(t, "build-b", status)
+
+	status, err = builder.ResolveExpression(`previous(2).status`)
+	require.NoError(t, err)
+	assert.Equal(t, "build-a", status)
+}
+
+func Test_NodeConfigurationBuilder_PreviousFallbackUsesOutputLookupAmbiguityRules(t *testing.T) {
+	r := support.Setup(t)
+	defer r.Close()
+
+	canvas, _ := support.CreateCanvas(
+		t,
+		r.Organization.ID,
+		r.User,
+		[]models.CanvasNode{
+			{NodeID: "start", Name: "start", Type: models.NodeTypeTrigger},
+			{NodeID: "build-a", Name: "Build A", Type: models.NodeTypeComponent},
+			{NodeID: "merge", Name: "merge", Type: models.NodeTypeComponent},
+		},
+		[]models.Edge{
+			{SourceID: "start", TargetID: "build-a", Channel: "default"},
+			{SourceID: "build-a", TargetID: "merge", Channel: "passed"},
+		},
+	)
+
+	rootEvent := support.EmitCanvasEventForNode(t, canvas.ID, "start", "default", nil)
+	buildAExecution := support.CreateCanvasNodeExecution(t, canvas.ID, "build-a", rootEvent.ID, rootEvent.ID)
+	support.EmitCanvasEventForNodeWithData(
+		t,
+		canvas.ID,
+		"build-a",
+		"passed",
+		&buildAExecution.ID,
+		map[string]any{"status": "first"},
+	)
+	support.EmitCanvasEventForNodeWithData(
+		t,
+		canvas.ID,
+		"build-a",
+		"passed",
+		&buildAExecution.ID,
+		map[string]any{"status": "second"},
+	)
+
+	builder := NewNodeConfigurationBuilder(database.Conn(), canvas.ID).
+		WithNodeID("merge").
+		WithPreviousExecution(&buildAExecution.ID).
+		WithRootEvent(&rootEvent.ID)
+
+	_, err := builder.ResolveExpression(`previous().status`)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "ambiguous outputs")
+
+	_, err = builder.ResolveExpression(`$["Build A"].status`)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "ambiguous outputs")
+}
+
+func Test_selectCurrentExecutionsByNode_PrefersLinearExecutionAndLatestFallback(t *testing.T) {
+	now := time.Now()
+	old := now.Add(-time.Minute)
+	newer := now.Add(time.Minute)
+
+	staleLoopExecution := models.CanvasNodeExecution{
+		ID:        uuid.New(),
+		NodeID:    "loop-body",
+		CreatedAt: &newer,
+	}
+	currentLoopExecution := models.CanvasNodeExecution{
+		ID:        uuid.New(),
+		NodeID:    "loop-body",
+		CreatedAt: &old,
+	}
+	oldBuildExecution := models.CanvasNodeExecution{
+		ID:        uuid.New(),
+		NodeID:    "build",
+		CreatedAt: &old,
+	}
+	newBuildExecution := models.CanvasNodeExecution{
+		ID:        uuid.New(),
+		NodeID:    "build",
+		CreatedAt: &newer,
+	}
+
+	selected := selectCurrentExecutionsByNode(
+		[]models.CanvasNodeExecution{
+			staleLoopExecution,
+			currentLoopExecution,
+			oldBuildExecution,
+			newBuildExecution,
+		},
+		[]models.CanvasNodeExecution{currentLoopExecution},
+	)
+
+	selectedByNode := map[string]uuid.UUID{}
+	for _, execution := range selected {
+		selectedByNode[execution.NodeID] = execution.ID
+	}
+
+	assert.Equal(t, currentLoopExecution.ID, selectedByNode["loop-body"])
+	assert.Equal(t, newBuildExecution.ID, selectedByNode["build"])
+	assert.Len(t, selectedByNode, 2)
+}
+
+func Test_NodeConfigurationBuilder_NodeNameNotUnique_NoneInChain(t *testing.T) {
+	r := support.Setup(t)
+	defer r.Close()
+
+	// Create a workflow with two nodes having the same name but neither in the execution chain
+	canvas, _ := support.CreateCanvas(
+		t,
+		r.Organization.ID,
+		r.User,
+		[]models.CanvasNode{
+			{
+				NodeID: "node-1",
+				Name:   "filter",
+				Type:   models.NodeTypeComponent,
+				Ref:    datatypes.NewJSONType(models.NodeRef{Component: &models.ComponentRef{Name: "noop"}}),
+			},
+			{
+				NodeID: "node-2",
+				Name:   "filter",
+				Type:   models.NodeTypeComponent,
+				Ref:    datatypes.NewJSONType(models.NodeRef{Component: &models.ComponentRef{Name: "noop"}}),
+			},
+		},
+		[]models.Edge{},
+	)
+
+	builder := NewNodeConfigurationBuilder(database.Conn(), canvas.ID).
+		WithInput(map[string]any{})
+
+	configuration := map[string]any{
+		"field": "{{ $[\"filter\"].data }}",
+	}
+
+	_, err := builder.Build(configuration)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "node name filter is not unique")
+}
+
+func Test_NodeConfigurationBuilder_NodeIDNotAllowed(t *testing.T) {
+	r := support.Setup(t)
+	defer r.Close()
+
+	canvas, _ := support.CreateCanvas(
+		t,
+		r.Organization.ID,
+		r.User,
+		[]models.CanvasNode{
+			{
+				NodeID: "node-1",
+				Name:   "filter",
+				Type:   models.NodeTypeComponent,
+				Ref:    datatypes.NewJSONType(models.NodeRef{Component: &models.ComponentRef{Name: "noop"}}),
+			},
+		},
+		[]models.Edge{},
+	)
+
+	builder := NewNodeConfigurationBuilder(database.Conn(), canvas.ID).
+		WithInput(map[string]any{"node-1": map[string]any{"data": "value"}})
+
+	configuration := map[string]any{
+		"field": "{{ $[\"node-1\"].data }}",
+	}
+
+	_, err := builder.Build(configuration)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "expression evaluation failed")
+}
+
+func Test_NodeConfigurationBuilder_WorkflowLevelNode_Root_NoRootEvent(t *testing.T) {
+	r := support.Setup(t)
+	defer r.Close()
+
+	canvas, _ := support.CreateCanvas(
+		t,
+		r.Organization.ID,
+		r.User,
+		[]models.CanvasNode{
+			{NodeID: "node-1", Name: "node-1", Type: models.NodeTypeComponent},
+		},
+		[]models.Edge{},
+	)
+
+	builder := NewNodeConfigurationBuilder(database.Conn(), canvas.ID).
+		WithInput(map[string]any{})
+
+	configuration := map[string]any{
+		"field": "{{ $[\"node-1\"].data }}",
+	}
+
+	_, err := builder.Build(configuration)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "expression evaluation failed")
+}
+
+func Test_NodeConfigurationBuilder_WorkflowLevelNode_Chain(t *testing.T) {
+	r := support.Setup(t)
+	defer r.Close()
+
+	// Create a workflow with three sequential nodes
+	triggerNode := "trigger-1"
+	node1 := "node-1"
+	node2 := "node-2"
+	node3 := "node-3"
+	canvas, _ := support.CreateCanvas(
+		t,
+		r.Organization.ID,
+		r.User,
+		[]models.CanvasNode{
+			{
+				NodeID: triggerNode,
+				Name:   triggerNode,
+				Type:   models.NodeTypeTrigger,
+				Ref:    datatypes.NewJSONType(models.NodeRef{Trigger: &models.TriggerRef{Name: "start"}}),
+			},
+			{
+				NodeID: node1,
+				Name:   node1,
+				Type:   models.NodeTypeComponent,
+				Ref:    datatypes.NewJSONType(models.NodeRef{Component: &models.ComponentRef{Name: "noop"}}),
+			},
+			{
+				NodeID: node2,
+				Name:   node2,
+				Type:   models.NodeTypeComponent,
+				Ref:    datatypes.NewJSONType(models.NodeRef{Component: &models.ComponentRef{Name: "noop"}}),
+			},
+			{
+				NodeID: node3,
+				Name:   node3,
+				Type:   models.NodeTypeComponent,
+				Ref:    datatypes.NewJSONType(models.NodeRef{Component: &models.ComponentRef{Name: "noop"}}),
+			},
+		},
+		[]models.Edge{
+			{SourceID: node1, TargetID: node2, Channel: "default"},
+			{SourceID: node2, TargetID: node3, Channel: "default"},
+		},
+	)
+
+	//
+	// Create root event
+	//
+	rootEvent := support.EmitCanvasEventForNodeWithData(t, canvas.ID, triggerNode, "default", nil, map[string]any{"root": "data"})
+
+	//
+	// Simulate execution for first node
+	//
+	execution1 := support.CreateCanvasNodeExecution(
+		t,
+		canvas.ID,
+		node1,
+		rootEvent.ID,
+		rootEvent.ID,
+	)
+	node1Data := map[string]any{
+		"step":   1,
+		"result": "first",
+	}
+	event1 := support.EmitCanvasEventForNodeWithData(t, canvas.ID, node1, "default", &execution1.ID, node1Data)
+
+	//
+	// Simulate execution for second node
+	//
+	execution2 := support.CreateNextNodeExecution(
+		t,
+		canvas.ID,
+		node2,
+		rootEvent.ID,
+		event1.ID,
+		&execution1.ID,
+	)
+
+	node2Data := map[string]any{
+		"step":   2,
+		"result": "second",
+	}
+	support.EmitCanvasEventForNodeWithData(t, canvas.ID, node2, "default", &execution2.ID, node2Data)
+
+	//
+	// Now test message chain access from node3 perspective
+	//
+	builder := NewNodeConfigurationBuilder(database.Conn(), canvas.ID).
+		WithPreviousExecution(&execution2.ID).
+		WithRootEvent(&rootEvent.ID).
+		WithInput(map[string]any{node2: node2Data})
+
+	configuration := map[string]any{
+		"from_node1": "{{ $[\"" + node1 + "\"].result }}",
+		"from_node2": "{{ $[\"" + node2 + "\"].step }}",
+	}
+
+	result, err := builder.Build(configuration)
+	require.NoError(t, err)
+	assert.Equal(t, "first", result["from_node1"])
+	assert.Equal(t, "2", result["from_node2"])
+}
+
+func Test_NodeConfigurationBuilder_Chain_IncludesParallelUpstreamExecutions(t *testing.T) {
+	r := support.Setup(t)
+	defer r.Close()
+
+	startNode := "start"
+	action1Node := "action-1"
+	action2Node := "action-2"
+	action3Node := "action-3"
+	mergeNode := "merge"
+
+	canvas, _ := support.CreateCanvas(
+		t,
+		r.Organization.ID,
+		r.User,
+		[]models.CanvasNode{
+			{
+				NodeID: startNode,
+				Name:   startNode,
+				Type:   models.NodeTypeTrigger,
+				Ref:    datatypes.NewJSONType(models.NodeRef{Trigger: &models.TriggerRef{Name: "start"}}),
+			},
+			{
+				NodeID: action1Node,
+				Name:   action1Node,
+				Type:   models.NodeTypeComponent,
+				Ref:    datatypes.NewJSONType(models.NodeRef{Component: &models.ComponentRef{Name: "noop"}}),
+			},
+			{
+				NodeID: action2Node,
+				Name:   action2Node,
+				Type:   models.NodeTypeComponent,
+				Ref:    datatypes.NewJSONType(models.NodeRef{Component: &models.ComponentRef{Name: "noop"}}),
+			},
+			{
+				NodeID: action3Node,
+				Name:   action3Node,
+				Type:   models.NodeTypeComponent,
+				Ref:    datatypes.NewJSONType(models.NodeRef{Component: &models.ComponentRef{Name: "noop"}}),
+			},
+			{
+				NodeID: mergeNode,
+				Name:   mergeNode,
+				Type:   models.NodeTypeComponent,
+				Ref:    datatypes.NewJSONType(models.NodeRef{Component: &models.ComponentRef{Name: "merge"}}),
+			},
+		},
+		[]models.Edge{
+			{SourceID: startNode, TargetID: action1Node, Channel: "default"},
+			{SourceID: startNode, TargetID: action2Node, Channel: "default"},
+			{SourceID: startNode, TargetID: action3Node, Channel: "default"},
+			{SourceID: action1Node, TargetID: mergeNode, Channel: "default"},
+			{SourceID: action2Node, TargetID: mergeNode, Channel: "default"},
+			{SourceID: action3Node, TargetID: mergeNode, Channel: "default"},
+		},
+	)
+
+	rootEvent := support.EmitCanvasEventForNode(t, canvas.ID, startNode, "default", nil)
+
+	execution1 := support.CreateCanvasNodeExecution(t, canvas.ID, action1Node, rootEvent.ID, rootEvent.ID)
+	action1Data := map[string]any{"value": "from-action-1"}
+	support.EmitCanvasEventForNodeWithData(t, canvas.ID, action1Node, "default", &execution1.ID, action1Data)
+
+	execution2 := support.CreateCanvasNodeExecution(t, canvas.ID, action2Node, rootEvent.ID, rootEvent.ID)
+	action2Data := map[string]any{"value": "from-action-2"}
+	support.EmitCanvasEventForNodeWithData(t, canvas.ID, action2Node, "default", &execution2.ID, action2Data)
+
+	execution3 := support.CreateCanvasNodeExecution(t, canvas.ID, action3Node, rootEvent.ID, rootEvent.ID)
+	action3Data := map[string]any{"value": "from-action-3"}
+	support.EmitCanvasEventForNodeWithData(t, canvas.ID, action3Node, "default", &execution3.ID, action3Data)
+
+	builder := NewNodeConfigurationBuilder(database.Conn(), canvas.ID).
+		WithNodeID(mergeNode).
+		WithPreviousExecution(&execution1.ID).
+		WithRootEvent(&rootEvent.ID).
+		WithInput(map[string]any{action1Node: action1Data})
+
+	configuration := map[string]any{
+		"action1": "{{ $[\"action-1\"].value }}",
+		"action2": "{{ $[\"action-2\"].value }}",
+		"action3": "{{ $[\"action-3\"].value }}",
+	}
+
+	result, err := builder.Build(configuration)
+	require.NoError(t, err)
+	assert.Equal(t, "from-action-1", result["action1"])
+	assert.Equal(t, "from-action-2", result["action2"])
+	assert.Equal(t, "from-action-3", result["action3"])
+}
+
+func Test_NodeConfigurationBuilder_WorkflowLevelNode_Previous(t *testing.T) {
+	r := support.Setup(t)
+	defer r.Close()
+
+	triggerNode := "trigger-1"
+	node1 := "node-1"
+	node2 := "node-2"
+	node3 := "node-3"
+	canvas, _ := support.CreateCanvas(
+		t,
+		r.Organization.ID,
+		r.User,
+		[]models.CanvasNode{
+			{
+				NodeID: triggerNode,
+				Type:   models.NodeTypeTrigger,
+				Ref:    datatypes.NewJSONType(models.NodeRef{Trigger: &models.TriggerRef{Name: "start"}}),
+			},
+			{
+				NodeID: node1,
+				Type:   models.NodeTypeComponent,
+				Ref:    datatypes.NewJSONType(models.NodeRef{Component: &models.ComponentRef{Name: "noop"}}),
+			},
+			{
+				NodeID: node2,
+				Type:   models.NodeTypeComponent,
+				Ref:    datatypes.NewJSONType(models.NodeRef{Component: &models.ComponentRef{Name: "noop"}}),
+			},
+			{
+				NodeID: node3,
+				Type:   models.NodeTypeComponent,
+				Ref:    datatypes.NewJSONType(models.NodeRef{Component: &models.ComponentRef{Name: "noop"}}),
+			},
+		},
+		[]models.Edge{
+			{SourceID: node1, TargetID: node2, Channel: "default"},
+			{SourceID: node2, TargetID: node3, Channel: "default"},
+		},
+	)
+
+	rootEvent := support.EmitCanvasEventForNodeWithData(t, canvas.ID, triggerNode, "default", nil, map[string]any{"root": "data"})
+
+	execution1 := support.CreateCanvasNodeExecution(
+		t,
+		canvas.ID,
+		node1,
+		rootEvent.ID,
+		rootEvent.ID,
+	)
+	node1Data := map[string]any{
+		"step":   1,
+		"result": "first",
+	}
+	event1 := support.EmitCanvasEventForNodeWithData(t, canvas.ID, node1, "default", &execution1.ID, node1Data)
+
+	execution2 := support.CreateNextNodeExecution(
+		t,
+		canvas.ID,
+		node2,
+		rootEvent.ID,
+		event1.ID,
+		&execution1.ID,
+	)
+	node2Data := map[string]any{
+		"step":   2,
+		"result": "second",
+	}
+	support.EmitCanvasEventForNodeWithData(t, canvas.ID, node2, "default", &execution2.ID, node2Data)
+
+	builder := NewNodeConfigurationBuilder(database.Conn(), canvas.ID).
+		WithPreviousExecution(&execution2.ID).
+		WithRootEvent(&rootEvent.ID).
+		WithInput(map[string]any{node2: node2Data})
+
+	configuration := map[string]any{
+		"immediate": "{{ previous().result }}",
+		"upstream":  "{{ previous(2).result }}",
+		"root":      "{{ previous(3).root }}",
+	}
+
+	result, err := builder.Build(configuration)
+	require.NoError(t, err)
+	assert.Equal(t, "second", result["immediate"])
+	assert.Equal(t, "first", result["upstream"])
+	assert.Equal(t, "data", result["root"])
+}
+
+func Test_NodeConfigurationBuilder_WorkflowLevelNode_Previous_MultipleInputs(t *testing.T) {
+	r := support.Setup(t)
+	defer r.Close()
+
+	canvas, _ := support.CreateCanvas(
+		t,
+		r.Organization.ID,
+		r.User,
+		[]models.CanvasNode{
+			{NodeID: "node-1", Type: models.NodeTypeComponent},
+			{NodeID: "node-2", Type: models.NodeTypeComponent},
+		},
+		[]models.Edge{},
+	)
+
+	builder := NewNodeConfigurationBuilder(database.Conn(), canvas.ID).
+		WithInput(map[string]any{
+			"node-1": map[string]any{"value": "one"},
+			"node-2": map[string]any{"value": "two"},
+		})
+
+	_, err := builder.Build(map[string]any{"field": "{{ previous().value }}"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "previous() is not available when multiple inputs are present")
+}
+
+func Test_NodeConfigurationBuilder_WorkflowLevelNode_Chain_NoPreviousExecution(t *testing.T) {
+	r := support.Setup(t)
+	defer r.Close()
+
+	canvas, _ := support.CreateCanvas(
+		t,
+		r.Organization.ID,
+		r.User,
+		[]models.CanvasNode{
+			{NodeID: "node-1", Name: "node-1", Type: models.NodeTypeComponent},
+		},
+		[]models.Edge{},
+	)
+
+	builder := NewNodeConfigurationBuilder(database.Conn(), canvas.ID).
+		WithInput(map[string]any{})
+
+	configuration := map[string]any{
+		"field": "{{ $[\"node-1\"].data }}",
+	}
+
+	_, err := builder.Build(configuration)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "expression evaluation failed")
+}
+
+func Test_NodeConfigurationBuilder_WorkflowLevelNode_Chain_NodeNotInChain(t *testing.T) {
+	r := support.Setup(t)
+	defer r.Close()
+
+	node1 := "node-1"
+	node2 := "node-2"
+	canvas, _ := support.CreateCanvas(
+		t,
+		r.Organization.ID,
+		r.User,
+		[]models.CanvasNode{
+			{NodeID: node1, Name: node1, Type: models.NodeTypeComponent},
+			{NodeID: node2, Name: node2, Type: models.NodeTypeComponent},
+		},
+		[]models.Edge{},
+	)
+
+	rootEvent := support.EmitCanvasEventForNode(t, canvas.ID, node1, "default", nil)
+	execution1 := support.CreateCanvasNodeExecution(t, canvas.ID, node1, rootEvent.ID, rootEvent.ID)
+
+	builder := NewNodeConfigurationBuilder(database.Conn(), canvas.ID).
+		WithPreviousExecution(&execution1.ID).
+		WithInput(map[string]any{})
+
+	configuration := map[string]any{
+		"field": "{{ $[\"nonexistent-node\"].data }}",
+	}
+
+	_, err := builder.Build(configuration)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "expression evaluation failed")
+}
+
+func Test_NodeConfigurationBuilder_WorkflowLevelNode_Chain_MissingReferenceResolvesNil(t *testing.T) {
+	r := support.Setup(t)
+	defer r.Close()
+
+	node1 := "node-1"
+	canvas, _ := support.CreateCanvas(
+		t,
+		r.Organization.ID,
+		r.User,
+		[]models.CanvasNode{
+			{NodeID: node1, Name: node1, Type: models.NodeTypeComponent},
+		},
+		[]models.Edge{},
+	)
+
+	rootEvent := support.EmitCanvasEventForNode(t, canvas.ID, node1, "default", nil)
+	execution1 := support.CreateCanvasNodeExecution(t, canvas.ID, node1, rootEvent.ID, rootEvent.ID)
+
+	builder := NewNodeConfigurationBuilder(database.Conn(), canvas.ID).
+		WithPreviousExecution(&execution1.ID).
+		WithInput(map[string]any{})
+
+	result, err := builder.Build(map[string]any{
+		"field": "{{ $[\"token that does not exist\"] }}",
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, "null", result["field"])
+
+	value, err := builder.ResolveExpression(`$["token that does not exist"]`)
+	require.NoError(t, err)
+	assert.Nil(t, value)
+}
+
+func Test_NodeConfigurationBuilder_WorkflowLevelNode_Chain_KnownNodeWithoutExecutionResolvesNil(t *testing.T) {
+	r := support.Setup(t)
+	defer r.Close()
+
+	node1 := "node-1"
+	node2 := "node-2"
+	canvas, _ := support.CreateCanvas(
+		t,
+		r.Organization.ID,
+		r.User,
+		[]models.CanvasNode{
+			{NodeID: node1, Name: node1, Type: models.NodeTypeComponent},
+			{NodeID: node2, Name: node2, Type: models.NodeTypeComponent},
+		},
+		[]models.Edge{},
+	)
+
+	rootEvent := support.EmitCanvasEventForNode(t, canvas.ID, node1, "default", nil)
+	execution1 := support.CreateCanvasNodeExecution(t, canvas.ID, node1, rootEvent.ID, rootEvent.ID)
+
+	builder := NewNodeConfigurationBuilder(database.Conn(), canvas.ID).
+		WithPreviousExecution(&execution1.ID).
+		WithInput(map[string]any{})
+
+	result, err := builder.ResolveExpression(`$["node-2"] == nil ? "missing" : "present"`)
+
+	require.NoError(t, err)
+	assert.Equal(t, "missing", result)
+}
+
+func Test_NodeConfigurationBuilder_ComplexNesting(t *testing.T) {
+	r := support.Setup(t)
+	defer r.Close()
+
+	canvas, _ := support.CreateCanvas(
+		t,
+		r.Organization.ID,
+		r.User,
+		[]models.CanvasNode{
+			{NodeID: "node-1", Name: "node-1", Type: models.NodeTypeComponent},
+		},
+		[]models.Edge{},
+	)
+
+	rootEventData := map[string]any{
+		"user": map[string]any{
+			"name":  "John",
+			"email": "john@example.com",
+		},
+		"items":  []any{"apple", "banana", "cherry"},
+		"prefix": "user",
+	}
+	rootEvent := support.EmitCanvasEventForNodeWithData(t, canvas.ID, "node-1", "default", nil, rootEventData)
+
+	builder := NewNodeConfigurationBuilder(database.Conn(), canvas.ID).
+		WithRootEvent(&rootEvent.ID).
+		WithInput(map[string]any{"node-1": rootEventData})
+
+	configuration := map[string]any{
+		"nested": map[string]any{
+			"user_name":  "{{ $[\"node-1\"].user.name }}",
+			"user_email": "{{ $[\"node-1\"].user.email }}",
+		},
+		"array_field": []any{
+			"{{ $[\"node-1\"].prefix }}",
+			"{{ $[\"node-1\"].user.name }}",
+			map[string]any{
+				"inner": "{{ $[\"node-1\"].user.email }}",
+			},
+		},
+	}
+
+	result, err := builder.Build(configuration)
+	require.NoError(t, err)
+
+	// Check nested map
+	nested := result["nested"].(map[string]any)
+	assert.Equal(t, "John", nested["user_name"])
+	assert.Equal(t, "john@example.com", nested["user_email"])
+
+	// Check array with mixed types
+	array := result["array_field"].([]any)
+	assert.Equal(t, "user", array[0])
+	assert.Equal(t, "John", array[1])
+	innerMap := array[2].(map[string]any)
+	assert.Equal(t, "john@example.com", innerMap["inner"])
+}
+
+func Test_NodeConfigurationBuilder_InputVariable(t *testing.T) {
+	r := support.Setup(t)
+	defer r.Close()
+
+	canvas, _ := support.CreateCanvas(
+		t,
+		r.Organization.ID,
+		r.User,
+		[]models.CanvasNode{
+			{NodeID: "node-1", Name: "node-1", Type: models.NodeTypeComponent},
+		},
+		[]models.Edge{},
+	)
+
+	inputData := map[string]any{
+		"name":   "Alice",
+		"age":    25,
+		"active": true,
+		"metadata": map[string]any{
+			"role": "admin",
+		},
+	}
+
+	rootEvent := support.EmitCanvasEventForNodeWithData(t, canvas.ID, "node-1", "default", nil, inputData)
+
+	builder := NewNodeConfigurationBuilder(database.Conn(), canvas.ID).
+		WithRootEvent(&rootEvent.ID).
+		WithInput(map[string]any{"node-1": inputData})
+
+	configuration := map[string]any{
+		"name":     "{{ $[\"node-1\"].name }}",
+		"age":      "{{ $[\"node-1\"].age }}",
+		"active":   "{{ $[\"node-1\"].active }}",
+		"role":     "{{ $[\"node-1\"].metadata.role }}",
+		"combined": "User {{ $[\"node-1\"].name }} is {{ $[\"node-1\"].age }} years old",
+	}
+
+	result, err := builder.Build(configuration)
+	require.NoError(t, err)
+	assert.Equal(t, "Alice", result["name"])
+	assert.Equal(t, "25", result["age"])
+	assert.Equal(t, "true", result["active"])
+	assert.Equal(t, "admin", result["role"])
+	assert.Equal(t, "User Alice is 25 years old", result["combined"])
+}
+
+func Test_NodeConfigurationBuilder_NoExpression(t *testing.T) {
+	r := support.Setup(t)
+	defer r.Close()
+
+	canvas, _ := support.CreateCanvas(
+		t,
+		r.Organization.ID,
+		r.User,
+		[]models.CanvasNode{
+			{NodeID: "node-1", Name: "node-1", Type: models.NodeTypeComponent},
+		},
+		[]models.Edge{},
+	)
+
+	rootEvent := support.EmitCanvasEventForNode(t, canvas.ID, "node-1", "default", nil)
+
+	builder := NewNodeConfigurationBuilder(database.Conn(), canvas.ID).
+		WithRootEvent(&rootEvent.ID).
+		WithInput(map[string]any{})
+
+	configuration := map[string]any{
+		"plain_string": "hello world",
+		"number":       42,
+		"boolean":      true,
+		"null_value":   nil,
+	}
+
+	result, err := builder.Build(configuration)
+	require.NoError(t, err)
+	assert.Equal(t, "hello world", result["plain_string"])
+	assert.Equal(t, 42, result["number"])
+	assert.Equal(t, true, result["boolean"])
+	assert.Nil(t, result["null_value"])
+}
+
+func Test_NodeConfigurationBuilder_MemoryFind(t *testing.T) {
+	r := support.Setup(t)
+	defer r.Close()
+
+	canvas, _ := support.CreateCanvas(
+		t,
+		r.Organization.ID,
+		r.User,
+		[]models.CanvasNode{
+			{NodeID: "node-1", Name: "node-1", Type: models.NodeTypeComponent},
+		},
+		[]models.Edge{},
+	)
+
+	err := models.AddCanvasMemory(canvas.ID, "machines", map[string]any{"sandbox_id": "12121"})
+	require.NoError(t, err)
+
+	err = models.AddCanvasMemory(canvas.ID, "machines", map[string]any{"sandbox_id": "34343"})
+	require.NoError(t, err)
+
+	builder := NewNodeConfigurationBuilder(database.Conn(), canvas.ID).WithInput(map[string]any{})
+
+	result, err := builder.ResolveExpression(`memory.find("machines", {"sandbox_id": "12121"})`)
+	require.NoError(t, err)
+	assert.Equal(t, []any{map[string]any{"sandbox_id": "12121"}}, result)
+}
+
+func Test_NodeConfigurationBuilder_MemoryFindFirst(t *testing.T) {
+	r := support.Setup(t)
+	defer r.Close()
+
+	canvas, _ := support.CreateCanvas(
+		t,
+		r.Organization.ID,
+		r.User,
+		[]models.CanvasNode{
+			{NodeID: "node-1", Name: "node-1", Type: models.NodeTypeComponent},
+		},
+		[]models.Edge{},
+	)
+
+	err := models.AddCanvasMemory(canvas.ID, "machines", map[string]any{"sandbox_id": "12121", "creator": "igor"})
+	require.NoError(t, err)
+	err = models.AddCanvasMemory(canvas.ID, "machines", map[string]any{"sandbox_id": "34343", "creator": "alex"})
+	require.NoError(t, err)
+
+	builder := NewNodeConfigurationBuilder(database.Conn(), canvas.ID).WithInput(map[string]any{})
+
+	result, err := builder.ResolveExpression(`memory.findFirst("machines", {"sandbox_id": "12121"})`)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]any{"sandbox_id": "12121", "creator": "igor"}, result)
+
+	matched, err := builder.ResolveExpression(`memory.findFirst("machines", {"creator": "igor"}).sandbox_id`)
+	require.NoError(t, err)
+	assert.Equal(t, "12121", matched)
+
+	missing, err := builder.ResolveExpression(`memory.findFirst("missing", {"sandbox_id": "does-not-exist"})`)
+	require.NoError(t, err)
+	assert.Nil(t, missing)
+}
+
+func Test_NodeConfigurationBuilder_Config_ViaNodeReference(t *testing.T) {
+	r := support.Setup(t)
+	defer r.Close()
+
+	triggerNode := "trigger-1"
+	componentNode := "component-1"
+	targetNode := "target-1"
+	canvas, _ := support.CreateCanvas(
+		t,
+		r.Organization.ID,
+		r.User,
+		[]models.CanvasNode{
+			{
+				NodeID: triggerNode,
+				Name:   triggerNode,
+				Type:   models.NodeTypeTrigger,
+				Ref:    datatypes.NewJSONType(models.NodeRef{Trigger: &models.TriggerRef{Name: "start"}}),
+			},
+			{
+				NodeID: componentNode,
+				Name:   componentNode,
+				Type:   models.NodeTypeComponent,
+				Ref:    datatypes.NewJSONType(models.NodeRef{Component: &models.ComponentRef{Name: "noop"}}),
+			},
+			{
+				NodeID: targetNode,
+				Name:   targetNode,
+				Type:   models.NodeTypeComponent,
+				Ref:    datatypes.NewJSONType(models.NodeRef{Component: &models.ComponentRef{Name: "noop"}}),
+			},
+		},
+		[]models.Edge{
+			{SourceID: triggerNode, TargetID: componentNode, Channel: "default"},
+			{SourceID: componentNode, TargetID: targetNode, Channel: "default"},
+		},
+	)
+
+	rootEvent := support.EmitCanvasEventForNodeWithData(t, canvas.ID, triggerNode, "default", nil, map[string]any{"user": "alice"})
+
+	componentConfig := map[string]any{"url": "https://example.com", "timeout": 30}
+	execution1 := support.CreateCanvasNodeExecution(t, canvas.ID, componentNode, rootEvent.ID, rootEvent.ID)
+	require.NoError(t, database.Conn().Model(execution1).Update("configuration", datatypes.NewJSONType(componentConfig)).Error)
+
+	outputData := map[string]any{"status": "ok"}
+	event1 := support.EmitCanvasEventForNodeWithData(t, canvas.ID, componentNode, "default", &execution1.ID, outputData)
+
+	execution2 := support.CreateNextNodeExecution(t, canvas.ID, targetNode, rootEvent.ID, event1.ID, &execution1.ID)
+	_ = execution2
+
+	builder := NewNodeConfigurationBuilder(database.Conn(), canvas.ID).
+		WithPreviousExecution(&execution1.ID).
+		WithRootEvent(&rootEvent.ID).
+		WithInput(map[string]any{componentNode: outputData})
+
+	result, err := builder.Build(map[string]any{
+		"upstream_url": "{{ $[\"" + componentNode + "\"].config.url }}",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "https://example.com", result["upstream_url"])
+}
+
+func Test_NodeConfigurationBuilder_Config_ViaPrevious(t *testing.T) {
+	r := support.Setup(t)
+	defer r.Close()
+
+	triggerNode := "trigger-1"
+	node1 := "node-1"
+	node2 := "node-2"
+	canvas, _ := support.CreateCanvas(
+		t,
+		r.Organization.ID,
+		r.User,
+		[]models.CanvasNode{
+			{
+				NodeID: triggerNode,
+				Name:   triggerNode,
+				Type:   models.NodeTypeTrigger,
+				Ref:    datatypes.NewJSONType(models.NodeRef{Trigger: &models.TriggerRef{Name: "start"}}),
+			},
+			{
+				NodeID: node1,
+				Type:   models.NodeTypeComponent,
+				Ref:    datatypes.NewJSONType(models.NodeRef{Component: &models.ComponentRef{Name: "noop"}}),
+			},
+			{
+				NodeID: node2,
+				Type:   models.NodeTypeComponent,
+				Ref:    datatypes.NewJSONType(models.NodeRef{Component: &models.ComponentRef{Name: "noop"}}),
+			},
+		},
+		[]models.Edge{
+			{SourceID: triggerNode, TargetID: node1, Channel: "default"},
+			{SourceID: node1, TargetID: node2, Channel: "default"},
+		},
+	)
+
+	rootEvent := support.EmitCanvasEventForNodeWithData(t, canvas.ID, triggerNode, "default", nil, map[string]any{"root": "data"})
+
+	node1Config := map[string]any{"method": "POST", "endpoint": "/api/deploy"}
+	execution1 := support.CreateCanvasNodeExecution(t, canvas.ID, node1, rootEvent.ID, rootEvent.ID)
+	require.NoError(t, database.Conn().Model(execution1).Update("configuration", datatypes.NewJSONType(node1Config)).Error)
+
+	node1Data := map[string]any{"result": "deployed"}
+	event1 := support.EmitCanvasEventForNodeWithData(t, canvas.ID, node1, "default", &execution1.ID, node1Data)
+
+	_ = support.CreateNextNodeExecution(t, canvas.ID, node2, rootEvent.ID, event1.ID, &execution1.ID)
+
+	builder := NewNodeConfigurationBuilder(database.Conn(), canvas.ID).
+		WithPreviousExecution(&execution1.ID).
+		WithRootEvent(&rootEvent.ID).
+		WithInput(map[string]any{node1: node1Data})
+
+	result, err := builder.Build(map[string]any{
+		"prev_method":   "{{ previous().config.method }}",
+		"prev_endpoint": "{{ previous().config.endpoint }}",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "POST", result["prev_method"])
+	assert.Equal(t, "/api/deploy", result["prev_endpoint"])
+}
+
+func Test_NodeConfigurationBuilder_Config_ExistingExpressionsStillWork(t *testing.T) {
+	r := support.Setup(t)
+	defer r.Close()
+
+	triggerNode := "trigger-1"
+	componentNode := "component-1"
+	targetNode := "target-1"
+	canvas, _ := support.CreateCanvas(
+		t,
+		r.Organization.ID,
+		r.User,
+		[]models.CanvasNode{
+			{
+				NodeID: triggerNode,
+				Name:   triggerNode,
+				Type:   models.NodeTypeTrigger,
+				Ref:    datatypes.NewJSONType(models.NodeRef{Trigger: &models.TriggerRef{Name: "start"}}),
+			},
+			{
+				NodeID: componentNode,
+				Name:   componentNode,
+				Type:   models.NodeTypeComponent,
+				Ref:    datatypes.NewJSONType(models.NodeRef{Component: &models.ComponentRef{Name: "noop"}}),
+			},
+			{
+				NodeID: targetNode,
+				Name:   targetNode,
+				Type:   models.NodeTypeComponent,
+				Ref:    datatypes.NewJSONType(models.NodeRef{Component: &models.ComponentRef{Name: "noop"}}),
+			},
+		},
+		[]models.Edge{
+			{SourceID: triggerNode, TargetID: componentNode, Channel: "default"},
+			{SourceID: componentNode, TargetID: targetNode, Channel: "default"},
+		},
+	)
+
+	rootEvent := support.EmitCanvasEventForNodeWithData(t, canvas.ID, triggerNode, "default", nil, map[string]any{"user": "alice"})
+
+	componentConfig := map[string]any{"url": "https://example.com"}
+	execution1 := support.CreateCanvasNodeExecution(t, canvas.ID, componentNode, rootEvent.ID, rootEvent.ID)
+	require.NoError(t, database.Conn().Model(execution1).Update("configuration", datatypes.NewJSONType(componentConfig)).Error)
+
+	outputData := map[string]any{"status": "ok", "code": 200}
+	event1 := support.EmitCanvasEventForNodeWithData(t, canvas.ID, componentNode, "default", &execution1.ID, outputData)
+
+	_ = support.CreateNextNodeExecution(t, canvas.ID, targetNode, rootEvent.ID, event1.ID, &execution1.ID)
+
+	builder := NewNodeConfigurationBuilder(database.Conn(), canvas.ID).
+		WithPreviousExecution(&execution1.ID).
+		WithRootEvent(&rootEvent.ID).
+		WithInput(map[string]any{componentNode: outputData})
+
+	// Existing expressions accessing output data should still work
+	result, err := builder.Build(map[string]any{
+		"status":      "{{ $[\"" + componentNode + "\"].status }}",
+		"root_user":   "{{ root().user }}",
+		"prev_status": "{{ previous().status }}",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "ok", result["status"])
+	assert.Equal(t, "alice", result["root_user"])
+	assert.Equal(t, "ok", result["prev_status"])
+}
+
+func Test_NodeConfigurationBuilder_Config_ViaPreviousDepthRootPath(t *testing.T) {
+	r := support.Setup(t)
+	defer r.Close()
+
+	node1 := "node-1"
+	node2 := "node-2"
+	node3 := "node-3"
+	canvas, _ := support.CreateCanvas(
+		t,
+		r.Organization.ID,
+		r.User,
+		[]models.CanvasNode{
+			{
+				NodeID: node1,
+				Type:   models.NodeTypeComponent,
+				Ref:    datatypes.NewJSONType(models.NodeRef{Component: &models.ComponentRef{Name: "noop"}}),
+			},
+			{
+				NodeID: node2,
+				Type:   models.NodeTypeComponent,
+				Ref:    datatypes.NewJSONType(models.NodeRef{Component: &models.ComponentRef{Name: "noop"}}),
+			},
+			{
+				NodeID: node3,
+				Type:   models.NodeTypeComponent,
+				Ref:    datatypes.NewJSONType(models.NodeRef{Component: &models.ComponentRef{Name: "noop"}}),
+			},
+		},
+		[]models.Edge{
+			{SourceID: node1, TargetID: node2, Channel: "default"},
+			{SourceID: node2, TargetID: node3, Channel: "default"},
+		},
+	)
+
+	rootEventData := map[string]any{"origin": "root"}
+	bootstrapRoot := support.EmitCanvasEventForNodeWithData(t, canvas.ID, node1, "default", nil, map[string]any{"bootstrap": true})
+	execution1 := support.CreateCanvasNodeExecution(t, canvas.ID, node1, bootstrapRoot.ID, bootstrapRoot.ID)
+	node1Config := map[string]any{"region": "us-east-1"}
+	require.NoError(t, database.Conn().Model(execution1).Update("configuration", datatypes.NewJSONType(node1Config)).Error)
+	rootEvent := support.EmitCanvasEventForNodeWithData(t, canvas.ID, node1, "default", &execution1.ID, rootEventData)
+	require.NoError(t, database.Conn().Model(execution1).Updates(map[string]any{"root_event_id": rootEvent.ID, "event_id": rootEvent.ID}).Error)
+
+	node2Data := map[string]any{"value": "node2"}
+	execution2 := support.CreateNextNodeExecution(t, canvas.ID, node2, rootEvent.ID, rootEvent.ID, &execution1.ID)
+	event2 := support.EmitCanvasEventForNodeWithData(t, canvas.ID, node2, "default", &execution2.ID, node2Data)
+
+	execution3 := support.CreateNextNodeExecution(t, canvas.ID, node3, rootEvent.ID, event2.ID, &execution2.ID)
+
+	builder := NewNodeConfigurationBuilder(database.Conn(), canvas.ID).
+		WithPreviousExecution(&execution3.ID).
+		WithRootEvent(&rootEvent.ID).
+		WithInput(map[string]any{node3: map[string]any{"value": "node3"}})
+
+	result, err := builder.Build(map[string]any{
+		"root_config_region": "{{ previous(3).config.region }}",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "us-east-1", result["root_config_region"])
+}
+
+func Test_NodeConfigurationBuilder_Config_DoesNotMutateInputPayload(t *testing.T) {
+	r := support.Setup(t)
+	defer r.Close()
+
+	triggerNode := "trigger-1"
+	componentNode := "component-1"
+	targetNode := "target-1"
+	canvas, _ := support.CreateCanvas(
+		t,
+		r.Organization.ID,
+		r.User,
+		[]models.CanvasNode{
+			{
+				NodeID: triggerNode,
+				Name:   triggerNode,
+				Type:   models.NodeTypeTrigger,
+				Ref:    datatypes.NewJSONType(models.NodeRef{Trigger: &models.TriggerRef{Name: "start"}}),
+			},
+			{
+				NodeID: componentNode,
+				Name:   componentNode,
+				Type:   models.NodeTypeComponent,
+				Ref:    datatypes.NewJSONType(models.NodeRef{Component: &models.ComponentRef{Name: "noop"}}),
+			},
+			{
+				NodeID: targetNode,
+				Name:   targetNode,
+				Type:   models.NodeTypeComponent,
+				Ref:    datatypes.NewJSONType(models.NodeRef{Component: &models.ComponentRef{Name: "noop"}}),
+			},
+		},
+		[]models.Edge{
+			{SourceID: triggerNode, TargetID: componentNode, Channel: "default"},
+			{SourceID: componentNode, TargetID: targetNode, Channel: "default"},
+		},
+	)
+
+	rootEvent := support.EmitCanvasEventForNodeWithData(t, canvas.ID, triggerNode, "default", nil, map[string]any{"user": "alice"})
+
+	componentConfig := map[string]any{"url": "https://example.com"}
+	execution1 := support.CreateCanvasNodeExecution(t, canvas.ID, componentNode, rootEvent.ID, rootEvent.ID)
+	require.NoError(t, database.Conn().Model(execution1).Update("configuration", datatypes.NewJSONType(componentConfig)).Error)
+
+	inputPayload := map[string]any{"status": "ok"}
+	input := map[string]any{componentNode: inputPayload}
+
+	builder := NewNodeConfigurationBuilder(database.Conn(), canvas.ID).
+		WithPreviousExecution(&execution1.ID).
+		WithRootEvent(&rootEvent.ID).
+		WithInput(input)
+
+	result, err := builder.Build(map[string]any{
+		"upstream_url": "{{ $[\"" + componentNode + "\"].config.url }}",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "https://example.com", result["upstream_url"])
+	assert.Equal(t, map[string]any{"status": "ok"}, inputPayload)
+}
+
+func Test_NodeConfigurationBuilder_Config_DoesNotOverwriteExistingConfigKey(t *testing.T) {
+	r := support.Setup(t)
+	defer r.Close()
+
+	triggerNode := "trigger-1"
+	componentNode := "component-1"
+	targetNode := "target-1"
+	canvas, _ := support.CreateCanvas(
+		t,
+		r.Organization.ID,
+		r.User,
+		[]models.CanvasNode{
+			{
+				NodeID: triggerNode,
+				Name:   triggerNode,
+				Type:   models.NodeTypeTrigger,
+				Ref:    datatypes.NewJSONType(models.NodeRef{Trigger: &models.TriggerRef{Name: "start"}}),
+			},
+			{
+				NodeID: componentNode,
+				Name:   componentNode,
+				Type:   models.NodeTypeComponent,
+				Ref:    datatypes.NewJSONType(models.NodeRef{Component: &models.ComponentRef{Name: "noop"}}),
+			},
+			{
+				NodeID: targetNode,
+				Name:   targetNode,
+				Type:   models.NodeTypeComponent,
+				Ref:    datatypes.NewJSONType(models.NodeRef{Component: &models.ComponentRef{Name: "noop"}}),
+			},
+		},
+		[]models.Edge{
+			{SourceID: triggerNode, TargetID: componentNode, Channel: "default"},
+			{SourceID: componentNode, TargetID: targetNode, Channel: "default"},
+		},
+	)
+
+	rootEvent := support.EmitCanvasEventForNodeWithData(t, canvas.ID, triggerNode, "default", nil, map[string]any{"user": "alice"})
+
+	componentConfig := map[string]any{"url": "https://internal.example.com"}
+	execution1 := support.CreateCanvasNodeExecution(t, canvas.ID, componentNode, rootEvent.ID, rootEvent.ID)
+	require.NoError(t, database.Conn().Model(execution1).Update("configuration", datatypes.NewJSONType(componentConfig)).Error)
+
+	outputWithConfig := map[string]any{
+		"status": "ok",
+		"config": map[string]any{"api_url": "https://api.example.com", "version": "v2"},
+	}
+	event1 := support.EmitCanvasEventForNodeWithData(t, canvas.ID, componentNode, "default", &execution1.ID, outputWithConfig)
+
+	_ = support.CreateNextNodeExecution(t, canvas.ID, targetNode, rootEvent.ID, event1.ID, &execution1.ID)
+
+	builder := NewNodeConfigurationBuilder(database.Conn(), canvas.ID).
+		WithPreviousExecution(&execution1.ID).
+		WithRootEvent(&rootEvent.ID).
+		WithInput(map[string]any{componentNode: outputWithConfig})
+
+	result, err := builder.Build(map[string]any{
+		"api_url":       "{{ $[\"" + componentNode + "\"].config.api_url }}",
+		"prev_api_url":  "{{ previous().config.api_url }}",
+		"output_status": "{{ $[\"" + componentNode + "\"].status }}",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "https://api.example.com", result["api_url"])
+	assert.Equal(t, "https://api.example.com", result["prev_api_url"])
+	assert.Equal(t, "ok", result["output_status"])
+}
+
+func Test_NodeConfigurationBuilder_ForEachBranchPayload(t *testing.T) {
+	r := support.Setup(t)
+	defer r.Close()
+
+	triggerNode := "start"
+	forEachNode := "forEach"
+	waitNode := "wait"
+	displayNode := "display"
+
+	canvas, _ := support.CreateCanvas(
+		t,
+		r.Organization.ID,
+		r.User,
+		[]models.CanvasNode{
+			{
+				NodeID: triggerNode,
+				Name:   triggerNode,
+				Type:   models.NodeTypeTrigger,
+				Ref:    datatypes.NewJSONType(models.NodeRef{Trigger: &models.TriggerRef{Name: "start"}}),
+			},
+			{
+				NodeID: forEachNode,
+				Name:   forEachNode,
+				Type:   models.NodeTypeComponent,
+				Ref:    datatypes.NewJSONType(models.NodeRef{Component: &models.ComponentRef{Name: "forEach"}}),
+			},
+			{
+				NodeID: waitNode,
+				Name:   waitNode,
+				Type:   models.NodeTypeComponent,
+				Ref:    datatypes.NewJSONType(models.NodeRef{Component: &models.ComponentRef{Name: "wait"}}),
+			},
+			{
+				NodeID: displayNode,
+				Name:   displayNode,
+				Type:   models.NodeTypeComponent,
+				Ref:    datatypes.NewJSONType(models.NodeRef{Component: &models.ComponentRef{Name: "display"}}),
+			},
+		},
+		[]models.Edge{
+			{SourceID: triggerNode, TargetID: forEachNode, Channel: "default"},
+			{SourceID: forEachNode, TargetID: waitNode, Channel: "item"},
+			{SourceID: waitNode, TargetID: displayNode, Channel: "default"},
+		},
+	)
+
+	rootEvent := support.EmitCanvasEventForNodeWithData(
+		t,
+		canvas.ID,
+		triggerNode,
+		"default",
+		nil,
+		map[string]any{"items": []any{"a", "b", "c"}},
+	)
+
+	forEachExecution := support.CreateCanvasNodeExecution(t, canvas.ID, forEachNode, rootEvent.ID, rootEvent.ID)
+
+	now := time.Now()
+	emitItem := func(item string, index int) *models.CanvasEvent {
+		return support.EmitCanvasEventForNodeWithData(
+			t,
+			canvas.ID,
+			forEachNode,
+			"item",
+			&forEachExecution.ID,
+			map[string]any{"item": item, "index": index, "totalCount": 3},
+		)
+	}
+
+	_ = emitItem("a", 0)
+	branchEvent := emitItem("b", 1)
+	_ = emitItem("c", 2)
+
+	require.NoError(t, database.Conn().Model(&models.CanvasEvent{}).
+		Where("execution_id = ?", forEachExecution.ID).
+		Update("created_at", now).Error)
+
+	waitInput := map[string]any{"item": "b", "index": 1, "totalCount": 3}
+	waitExecution := support.CreateNextNodeExecution(t, canvas.ID, waitNode, rootEvent.ID, branchEvent.ID, &forEachExecution.ID)
+
+	builder := NewNodeConfigurationBuilder(database.Conn(), canvas.ID).
+		WithPreviousExecution(&waitExecution.ID).
+		WithRootEvent(&rootEvent.ID).
+		WithInput(map[string]any{waitNode: waitInput})
+
+	result, err := builder.Build(map[string]any{
+		"item": "{{ $[\"" + forEachNode + "\"].item }}",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "b", result["item"])
+}

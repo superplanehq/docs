@@ -1,0 +1,327 @@
+package pagerduty
+
+import (
+	"io"
+	"net/http"
+	"strings"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/superplanehq/superplane/pkg/core"
+	"github.com/superplanehq/superplane/test/support/contexts"
+)
+
+func Test__Pagerduty__Sync(t *testing.T) {
+	p := &PagerDuty{}
+
+	t.Run("no region -> error", func(t *testing.T) {
+		integrationCtx := &contexts.IntegrationContext{
+			Configuration: map[string]any{
+				"region": "",
+			},
+		}
+
+		err := p.Sync(core.SyncContext{
+			Configuration: integrationCtx.Configuration,
+			Integration:   integrationCtx,
+		})
+
+		require.ErrorContains(t, err, "region is required")
+	})
+
+	t.Run("no subdomain -> error", func(t *testing.T) {
+		integrationCtx := &contexts.IntegrationContext{
+			Configuration: map[string]any{
+				"region": "us",
+			},
+		}
+
+		err := p.Sync(core.SyncContext{
+			Configuration: integrationCtx.Configuration,
+			Integration:   integrationCtx,
+		})
+
+		require.ErrorContains(t, err, "subdomain is required")
+	})
+
+	t.Run("no authType -> error", func(t *testing.T) {
+		integrationCtx := &contexts.IntegrationContext{
+			Configuration: map[string]any{
+				"region":    "us",
+				"subdomain": "example",
+			},
+		}
+
+		err := p.Sync(core.SyncContext{
+			Configuration: integrationCtx.Configuration,
+			Integration:   integrationCtx,
+		})
+
+		require.ErrorContains(t, err, "authType is required")
+	})
+
+	t.Run("invalid authType -> error", func(t *testing.T) {
+		integrationCtx := &contexts.IntegrationContext{
+			Configuration: map[string]any{
+				"region":    "us",
+				"subdomain": "example",
+				"authType":  "nope",
+			},
+		}
+
+		err := p.Sync(core.SyncContext{
+			Configuration: integrationCtx.Configuration,
+			Integration:   integrationCtx,
+		})
+
+		require.ErrorContains(t, err, "authType nope is not supported")
+	})
+
+	t.Run("api token -> successful service list moves app to ready and sets metadata", func(t *testing.T) {
+		httpContext := &contexts.HTTPContext{
+			Responses: []*http.Response{
+				{
+					StatusCode: http.StatusOK,
+					Body: io.NopCloser(strings.NewReader(`
+						{
+							"services": [
+								{"id": "PX1234567890", "name": "Test Service"}
+							]
+						}
+					`)),
+				},
+			},
+		}
+
+		integrationCtx := &contexts.IntegrationContext{
+			Configuration: map[string]any{
+				"region":    "us",
+				"subdomain": "example",
+				"authType":  AuthTypeAPIToken,
+				"apiToken":  "token123",
+			},
+		}
+
+		err := p.Sync(core.SyncContext{
+			Configuration: integrationCtx.Configuration,
+			HTTP:          httpContext,
+			Integration:   integrationCtx,
+		})
+
+		require.NoError(t, err)
+		assert.Equal(t, "ready", integrationCtx.State)
+		require.Len(t, httpContext.Requests, 1)
+		assert.Equal(t, "https://api.pagerduty.com/services", httpContext.Requests[0].URL.String())
+
+		metadata := integrationCtx.Metadata.(Metadata)
+		assert.Len(t, metadata.Services, 1)
+		assert.Equal(t, "PX1234567890", metadata.Services[0].ID)
+		assert.Equal(t, "Test Service", metadata.Services[0].Name)
+	})
+
+	t.Run("api token -> failed service list returns error", func(t *testing.T) {
+		httpContext := &contexts.HTTPContext{
+			Responses: []*http.Response{
+				{
+					StatusCode: http.StatusUnauthorized,
+					Body:       io.NopCloser(strings.NewReader(`{}`)),
+				},
+			},
+		}
+
+		integrationCtx := &contexts.IntegrationContext{
+			Configuration: map[string]any{
+				"region":    "us",
+				"subdomain": "example",
+				"authType":  AuthTypeAPIToken,
+				"apiToken":  "token123",
+			},
+		}
+
+		err := p.Sync(core.SyncContext{
+			Configuration: integrationCtx.Configuration,
+			HTTP:          httpContext,
+			Integration:   integrationCtx,
+		})
+
+		require.Error(t, err)
+		assert.NotEqual(t, "ready", integrationCtx.State)
+		require.Len(t, httpContext.Requests, 1)
+		assert.Equal(t, "https://api.pagerduty.com/services", httpContext.Requests[0].URL.String())
+		assert.Nil(t, integrationCtx.Metadata)
+	})
+
+	t.Run("app oauth -> clientId required", func(t *testing.T) {
+		integrationCtx := &contexts.IntegrationContext{
+			Configuration: map[string]any{
+				"region":    "us",
+				"subdomain": "example",
+				"authType":  AuthTypeAppOAuth,
+			},
+		}
+
+		err := p.Sync(core.SyncContext{
+			Configuration: integrationCtx.Configuration,
+			Integration:   integrationCtx,
+		})
+
+		require.ErrorContains(t, err, "clientId is required")
+	})
+
+	t.Run("app oauth -> clientSecret required", func(t *testing.T) {
+		clientID := "client-123"
+		integrationCtx := &contexts.IntegrationContext{
+			Configuration: map[string]any{
+				"region":    "us",
+				"subdomain": "example",
+				"authType":  AuthTypeAppOAuth,
+				"clientId":  clientID,
+			},
+		}
+
+		err := p.Sync(core.SyncContext{
+			Configuration: integrationCtx.Configuration,
+			Integration:   integrationCtx,
+		})
+
+		require.ErrorContains(t, err, "config not found: clientSecret")
+	})
+
+	t.Run("app oauth -> token request failure returns error", func(t *testing.T) {
+		clientID := "client-123"
+		httpContext := &contexts.HTTPContext{
+			Responses: []*http.Response{
+				{
+					StatusCode: http.StatusBadGateway,
+					Body:       io.NopCloser(strings.NewReader(`{}`)),
+				},
+			},
+		}
+
+		integrationCtx := &contexts.IntegrationContext{
+			Configuration: map[string]any{
+				"region":       "us",
+				"subdomain":    "example",
+				"authType":     AuthTypeAppOAuth,
+				"clientId":     clientID,
+				"clientSecret": "secret-123",
+			},
+		}
+
+		err := p.Sync(core.SyncContext{
+			Configuration: integrationCtx.Configuration,
+			HTTP:          httpContext,
+			Integration:   integrationCtx,
+		})
+
+		require.ErrorContains(t, err, "error generating access token for app: request got 502")
+		require.Len(t, httpContext.Requests, 1)
+		assert.Equal(t, "https://identity.pagerduty.com/oauth/token", httpContext.Requests[0].URL.String())
+	})
+
+	t.Run("app oauth -> service list failure returns error", func(t *testing.T) {
+		clientID := "client-123"
+		httpContext := &contexts.HTTPContext{
+			Responses: []*http.Response{
+				{
+					StatusCode: http.StatusOK,
+					Body: io.NopCloser(strings.NewReader(`
+						{
+							"access_token": "access-123",
+							"token_type": "bearer",
+							"expires_in": 3600,
+							"scope": "services.read"
+						}
+					`)),
+				},
+				{
+					StatusCode: http.StatusUnauthorized,
+					Body:       io.NopCloser(strings.NewReader(`{}`)),
+				},
+			},
+		}
+
+		integrationCtx := &contexts.IntegrationContext{
+			Configuration: map[string]any{
+				"region":       "us",
+				"subdomain":    "example",
+				"authType":     AuthTypeAppOAuth,
+				"clientId":     clientID,
+				"clientSecret": "secret-123",
+			},
+		}
+
+		err := p.Sync(core.SyncContext{
+			Configuration: integrationCtx.Configuration,
+			HTTP:          httpContext,
+			Integration:   integrationCtx,
+		})
+
+		require.Error(t, err)
+		assert.NotEqual(t, "ready", integrationCtx.State)
+		assert.Nil(t, integrationCtx.Metadata)
+		require.Len(t, httpContext.Requests, 2)
+		assert.Equal(t, "https://identity.pagerduty.com/oauth/token", httpContext.Requests[0].URL.String())
+		assert.Equal(t, "https://api.pagerduty.com/services", httpContext.Requests[1].URL.String())
+	})
+
+	t.Run("app oauth -> success creates access token, moves to ready, and sets metadata", func(t *testing.T) {
+		clientID := "client-123"
+		httpContext := &contexts.HTTPContext{
+			Responses: []*http.Response{
+				{
+					StatusCode: http.StatusOK,
+					Body: io.NopCloser(strings.NewReader(`
+						{
+							"access_token": "access-123",
+							"token_type": "bearer",
+							"expires_in": 3600,
+							"scope": "services.read"
+						}
+					`)),
+				},
+				{
+					StatusCode: http.StatusOK,
+					Body: io.NopCloser(strings.NewReader(`
+						{
+							"services": [
+								{"id": "PX1234567890", "name": "Test Service"}
+							]
+						}
+					`)),
+				},
+			},
+		}
+
+		integrationCtx := &contexts.IntegrationContext{
+			Configuration: map[string]any{
+				"region":       "us",
+				"subdomain":    "example",
+				"authType":     AuthTypeAppOAuth,
+				"clientId":     clientID,
+				"clientSecret": "secret-123",
+			},
+		}
+
+		err := p.Sync(core.SyncContext{
+			Configuration: integrationCtx.Configuration,
+			HTTP:          httpContext,
+			Integration:   integrationCtx,
+		})
+
+		require.NoError(t, err)
+		assert.Equal(t, "ready", integrationCtx.State)
+		require.Len(t, httpContext.Requests, 2)
+		assert.Equal(t, "https://identity.pagerduty.com/oauth/token", httpContext.Requests[0].URL.String())
+		assert.Equal(t, "https://api.pagerduty.com/services", httpContext.Requests[1].URL.String())
+		secret, err := integrationCtx.Secrets().Get(AppAccessToken)
+		require.NoError(t, err)
+		assert.Equal(t, "access-123", secret)
+
+		metadata := integrationCtx.Metadata.(Metadata)
+		assert.Len(t, metadata.Services, 1)
+		assert.Equal(t, "PX1234567890", metadata.Services[0].ID)
+		assert.Equal(t, "Test Service", metadata.Services[0].Name)
+	})
+}

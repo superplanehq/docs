@@ -1,0 +1,342 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
+import { useCanvasMemoryEntries, useInfiniteCanvasRuns } from "@/hooks/useCanvasData";
+
+import { resolveConsoleNode, useConsoleContext, type ConsoleContextValue } from "../ConsoleContext";
+import { flattenMemoryEntries } from "./memoryRow";
+import { collectRunRootEventIdsFromPages, useRunsDataSourceResult } from "./runsDataSourceResult";
+import { makeRunsFlightKey } from "./runsWidgetQuery";
+import type { WidgetDataResult, WidgetDataSource, WidgetRender } from "./types";
+
+export type { WidgetDataResult };
+import {
+  LOAD_MORE_STEP,
+  computeDisplaySlice,
+  computeEffectiveLimit,
+  computeInitialDisplayCount,
+  computeTrendCollectLimit,
+  computeWidgetHasMore,
+  isWidgetQueryLoading,
+  useEagerInfinitePagination,
+} from "./widgetPagination";
+import { buildNodeNameMap, collectExecutionRows } from "./widgetRowCollection";
+
+// Re-export the row-collection and pagination helpers from this module so the
+// existing spec imports (and any external callers) keep working after the
+// split. Keep this section narrow — new helpers should be added to their
+// home modules and imported from there directly.
+export {
+  DEFAULT_AGGREGATE_LIMIT,
+  INITIAL_EAGER_ROWS,
+  LOAD_MORE_STEP,
+  WIDGET_MAX_EAGER_PAGES,
+  computeDisplaySlice,
+  computeEffectiveLimit,
+  computeInitialDisplayCount,
+  computeRunsDataSourceLoading,
+  computeTrendCollectLimit,
+  computeWidgetHasMore,
+  isWidgetQueryLoading,
+  shouldFetchNextWidgetPage,
+  splitDisplayRowsWithTrendPeek,
+} from "./widgetPagination";
+export {
+  buildDollarNodes,
+  buildNodeNameMap,
+  collectExecutionRows,
+  collectRunRows,
+  lastOutputData,
+} from "./widgetRowCollection";
+
+/**
+ * Reactively fetch the dataset for a widget based on its declared data source.
+ * Returns a uniform `{ rows, isLoading, error }` so renderers don't have to
+ * deal with the underlying query specifics.
+ *
+ * - `memory` reads from the canvas memory entries and filters to the requested
+ *   namespace. When `fieldPath` is set, rows are flat-mapped to the value at
+ *   that path (lists are spread, scalars become single-row entries).
+ * - `runs` reads from the canvas runs infinite query and exposes the API
+ *   totalCount, which makes Number panels report the canvas run count without
+ *   depending on how many pages have been loaded.
+ * - `executions` reads from the infinite canvas events query and flattens
+ *   their `executions[]` arrays. When a `node` reference is set, only matching
+ *   executions are returned.
+ *
+ * Both `runs` and `executions` eagerly fetch pages until the per-widget
+ * display window is satisfied or `WIDGET_MAX_EAGER_PAGES` is reached. Without
+ * this, the runs widget would silently piggyback on whichever other consumer
+ * (e.g. the canvas Runs sidebar) happened to paginate the shared infinite-
+ * query cache, so the visible row count would jump non-monotonically.
+ *
+ * `needsNodeOutputs` controls the `runs` per-node side-load. Resolving
+ * `$["node"].outputs` requires a `ListEventExecutions` call per visible run
+ * (the runs API only returns lightweight execution refs). When the render
+ * never references `$`, callers pass `false` so we skip those calls entirely
+ * and, crucially, don't gate the panel's loading state on them — otherwise a
+ * count KPI that only reads the API `totalCount` would spin until every
+ * side-load resolved even though it never reads per-node data. Defaults to
+ * `true` so a caller that forgets to pass it keeps the safe (fully-loaded)
+ * behavior.
+ *
+ * `progressive` opts a caller into the per-widget pagination UX: the widget
+ * starts at `INITIAL_EAGER_ROWS` and grows via `loadMore()` (button or scroll)
+ * up to the configured `limit` (or unbounded when blank). Charts and numbers
+ * stay non-progressive — they always aggregate against the full configured
+ * limit at once, since partial aggregates would flash incorrect KPIs.
+ *
+ * `skipEagerFill` short-circuits the runs/executions eager pagination for
+ * callers that only consume the API `totalCount` (see
+ * {@link runsRenderIsTotalCountOnly}). Page 1 is still fetched by the
+ * underlying infinite query and delivers `totalCount`; we just skip
+ * dragging the shared cache to the full `limit` when no rows are used.
+ */
+export function useWidgetData(
+  canvasId: string,
+  dataSource: WidgetDataSource,
+  needsNodeOutputs: boolean = true,
+  progressive: boolean = false,
+  skipEagerFill: boolean = false,
+): WidgetDataResult {
+  const ctx = useConsoleContext();
+  const rawLimit = dataSource.kind === "memory" ? undefined : dataSource.limit;
+  const effectiveLimit = computeEffectiveLimit(rawLimit, progressive);
+  const initialFillTarget = computeInitialDisplayCount(effectiveLimit, progressive);
+
+  const { displayCount, displaySlice, loadMore } = useDisplayWindow({
+    dataSourceKind: dataSource.kind,
+    progressive,
+    effectiveLimit,
+  });
+
+  const memoryResult = useMemoryDataSourceResult(canvasId, dataSource);
+  const executionsResult = useExecutionsDataSourceResult({
+    canvasId,
+    dataSource,
+    ctx,
+    progressive,
+    displayCount,
+    displaySlice,
+    effectiveLimit,
+    initialFillTarget,
+    loadMore,
+    skipEagerFill,
+  });
+  const runsResult = useRunsDataSourceResult({
+    canvasId,
+    dataSource,
+    ctx,
+    needsNodeOutputs,
+    progressive,
+    displayCount,
+    displaySlice,
+    effectiveLimit,
+    initialFillTarget,
+    loadMore,
+    skipEagerFill,
+  });
+
+  if (dataSource.kind === "memory") return memoryResult;
+  if (dataSource.kind === "runs") return runsResult;
+  return executionsResult;
+}
+
+/**
+ * Matches a canvas-style per-node reference (`$["node"]` / `$['node']`,
+ * with optional whitespace before the bracket) inside a render config. We
+ * key off the `$[` shape rather than a bare `$` so currency/label literals
+ * like `prefix: "R$"` or `label: "Total $"` don't force the per-node
+ * side-load.
+ */
+const RUN_NODE_REF_RE = /\$\s*\[/;
+
+/**
+ * Whether a widget render reads per-node run outputs via the `$["node"]`
+ * syntax — in a literal field path or inside a `{{ }}` CEL template. Only the
+ * `runs` data source side-loads per-node executions to populate the row's `$`
+ * map, so when the render never references `$` the caller can pass the result
+ * as `needsNodeOutputs={false}` to skip the `ListEventExecutions` batch and
+ * avoid gating the panel's loading state on it. Scans the whole render via
+ * `JSON.stringify` so every field/expression-bearing string (columns,
+ * filters, sort, series, sparkline, row actions, …) is covered without
+ * enumerating each render shape.
+ */
+export function renderNeedsRunNodeOutputs(render: WidgetRender | undefined): boolean {
+  if (!render) return false;
+  return RUN_NODE_REF_RE.test(JSON.stringify(render));
+}
+
+/**
+ * Per-widget display window state. Tracks the current visible row count,
+ * resets it on a meaningful "widget identity" change (data source kind or
+ * `progressive` toggle), and exposes a `loadMore()` that bumps the count
+ * up to the configured limit. Limit edits intentionally do not reset the
+ * progressive window — the slice clamps via `computeDisplaySlice` and we'd
+ * rather not yank the user back to the first page just because they bumped
+ * the limit input.
+ *
+ * Non-progressive callers (chart, number) have no "Load more" UX, so they
+ * always render against the full `effectiveLimit`. We deliberately bypass
+ * the `displayCount` state for them: the state only resets on an identity
+ * change, so reusing it would clamp the slice to a stale (smaller) value
+ * when the author raises the limit live — making the panel silently ignore
+ * the increase until it remounts.
+ */
+export function useDisplayWindow({
+  dataSourceKind,
+  progressive,
+  effectiveLimit,
+}: {
+  dataSourceKind: WidgetDataSource["kind"];
+  progressive: boolean;
+  effectiveLimit: number;
+}) {
+  const [displayCount, setDisplayCount] = useState(() => computeInitialDisplayCount(effectiveLimit, progressive));
+  const lastIdentityRef = useRef<{ kind: WidgetDataSource["kind"]; progressive: boolean }>({
+    kind: dataSourceKind,
+    progressive,
+  });
+  useEffect(() => {
+    const last = lastIdentityRef.current;
+    if (last.kind === dataSourceKind && last.progressive === progressive) return;
+    lastIdentityRef.current = { kind: dataSourceKind, progressive };
+    setDisplayCount(computeInitialDisplayCount(effectiveLimit, progressive));
+  }, [dataSourceKind, progressive, effectiveLimit]);
+
+  const loadMore = useCallback(() => {
+    if (!progressive) return;
+    setDisplayCount((c) => {
+      const next = c + LOAD_MORE_STEP;
+      return Number.isFinite(effectiveLimit) ? Math.min(next, effectiveLimit) : next;
+    });
+  }, [progressive, effectiveLimit]);
+
+  if (!progressive) {
+    return { displayCount: effectiveLimit, displaySlice: effectiveLimit, loadMore };
+  }
+
+  return {
+    displayCount,
+    displaySlice: computeDisplaySlice(displayCount, effectiveLimit),
+    loadMore,
+  };
+}
+
+function useMemoryDataSourceResult(canvasId: string, dataSource: WidgetDataSource): WidgetDataResult {
+  const enabled = dataSource.kind === "memory";
+  const query = useCanvasMemoryEntries(canvasId, enabled);
+  const rows = useMemo(() => {
+    if (dataSource.kind !== "memory") return [];
+    return flattenMemoryEntries(query.data ?? [], dataSource.namespace, dataSource.fieldPath);
+  }, [dataSource, query.data]);
+  return { rows, isLoading: query.isLoading, error: errorMessage(query.error) };
+}
+
+function useExecutionsDataSourceResult({
+  canvasId,
+  dataSource,
+  ctx,
+  progressive,
+  displayCount,
+  displaySlice,
+  effectiveLimit,
+  initialFillTarget,
+  loadMore,
+  skipEagerFill,
+}: {
+  canvasId: string;
+  dataSource: WidgetDataSource;
+  ctx: ConsoleContextValue | undefined;
+  progressive: boolean;
+  displayCount: number;
+  displaySlice: number;
+  effectiveLimit: number;
+  initialFillTarget: number;
+  loadMore: () => void;
+  skipEagerFill: boolean;
+}): WidgetDataResult {
+  const enabled = dataSource.kind === "executions";
+  const query = useInfiniteCanvasRuns(canvasId, {}, enabled);
+  // Memoize `pages` so empty-array fallback identity stays stable across
+  // renders — keeps the downstream `useMemo` deps from busting every cycle.
+  const pages = useMemo(() => query.data?.pages ?? [], [query.data]);
+  const pageCount = pages.length;
+
+  const targetNodeId = useMemo(() => {
+    if (dataSource.kind !== "executions" || !dataSource.node) return undefined;
+    return resolveConsoleNode(ctx, dataSource.node)?.node.id;
+  }, [dataSource, ctx]);
+
+  // Count only the executions that survive the node filter so the eager
+  // fill target and the "Load more" affordance track the *visible* rows.
+  // Counting every loaded execution would otherwise show a "Load more"
+  // button that reveals nothing for a node with sparse executions.
+  const loadedRowCount = useMemo(() => {
+    if (!enabled) return 0;
+    let count = 0;
+    for (const page of pages) {
+      for (const run of page?.runs ?? []) {
+        for (const exec of run.executions ?? []) {
+          if (targetNodeId && exec.nodeId !== targetNodeId) continue;
+          count++;
+        }
+      }
+    }
+    return count;
+  }, [enabled, pages, targetNodeId]);
+
+  const executionsFlightKey = useMemo(() => makeRunsFlightKey(canvasId, {}), [canvasId]);
+  useEagerInfinitePagination({
+    enabled: enabled && !skipEagerFill,
+    fillTarget: displaySlice,
+    loadedRowCount,
+    pageCount,
+    hasNextPage: query.hasNextPage,
+    isFetchingNextPage: query.isFetchingNextPage,
+    isFetching: query.isFetching,
+    isError: query.isError,
+    isFetchNextPageError: query.isFetchNextPageError,
+    fetchNextPage: query.fetchNextPage,
+    flightKey: executionsFlightKey,
+  });
+
+  const rows = useMemo(() => {
+    if (dataSource.kind !== "executions") return [];
+    const nodeNameById = buildNodeNameMap(ctx?.nodes);
+    const collectLimit = progressive
+      ? computeTrendCollectLimit(displaySlice, loadedRowCount, effectiveLimit)
+      : displaySlice;
+    return collectExecutionRows(pages, targetNodeId, nodeNameById, collectLimit);
+  }, [dataSource, pages, ctx, targetNodeId, displaySlice, loadedRowCount, progressive, effectiveLimit]);
+
+  const isLoading = isWidgetQueryLoading({
+    queryIsLoading: query.isLoading,
+    enabled,
+    hasNextPage: query.hasNextPage,
+    loadedRowCount,
+    fillTarget: initialFillTarget,
+    pageCount,
+    isFetchingNextPage: query.isFetchingNextPage,
+    isFetching: query.isFetching,
+  });
+
+  const hasMore = computeWidgetHasMore({
+    progressive,
+    displayCount,
+    effectiveLimit,
+    loadedRowCount,
+    hasNextPage: query.hasNextPage,
+    pageCount,
+  });
+
+  const isFetchingMore = enabled && query.isFetchingNextPage && !isLoading && hasMore;
+  const paginationFields = progressive ? { hasMore, isFetchingMore, loadMore, displayCount: displaySlice } : {};
+  return { rows, isLoading, error: errorMessage(query.error), ...paginationFields };
+}
+
+// Specs import this from `./useWidgetData`; keep the re-export stable.
+export { collectRunRootEventIdsFromPages };
+
+function errorMessage(error: unknown): string | undefined {
+  return error ? String(error) : undefined;
+}

@@ -1,0 +1,30 @@
+import type { ConfigurationField } from "../../api-client";
+
+export interface ValidationError {
+  field: string;
+  message: string;
+  type: "required" | "validation_rule" | "format";
+}
+
+export interface FieldRendererProps {
+  field: ConfigurationField;
+  value: unknown;
+  onChange: (value: unknown) => void;
+  onValuesChange?: (patch: Record<string, unknown>) => void;
+  allValues?: Record<string, unknown>;
+  integrationId?: string;
+  organizationId?: string;
+  factoryId?: string;
+  hasError?: boolean;
+  validationErrors?: ValidationError[] | Set<string>;
+  fieldPath?: string;
+  autocompleteExampleObj?: Record<string, unknown> | null;
+  allowExpressions?: boolean;
+  readOnly?: boolean;
+  excludedSuggestions?: string[];
+  valuePreviewLabel?: string;
+  expressionPreviewContext?: Record<string, unknown> | null;
+  expressionErrorMessage?: string;
+  expressionTemplateValue?: unknown;
+  triggerClassName?: string;
+}

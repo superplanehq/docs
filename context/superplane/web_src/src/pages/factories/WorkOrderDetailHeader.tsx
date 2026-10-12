@@ -1,0 +1,113 @@
+import type { FactoriesWorkOrderResult, FactoriesWorkOrderState } from "@/api-client";
+import { Button } from "@/components/ui/button";
+import { PermissionTooltip } from "@/components/PermissionGate";
+import { Ellipsis } from "lucide-react";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/ui/dropdownMenu";
+import { CopyLinkButton } from "./CopyLinkButton";
+import { WorkspacePageHeader } from "./layout/WorkspacePageHeader";
+import {
+  applyWorkOrderStatusAction,
+  buildWorkOrderStatusActions,
+  type WorkOrderStatusActionKind,
+} from "./lib/workOrderStatusActions";
+import type { WorkOrderDisplayStatus } from "./lib/workOrderProgress";
+
+interface WorkOrderDetailHeaderProps {
+  orderTitle: string;
+  /** Short identifier (e.g. `SP-42`). Rendered as a kicker above the title. */
+  orderIdentifier?: string;
+  /** Back link target (workspace board). Omit in the card dialog. */
+  backHref?: string;
+  /** Back link label. Defaults to Workspace. */
+  backLabel?: string;
+  displayStatus: WorkOrderDisplayStatus;
+  isOpen: boolean;
+  isDispatchable: boolean;
+  isClosed: boolean;
+  canClose: boolean;
+  canManage: boolean;
+  isCompleting: boolean;
+  isRejecting: boolean;
+  isClosing: boolean;
+  isUpdatingStatus: boolean;
+  onClose: (result: FactoriesWorkOrderResult) => void;
+  onStatusChange: (state: FactoriesWorkOrderState, result?: FactoriesWorkOrderResult) => Promise<void>;
+  onSendToBacklog?: () => void;
+  className?: string;
+}
+
+export function WorkOrderDetailHeader(props: WorkOrderDetailHeaderProps) {
+  return (
+    <WorkspacePageHeader
+      className={props.className}
+      variant="entity"
+      backHref={props.backHref}
+      backLabel={props.backHref ? (props.backLabel ?? "Workspace") : undefined}
+      backTestId="work-order-detail-back"
+      kicker={props.orderIdentifier}
+      title={props.orderTitle}
+      actions={
+        <>
+          <CopyLinkButton
+            className="size-7 rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+            iconClassName="size-3.5"
+          />
+          <HeaderOverflowMenu {...props} />
+        </>
+      }
+    />
+  );
+}
+
+const HEADER_ACTION_TEST_ID: Record<WorkOrderStatusActionKind, string> = {
+  complete: "work-order-complete-button",
+  reject: "work-order-reject-button",
+  "reject-draft": "work-order-reject-draft-button",
+  reopen: "work-order-reopen-open-button",
+  "send-to-backlog": "work-order-send-to-backlog-button",
+};
+
+function HeaderOverflowMenu(props: WorkOrderDetailHeaderProps) {
+  const actions = buildWorkOrderStatusActions(props);
+  if (actions.length === 0) {
+    return null;
+  }
+
+  const disabled = props.isClosing || props.isUpdatingStatus || props.isCompleting || props.isRejecting;
+
+  return (
+    <DropdownMenu>
+      <PermissionTooltip
+        allowed={props.canClose || props.canManage}
+        message="You don't have permission to manage this task."
+      >
+        <DropdownMenuTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+            className="text-muted-foreground hover:bg-accent hover:text-foreground"
+            disabled={disabled}
+            aria-label="More actions"
+            data-testid="work-order-actions-button"
+          >
+            <Ellipsis className="size-3.5" aria-hidden />
+          </Button>
+        </DropdownMenuTrigger>
+      </PermissionTooltip>
+
+      <DropdownMenuContent align="end" className="w-48">
+        {actions.map((action) => (
+          <DropdownMenuItem
+            key={action.kind}
+            disabled={action.disabled}
+            onSelect={() => applyWorkOrderStatusAction(action.kind, props)}
+            data-testid={HEADER_ACTION_TEST_ID[action.kind]}
+          >
+            {action.label}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}

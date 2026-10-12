@@ -1,0 +1,1029 @@
+package runagent
+
+import (
+	"fmt"
+	"io"
+	"net/http"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/superplanehq/superplane/pkg/core"
+	"github.com/superplanehq/superplane/test/support/contexts"
+)
+
+const structuredOutputSchema = `{"type":"object","properties":{"summary":{"type":"string"}},"required":["summary"]}`
+
+func Test__RunAgent__Setup(t *testing.T) {
+	a := &RunAgent{}
+	integrationCtx := &contexts.IntegrationContext{}
+	ctx := core.SetupContext{
+		Configuration: map[string]any{
+			"agent":         "agent_01",
+			"environmentId": "env_01",
+			"prompt":        "Do the thing",
+		},
+		Integration: integrationCtx,
+	}
+	require.NoError(t, a.Setup(ctx))
+}
+
+func Test__RunAgent__Setup__validation(t *testing.T) {
+	a := &RunAgent{}
+	integrationCtx := &contexts.IntegrationContext{}
+	ctx := core.SetupContext{
+		Configuration: map[string]any{
+			"environmentId": "env_01",
+			"prompt":        "x",
+		},
+		Integration: integrationCtx,
+	}
+	err := a.Setup(ctx)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "agent")
+}
+
+func Test__parseAgentVersion(t *testing.T) {
+	// Empty means "latest": nil pointer, no error.
+	v, err := parseAgentVersion("")
+	require.NoError(t, err)
+	assert.Nil(t, v)
+
+	// Whitespace is treated as empty too.
+	v, err = parseAgentVersion("  ")
+	require.NoError(t, err)
+	assert.Nil(t, v)
+
+	// The explicit "Latest" sentinel also means latest, so the field can be
+	// returned to its unset state after a version was pinned.
+	v, err = parseAgentVersion("latest")
+	require.NoError(t, err)
+	assert.Nil(t, v)
+
+	// A numeric resource value pins that version.
+	v, err = parseAgentVersion("3")
+	require.NoError(t, err)
+	require.NotNil(t, v)
+	assert.Equal(t, 3, *v)
+
+	// A non-numeric, non-sentinel value is rejected.
+	_, err = parseAgentVersion("bogus")
+	require.Error(t, err)
+}
+
+func Test__resolveAgentVersion(t *testing.T) {
+	logger := logrus.NewEntry(logrus.New())
+	three := 3
+
+	// An unset version stays unset without calling the API.
+	assert.Nil(t, resolveAgentVersion(&Client{}, "agent_1", nil, logger))
+
+	// A pinned version that exists for the agent is kept.
+	okClient := &Client{APIKey: "k", BaseURL: defaultBaseURL, http: &contexts.HTTPContext{Responses: []*http.Response{
+		{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"data":[{"version":3},{"version":2}]}`))},
+	}}}
+	got := resolveAgentVersion(okClient, "agent_1", &three, logger)
+	require.NotNil(t, got)
+	assert.Equal(t, 3, *got)
+
+	// A pinned version the agent no longer has falls back to latest (nil).
+	staleClient := &Client{APIKey: "k", BaseURL: defaultBaseURL, http: &contexts.HTTPContext{Responses: []*http.Response{
+		{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"data":[{"version":1}]}`))},
+	}}}
+	assert.Nil(t, resolveAgentVersion(staleClient, "agent_1", &three, logger))
+
+	// If versions can't be listed, the configured pin is kept (best-effort).
+	errClient := &Client{APIKey: "k", BaseURL: defaultBaseURL, http: &contexts.HTTPContext{Responses: []*http.Response{
+		{StatusCode: http.StatusInternalServerError, Body: io.NopCloser(strings.NewReader(`{"error":{"message":"boom"}}`))},
+	}}}
+	got = resolveAgentVersion(errClient, "agent_1", &three, logger)
+	require.NotNil(t, got)
+	assert.Equal(t, 3, *got)
+}
+
+func Test__validateSpec__rejectsBadVersion(t *testing.T) {
+	err := validateSpec(Spec{Agent: "a", Environment: "e", Prompt: "p", Version: "not-a-number"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "version")
+}
+
+func Test__ListAgentVersionNumbers(t *testing.T) {
+	httpCtx := &contexts.HTTPContext{Responses: []*http.Response{
+		{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"data":[{"version":1},{"version":3},{"version":2}]}`))},
+	}}
+	client := &Client{APIKey: "k", BaseURL: defaultBaseURL, http: httpCtx}
+
+	versions, err := client.ListAgentVersionNumbers("agent_1")
+	require.NoError(t, err)
+	assert.Equal(t, []int{3, 2, 1}, versions, "versions must be returned newest first")
+	assert.Contains(t, httpCtx.Requests[0].URL.Path, "/agents/agent_1/versions")
+
+	_, err = client.ListAgentVersionNumbers("")
+	require.Error(t, err)
+}
+
+// Nodes saved before this component used resource fields stored the environment
+// under "environmentId" and the version as a number. They must keep decoding
+// and validating without being re-saved.
+func Test__decodeSpec__legacyConfig(t *testing.T) {
+	spec, err := decodeSpec(map[string]any{
+		"agent":         "agent_1",
+		"environmentId": "env_1",
+		"version":       float64(2), // JSON numbers decode to float64
+		"prompt":        "do it",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "env_1", spec.Environment)
+	assert.Equal(t, "2", spec.Version, "numeric version must become the resource string")
+	require.NoError(t, validateSpec(spec))
+
+	v, err := parseAgentVersion(spec.Version)
+	require.NoError(t, err)
+	require.NotNil(t, v)
+	assert.Equal(t, 2, *v)
+}
+
+// A config saved by the current version (string version) decodes unchanged.
+func Test__decodeSpec__newConfig(t *testing.T) {
+	spec, err := decodeSpec(map[string]any{
+		"agent":         "agent_1",
+		"environmentId": "env_1",
+		"version":       "3",
+		"prompt":        "do it",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "env_1", spec.Environment)
+	assert.Equal(t, "3", spec.Version)
+}
+
+func Test__RunAgent__Setup__structuredOutputInvalidSchema(t *testing.T) {
+	a := &RunAgent{}
+	ctx := core.SetupContext{
+		Configuration: map[string]any{
+			"agent":         "agent_01",
+			"environmentId": "env_01",
+			"prompt":        "Do the thing",
+			"outputSchema":  `{"type":"object"}`, // missing "properties"
+		},
+		Integration: &contexts.IntegrationContext{},
+	}
+	err := a.Setup(ctx)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "properties")
+}
+
+func Test__RunAgent__Setup__structuredOutputUnresolvedExpressionSkipsValidation(t *testing.T) {
+	a := &RunAgent{}
+	ctx := core.SetupContext{
+		Configuration: map[string]any{
+			"agent":         "agent_01",
+			"environmentId": "env_01",
+			"prompt":        "Do the thing",
+			"outputSchema":  "{{ event.schema }}",
+		},
+		Integration: &contexts.IntegrationContext{},
+	}
+	require.NoError(t, a.Setup(ctx))
+}
+
+func Test__RunAgent__Setup__structuredOutputMetadata(t *testing.T) {
+	a := &RunAgent{}
+	metadataCtx := &contexts.MetadataContext{}
+	ctx := core.SetupContext{
+		Configuration: map[string]any{
+			"agent":         "agent_01",
+			"environmentId": "env_01",
+			"prompt":        "Do the thing",
+			"outputSchema":  structuredOutputSchema,
+		},
+		Integration: &contexts.IntegrationContext{},
+		Metadata:    metadataCtx,
+	}
+	require.NoError(t, a.Setup(ctx))
+
+	meta, ok := metadataCtx.Metadata.(RunAgentNodeMetadata)
+	require.True(t, ok, "expected RunAgentNodeMetadata, got %T", metadataCtx.Metadata)
+	assert.True(t, meta.StructuredOutput)
+}
+
+func Test__RunAgent__Execute__syncIdle(t *testing.T) {
+	a := &RunAgent{}
+	httpContext := &contexts.HTTPContext{
+		Responses: []*http.Response{
+			{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"id":"sess_1","status":"running"}`))},
+			{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{}`))},
+			{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"id":"sess_1","status":"idle"}`))},
+			{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"data":[{"type":"session.status_idle"},{"type":"agent.message","content":[{"type":"text","text":"Done"}]},{"type":"user.message","content":[{"type":"text","text":"Hello"}]}]}`))},
+			{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"data":[{"id":"file_out1","filename":"report.md","mime_type":"text/markdown","size_bytes":4096,"downloadable":true},{"id":"file_in1","filename":"input.txt","mime_type":"text/plain","size_bytes":10,"downloadable":false}]}`))},
+			{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("# Report\n"))},
+			{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{}`))},
+		},
+	}
+	integrationCtx := &contexts.IntegrationContext{
+		Configuration: map[string]any{"apiKey": "sk-test"},
+	}
+	metadataCtx := &contexts.MetadataContext{}
+	executionState := &contexts.ExecutionStateContext{KVs: map[string]string{}}
+	requestsCtx := &contexts.RequestContext{}
+
+	execCtx := core.ExecutionContext{
+		ID:             uuid.New(),
+		Configuration:  map[string]any{"agent": "ag_1", "environmentId": "ev_1", "prompt": "Hello"},
+		HTTP:           httpContext,
+		Integration:    integrationCtx,
+		Metadata:       metadataCtx,
+		ExecutionState: executionState,
+		Requests:       requestsCtx,
+		Logger:         logrus.NewEntry(logrus.New()),
+	}
+
+	err := a.Execute(execCtx)
+	require.NoError(t, err)
+	require.True(t, executionState.Finished)
+	assert.Equal(t, payloadType, executionState.Type)
+	out := executionState.Payloads[0].(map[string]any)["data"].(OutputPayload)
+	assert.Equal(t, "idle", out.Status)
+	assert.Equal(t, "Done", out.LastMessage)
+	assert.Equal(t, "", requestsCtx.Action)
+
+	// Only the downloadable (agent-generated) file becomes an artifact, and
+	// its content is embedded in the payload.
+	require.Len(t, out.Artifacts, 1)
+	assert.Equal(t, "file_out1", out.Artifacts[0].FileID)
+	assert.Equal(t, "report.md", out.Artifacts[0].Filename)
+	assert.Equal(t, "https://api.anthropic.com/v1/files/file_out1/content", out.Artifacts[0].DownloadURL)
+	assert.Equal(t, "text", out.Artifacts[0].Encoding)
+	assert.Equal(t, "# Report\n", out.Artifacts[0].Content)
+
+	require.Len(t, httpContext.Requests, 7) // create, send, get status, get events, list files, download file, delete
+	assert.Equal(t, "POST", httpContext.Requests[0].Method)
+	assert.Contains(t, httpContext.Requests[0].URL.Path, "/sessions")
+	assert.Equal(t, anthropicBetaManagedAgents, httpContext.Requests[0].Header.Get("anthropic-beta"))
+	assert.Contains(t, httpContext.Requests[1].URL.Path, "/events")
+	assert.Equal(t, "GET", httpContext.Requests[2].Method)
+	assert.Equal(t, "GET", httpContext.Requests[3].Method)
+	assert.Contains(t, httpContext.Requests[3].URL.Path, "/events")
+	assert.Equal(t, "desc", httpContext.Requests[3].URL.Query().Get("order"))
+	assert.Equal(t, sessionEventsPageLimit, httpContext.Requests[3].URL.Query().Get("limit"))
+	assert.Contains(t, httpContext.Requests[4].URL.Path, "/files")
+	assert.Equal(t, "sess_1", httpContext.Requests[4].URL.Query().Get("scope_id"))
+}
+
+func Test__RunAgent__Execute__syncSessionError(t *testing.T) {
+	a := &RunAgent{}
+	httpContext := &contexts.HTTPContext{
+		Responses: []*http.Response{
+			{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"id":"sess_1","status":"running"}`))},
+			{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{}`))},
+			{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"id":"sess_1","status":"terminated"}`))},
+			{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"data":[{"type":"session.status_terminated"},{"type":"session.error","error":{"type":"usage_limit_error","message":"Workspace usage limit reached"}}]}`))},
+			{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{}`))},
+		},
+	}
+	integrationCtx := &contexts.IntegrationContext{
+		Configuration: map[string]any{"apiKey": "sk-test"},
+	}
+	executionState := &contexts.ExecutionStateContext{KVs: map[string]string{}}
+	execCtx := core.ExecutionContext{
+		ID:             uuid.New(),
+		Configuration:  map[string]any{"agent": "ag_1", "environmentId": "ev_1", "prompt": "Hello"},
+		HTTP:           httpContext,
+		Integration:    integrationCtx,
+		Metadata:       &contexts.MetadataContext{},
+		ExecutionState: executionState,
+		Requests:       &contexts.RequestContext{},
+		Logger:         logrus.NewEntry(logrus.New()),
+	}
+
+	err := a.Execute(execCtx)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "Workspace usage limit reached")
+	assert.False(t, executionState.Finished, "the worker (not Execute itself) fails the execution")
+
+	_, deleted := sessionCalls(httpContext)
+	assert.True(t, deleted, "a failed session must still be reclaimed")
+}
+
+func Test__RunAgent__Execute__structuredOutput(t *testing.T) {
+	a := &RunAgent{}
+	agentMessage := "Here is the result.\n\n```json\n{\"summary\": \"looks good\"}\n```\n"
+	httpContext := &contexts.HTTPContext{
+		Responses: []*http.Response{
+			{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"id":"sess_1","status":"running"}`))},
+			{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{}`))},
+			{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"id":"sess_1","status":"idle"}`))},
+			{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(fmt.Sprintf(`{"data":[{"type":"session.status_idle"},{"type":"agent.message","content":[{"type":"text","text":%q}]}]}`, agentMessage)))},
+			{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"data":[]}`))},
+			{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{}`))},
+		},
+	}
+	integrationCtx := &contexts.IntegrationContext{Configuration: map[string]any{"apiKey": "sk-test"}}
+	metadataCtx := &contexts.MetadataContext{}
+	executionState := &contexts.ExecutionStateContext{KVs: map[string]string{}}
+	requestsCtx := &contexts.RequestContext{}
+
+	execCtx := core.ExecutionContext{
+		ID: uuid.New(),
+		Configuration: map[string]any{
+			"agent":         "ag_1",
+			"environmentId": "ev_1",
+			"prompt":        "Summarize this",
+			"outputSchema":  structuredOutputSchema,
+		},
+		HTTP:           httpContext,
+		Integration:    integrationCtx,
+		Metadata:       metadataCtx,
+		ExecutionState: executionState,
+		Requests:       requestsCtx,
+		Logger:         logrus.NewEntry(logrus.New()),
+	}
+
+	err := a.Execute(execCtx)
+	require.NoError(t, err)
+	require.True(t, executionState.Finished)
+
+	out := executionState.Payloads[0].(map[string]any)["data"].(OutputPayload)
+	assert.Equal(t, "idle", out.Status)
+
+	parsed, ok := out.Parsed.(map[string]any)
+	require.True(t, ok, "expected Parsed to be an object, got %T", out.Parsed)
+	assert.Equal(t, "looks good", parsed["summary"])
+
+	// The sent user message must include the schema instructions.
+	sendBody, err := io.ReadAll(httpContext.Requests[1].Body)
+	require.NoError(t, err)
+	assert.Contains(t, string(sendBody), "fenced json code block")
+	assert.Contains(t, string(sendBody), `\"summary\"`)
+}
+
+func Test__RunAgent__Execute__structuredOutputRefusalStaysUnparsed(t *testing.T) {
+	a := &RunAgent{}
+	httpContext := &contexts.HTTPContext{
+		Responses: []*http.Response{
+			{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"id":"sess_1","status":"running"}`))},
+			{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{}`))},
+			{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"id":"sess_1","status":"terminated"}`))},
+			{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"data":[{"type":"session.status_terminated"},{"type":"agent.message","content":[{"type":"text","text":"I can't finish this task."}]}]}`))},
+			{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"data":[]}`))},
+			{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{}`))},
+		},
+	}
+	integrationCtx := &contexts.IntegrationContext{Configuration: map[string]any{"apiKey": "sk-test"}}
+	executionState := &contexts.ExecutionStateContext{KVs: map[string]string{}}
+
+	execCtx := core.ExecutionContext{
+		ID: uuid.New(),
+		Configuration: map[string]any{
+			"agent":         "ag_1",
+			"environmentId": "ev_1",
+			"prompt":        "Summarize this",
+			"outputSchema":  structuredOutputSchema,
+		},
+		HTTP:           httpContext,
+		Integration:    integrationCtx,
+		Metadata:       &contexts.MetadataContext{},
+		ExecutionState: executionState,
+		Requests:       &contexts.RequestContext{},
+		Logger:         logrus.NewEntry(logrus.New()),
+	}
+
+	err := a.Execute(execCtx)
+	require.NoError(t, err)
+	require.True(t, executionState.Finished)
+
+	out := executionState.Payloads[0].(map[string]any)["data"].(OutputPayload)
+	assert.Equal(t, "terminated", out.Status)
+	assert.Nil(t, out.Parsed, "a terminated session must never be trusted for structured output")
+}
+
+func Test__RunAgent__Execute__schedulesPoll(t *testing.T) {
+	a := &RunAgent{}
+	httpContext := &contexts.HTTPContext{
+		Responses: []*http.Response{
+			{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"id":"sess_1","status":"running"}`))},
+			{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{}`))},
+			{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"id":"sess_1","status":"running"}`))},
+		},
+	}
+	integrationCtx := &contexts.IntegrationContext{Configuration: map[string]any{"apiKey": "k"}}
+	metadataCtx := &contexts.MetadataContext{}
+	executionState := &contexts.ExecutionStateContext{KVs: map[string]string{}}
+	requestsCtx := &contexts.RequestContext{}
+
+	execCtx := core.ExecutionContext{
+		ID:             uuid.New(),
+		Configuration:  map[string]any{"agent": "a", "environmentId": "e", "prompt": "p"},
+		HTTP:           httpContext,
+		Integration:    integrationCtx,
+		Metadata:       metadataCtx,
+		ExecutionState: executionState,
+		Requests:       requestsCtx,
+		Logger:         logrus.NewEntry(logrus.New()),
+	}
+
+	err := a.Execute(execCtx)
+	require.NoError(t, err)
+	assert.False(t, executionState.Finished)
+	assert.Equal(t, "poll", requestsCtx.Action)
+	assert.Equal(t, initialPoll, requestsCtx.Duration)
+}
+
+func Test__RunAgent__poll__terminal(t *testing.T) {
+	a := &RunAgent{}
+	httpContext := &contexts.HTTPContext{
+		Responses: []*http.Response{
+			{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"id":"sess_1","status":"idle"}`))},
+			{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"data":[{"type":"session.status_idle"},{"type":"agent.message","content":[{"type":"text","text":"Final"}]},{"type":"agent.message","content":[{"type":"text","text":"Earlier"}]}]}`))},
+			{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"data":[{"id":"file_out1","filename":"report.md","mime_type":"text/markdown","size_bytes":4096,"downloadable":true}]}`))},
+			{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("# Report\n"))},
+			{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{}`))},
+		},
+	}
+	integrationCtx := &contexts.IntegrationContext{Configuration: map[string]any{"apiKey": "k"}}
+	executionState := &contexts.ExecutionStateContext{KVs: map[string]string{}}
+	metadataCtx := &contexts.MetadataContext{
+		Metadata: ExecutionMetadata{
+			Session: &SessionMetadata{ID: "sess_1", Status: "running"},
+		},
+	}
+	hookCtx := core.ActionHookContext{
+		Name:           "poll",
+		Parameters:     map[string]any{"attempt": float64(1), "errors": float64(0)},
+		HTTP:           httpContext,
+		Integration:    integrationCtx,
+		Metadata:       metadataCtx,
+		ExecutionState: executionState,
+		Logger:         logrus.NewEntry(logrus.New()),
+		Requests:       &contexts.RequestContext{},
+	}
+
+	err := a.HandleHook(hookCtx)
+	require.NoError(t, err)
+	require.True(t, executionState.Finished)
+	out := executionState.Payloads[0].(map[string]any)["data"].(OutputPayload)
+	assert.Equal(t, "idle", out.Status)
+	assert.Equal(t, "Final", out.LastMessage)
+	assert.Equal(t, []string{"Earlier", "Final"}, out.Messages)
+	require.Len(t, out.Artifacts, 1)
+	assert.Equal(t, "file_out1", out.Artifacts[0].FileID)
+	assert.Equal(t, "text", out.Artifacts[0].Encoding)
+	assert.Equal(t, "# Report\n", out.Artifacts[0].Content)
+}
+
+func Test__RunAgent__poll__sessionErrorFailsExecution(t *testing.T) {
+	a := &RunAgent{}
+	httpContext := &contexts.HTTPContext{
+		Responses: []*http.Response{
+			{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"id":"sess_1","status":"terminated"}`))},
+			{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"data":[{"type":"session.status_terminated"},{"type":"session.error","error":{"type":"usage_limit_error","message":"Workspace usage limit reached"}}]}`))},
+			{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{}`))},
+		},
+	}
+	integrationCtx := &contexts.IntegrationContext{Configuration: map[string]any{"apiKey": "k"}}
+	executionState := &contexts.ExecutionStateContext{KVs: map[string]string{}}
+	metadataCtx := &contexts.MetadataContext{
+		Metadata: ExecutionMetadata{
+			Session: &SessionMetadata{ID: "sess_1", Status: "running"},
+		},
+	}
+	hookCtx := core.ActionHookContext{
+		Name:           "poll",
+		Parameters:     map[string]any{"attempt": float64(1), "errors": float64(0)},
+		HTTP:           httpContext,
+		Integration:    integrationCtx,
+		Metadata:       metadataCtx,
+		ExecutionState: executionState,
+		Logger:         logrus.NewEntry(logrus.New()),
+		Requests:       &contexts.RequestContext{},
+	}
+
+	err := a.HandleHook(hookCtx)
+	require.NoError(t, err)
+	require.True(t, executionState.Finished)
+	assert.False(t, executionState.Passed)
+	assert.Equal(t, "error", executionState.FailureReason)
+	assert.Contains(t, executionState.FailureMessage, "Workspace usage limit reached")
+	assert.Empty(t, executionState.Payloads, "no payload should be emitted for a failed session")
+
+	_, deleted := sessionCalls(httpContext)
+	assert.True(t, deleted, "a failed session must still be reclaimed")
+}
+
+func Test__RunAgent__poll__structuredOutput(t *testing.T) {
+	a := &RunAgent{}
+	agentMessage := "```json\n{\"summary\": \"async result\"}\n```"
+	httpContext := &contexts.HTTPContext{
+		Responses: []*http.Response{
+			{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"id":"sess_1","status":"idle"}`))},
+			{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(fmt.Sprintf(`{"data":[{"type":"session.status_idle"},{"type":"agent.message","content":[{"type":"text","text":%q}]}]}`, agentMessage)))},
+			{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"data":[]}`))},
+			{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{}`))},
+		},
+	}
+	executionState := &contexts.ExecutionStateContext{KVs: map[string]string{}}
+	metadataCtx := &contexts.MetadataContext{
+		Metadata: ExecutionMetadata{
+			Session: &SessionMetadata{ID: "sess_1", Status: "running"},
+		},
+	}
+	hookCtx := core.ActionHookContext{
+		Name:       "poll",
+		Parameters: map[string]any{"attempt": float64(1), "errors": float64(0)},
+		Configuration: map[string]any{
+			"agent":         "agent_1",
+			"environmentId": "env_1",
+			"prompt":        "do it",
+			"outputSchema":  structuredOutputSchema,
+		},
+		HTTP:           httpContext,
+		Integration:    &contexts.IntegrationContext{Configuration: map[string]any{"apiKey": "k"}},
+		Metadata:       metadataCtx,
+		ExecutionState: executionState,
+		Logger:         logrus.NewEntry(logrus.New()),
+		Requests:       &contexts.RequestContext{},
+	}
+
+	err := a.HandleHook(hookCtx)
+	require.NoError(t, err)
+	require.True(t, executionState.Finished)
+	out := executionState.Payloads[0].(map[string]any)["data"].(OutputPayload)
+	assert.Equal(t, "idle", out.Status)
+	parsed, ok := out.Parsed.(map[string]any)
+	require.True(t, ok, "expected Parsed to be an object, got %T", out.Parsed)
+	assert.Equal(t, "async result", parsed["summary"])
+}
+
+func Test__RunAgent__poll__persistSessionKeepsSession(t *testing.T) {
+	a := &RunAgent{}
+	httpContext := &contexts.HTTPContext{
+		Responses: []*http.Response{
+			{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"id":"sess_1","status":"idle"}`))},
+			{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"data":[{"type":"session.status_idle"},{"type":"agent.message","content":[{"type":"text","text":"Final"}]}]}`))},
+		},
+	}
+	executionState := &contexts.ExecutionStateContext{KVs: map[string]string{}}
+	metadataCtx := &contexts.MetadataContext{
+		Metadata: ExecutionMetadata{
+			Session: &SessionMetadata{ID: "sess_1", Status: "running"},
+		},
+	}
+	hookCtx := core.ActionHookContext{
+		Name:       "poll",
+		Parameters: map[string]any{"attempt": float64(1), "errors": float64(0)},
+		Configuration: map[string]any{
+			"agent":          "agent_1",
+			"environmentId":  "env_1",
+			"prompt":         "do it",
+			"persistSession": true,
+		},
+		HTTP:           httpContext,
+		Integration:    &contexts.IntegrationContext{Configuration: map[string]any{"apiKey": "k"}},
+		Metadata:       metadataCtx,
+		ExecutionState: executionState,
+		Logger:         logrus.NewEntry(logrus.New()),
+		Requests:       &contexts.RequestContext{},
+	}
+
+	require.NoError(t, a.HandleHook(hookCtx))
+	require.True(t, executionState.Finished)
+	assert.Equal(t, "idle", executionState.Payloads[0].(map[string]any)["data"].(OutputPayload).Status)
+
+	for _, r := range httpContext.Requests {
+		assert.False(t, r.Method == http.MethodDelete && strings.Contains(r.URL.Path, "/sessions/sess_1"),
+			"session must be kept when persistSession is enabled")
+	}
+}
+
+// A client that never builds must terminate the run rather than poll forever:
+// the timeout check sits below the status read and would never be reached.
+func Test__RunAgent__poll__clientErrorReportsError(t *testing.T) {
+	a := &RunAgent{}
+	executionState := &contexts.ExecutionStateContext{KVs: map[string]string{}}
+	hookCtx := core.ActionHookContext{
+		Name: "poll",
+		Parameters: map[string]any{
+			"attempt": float64(2),
+			"errors":  float64(maxPollErrors - 1),
+		},
+		Integration:    &contexts.IntegrationContext{}, // no apiKey -> client creation fails
+		Metadata:       &contexts.MetadataContext{Metadata: ExecutionMetadata{Session: &SessionMetadata{ID: "sess_1", Status: "running"}}},
+		ExecutionState: executionState,
+		Requests:       &contexts.RequestContext{},
+		Logger:         logrus.NewEntry(logrus.New()),
+	}
+
+	require.NoError(t, a.HandleHook(hookCtx))
+	require.True(t, executionState.Finished)
+	assert.Equal(t, "error", executionState.Payloads[0].(map[string]any)["data"].(OutputPayload).Status)
+}
+
+// sessionCalls reports whether the session was interrupted and whether it was
+// deleted, so the reclaim paths can be asserted precisely.
+func sessionCalls(httpContext *contexts.HTTPContext) (interrupted, deleted bool) {
+	for _, r := range httpContext.Requests {
+		switch {
+		case r.Method == http.MethodPost && strings.Contains(r.URL.Path, "/sessions/sess_1/events"):
+			interrupted = true
+		case r.Method == http.MethodDelete && strings.Contains(r.URL.Path, "/sessions/sess_1"):
+			deleted = true
+		}
+	}
+	return interrupted, deleted
+}
+
+func timeoutHookCtx(httpContext *contexts.HTTPContext, execState *contexts.ExecutionStateContext, config map[string]any) core.ActionHookContext {
+	return core.ActionHookContext{
+		Name:           "poll",
+		Parameters:     map[string]any{"attempt": float64(maxPollAttempts + 1), "errors": float64(0)},
+		Configuration:  config,
+		HTTP:           httpContext,
+		Integration:    &contexts.IntegrationContext{Configuration: map[string]any{"apiKey": "k"}},
+		Metadata:       &contexts.MetadataContext{Metadata: ExecutionMetadata{Session: &SessionMetadata{ID: "sess_1", Status: "running"}}},
+		ExecutionState: execState,
+		Logger:         logrus.NewEntry(logrus.New()),
+		Requests:       &contexts.RequestContext{},
+	}
+}
+
+// A timeout means we stopped watching, not that the agent stopped: the session
+// must be interrupted and reclaimed rather than left running in Anthropic.
+func Test__RunAgent__poll__timeoutReclaimsSession(t *testing.T) {
+	a := &RunAgent{}
+	httpContext := &contexts.HTTPContext{Responses: []*http.Response{
+		{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"id":"sess_1","status":"running"}`))}, // get session
+		{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{}`))},                                 // interrupt
+		{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{}`))},                                 // delete session
+	}}
+	execState := &contexts.ExecutionStateContext{KVs: map[string]string{}}
+
+	require.NoError(t, a.HandleHook(timeoutHookCtx(httpContext, execState, map[string]any{
+		"agent": "agent_1", "environmentId": "env_1", "prompt": "do it",
+	})))
+	require.True(t, execState.Finished)
+	assert.Equal(t, "timeout", execState.Payloads[0].(map[string]any)["data"].(OutputPayload).Status)
+
+	interrupted, deleted := sessionCalls(httpContext)
+	assert.True(t, interrupted, "a timed-out session must be interrupted, not left running")
+	assert.True(t, deleted, "a timed-out session must be deleted by default")
+}
+
+// Keeping the transcript must still stop the agent.
+func Test__RunAgent__poll__timeoutPersistSessionInterruptsButKeeps(t *testing.T) {
+	a := &RunAgent{}
+	httpContext := &contexts.HTTPContext{Responses: []*http.Response{
+		{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"id":"sess_1","status":"running"}`))}, // get session
+		{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{}`))},                                 // interrupt
+	}}
+	execState := &contexts.ExecutionStateContext{KVs: map[string]string{}}
+
+	require.NoError(t, a.HandleHook(timeoutHookCtx(httpContext, execState, map[string]any{
+		"agent": "agent_1", "environmentId": "env_1", "prompt": "do it", "persistSession": true,
+	})))
+	require.True(t, execState.Finished)
+
+	interrupted, deleted := sessionCalls(httpContext)
+	assert.True(t, interrupted, "a kept session must still be interrupted so the agent stops")
+	assert.False(t, deleted, "session must be kept when persistSession is enabled")
+}
+
+// The event stream can lag the status endpoint: the session reports idle while
+// the terminal event has not been written, so sm.Complete stays false. Once the
+// retry budget is spent we must still report the real outcome — never "timeout",
+// and never destroy the transcript of a run that finished.
+func Test__RunAgent__poll__terminalWithIncompleteEventsReportsRealStatus(t *testing.T) {
+	a := &RunAgent{}
+	restore := finalMessageDelay
+	finalMessageDelay = time.Millisecond
+	t.Cleanup(func() { finalMessageDelay = restore })
+
+	httpContext := &contexts.HTTPContext{Responses: []*http.Response{
+		{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"id":"sess_1","status":"idle"}`))}, // get session: finished
+	}}
+	// Events never include session.status_idle, so Complete never becomes true.
+	for range finalMessageReads {
+		httpContext.Responses = append(httpContext.Responses,
+			&http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(
+				`{"data":[{"type":"agent.message","content":[{"type":"text","text":"Partial work"}]}]}`))})
+	}
+	httpContext.Responses = append(httpContext.Responses,
+		&http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{}`))}) // delete session
+
+	execState := &contexts.ExecutionStateContext{KVs: map[string]string{}}
+	require.NoError(t, a.HandleHook(timeoutHookCtx(httpContext, execState, map[string]any{
+		"agent": "agent_1", "environmentId": "env_1", "prompt": "do it",
+	})))
+
+	require.True(t, execState.Finished)
+	out := execState.Payloads[0].(map[string]any)["data"].(OutputPayload)
+	assert.Equal(t, "idle", out.Status, "a finished session must report its real status, not timeout")
+	assert.Equal(t, "Partial work", out.LastMessage, "the messages we did collect must still be emitted")
+
+	interrupted, deleted := sessionCalls(httpContext)
+	assert.False(t, interrupted, "a session that already finished must not be interrupted")
+	assert.True(t, deleted, "a finished session is still reclaimed by default")
+}
+
+// Past the poll budget with incomplete events, LastMessage may not be the
+// agent's real final message — structured output must not be trusted then,
+// even though the session is reported as genuinely finished (idle).
+func Test__RunAgent__poll__terminalWithIncompleteEventsSkipsStructuredOutput(t *testing.T) {
+	a := &RunAgent{}
+	restore := finalMessageDelay
+	finalMessageDelay = time.Millisecond
+	t.Cleanup(func() { finalMessageDelay = restore })
+
+	httpContext := &contexts.HTTPContext{Responses: []*http.Response{
+		{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"id":"sess_1","status":"idle"}`))}, // get session: finished
+	}}
+	// Events never include session.status_idle, so Complete never becomes true,
+	// even though the message looks like valid structured-output JSON.
+	for range finalMessageReads {
+		httpContext.Responses = append(httpContext.Responses,
+			&http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(
+				`{"data":[{"type":"agent.message","content":[{"type":"text","text":"{\"summary\":\"partial\"}"}]}]}`))})
+	}
+	httpContext.Responses = append(httpContext.Responses,
+		&http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{}`))}) // delete session
+
+	execState := &contexts.ExecutionStateContext{KVs: map[string]string{}}
+	require.NoError(t, a.HandleHook(timeoutHookCtx(httpContext, execState, map[string]any{
+		"agent": "agent_1", "environmentId": "env_1", "prompt": "do it", "outputSchema": structuredOutputSchema,
+	})))
+
+	require.True(t, execState.Finished)
+	out := execState.Payloads[0].(map[string]any)["data"].(OutputPayload)
+	assert.Equal(t, "idle", out.Status)
+	assert.NotEmpty(t, out.LastMessage, "the partial message we did collect must still be emitted")
+	assert.Nil(t, out.Parsed, "incomplete events must never be trusted for structured output")
+}
+
+// Repeated poll failures mean we lost sight of the session, not that it ended.
+func Test__RunAgent__poll__repeatedErrorsReclaimSession(t *testing.T) {
+	a := &RunAgent{}
+	httpContext := &contexts.HTTPContext{Responses: []*http.Response{
+		{StatusCode: http.StatusInternalServerError, Body: io.NopCloser(strings.NewReader(`{"error":{"message":"boom"}}`))}, // get session
+		{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{}`))},                                            // interrupt
+		{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{}`))},                                            // delete session
+	}}
+	execState := &contexts.ExecutionStateContext{KVs: map[string]string{}}
+	hookCtx := timeoutHookCtx(httpContext, execState, map[string]any{
+		"agent": "agent_1", "environmentId": "env_1", "prompt": "do it",
+	})
+	hookCtx.Parameters = map[string]any{"attempt": float64(2), "errors": float64(maxPollErrors - 1)}
+
+	require.NoError(t, a.HandleHook(hookCtx))
+	require.True(t, execState.Finished)
+	assert.Equal(t, "error", execState.Payloads[0].(map[string]any)["data"].(OutputPayload).Status)
+
+	interrupted, deleted := sessionCalls(httpContext)
+	assert.True(t, interrupted, "an unreachable session must be interrupted")
+	assert.True(t, deleted, "an unreachable session must be reclaimed")
+}
+
+func Test__RunAgent__scheduleNextPoll(t *testing.T) {
+	a := &RunAgent{}
+	rc := &contexts.RequestContext{}
+	hookCtx := core.ActionHookContext{
+		Requests:       rc,
+		ExecutionState: &contexts.ExecutionStateContext{KVs: map[string]string{}},
+		Metadata: &contexts.MetadataContext{
+			Metadata: ExecutionMetadata{Session: &SessionMetadata{ID: "s", Status: "running"}},
+		},
+	}
+	err := a.scheduleNextPoll(hookCtx, 3, 0)
+	require.NoError(t, err)
+	assert.Equal(t, 4*initialPoll, rc.Duration)
+	assert.LessOrEqual(t, rc.Duration, maxPollInterval)
+}
+
+func TestClient_ManagedSessions(t *testing.T) {
+	t.Run("CreateManagedSession", func(t *testing.T) {
+		httpCtx := &contexts.HTTPContext{
+			Responses: []*http.Response{{
+				StatusCode: 200,
+				Body:       io.NopCloser(strings.NewReader(`{"id":"sess_1","status":"running"}`)),
+			}},
+		}
+		client := &Client{APIKey: "k", BaseURL: defaultBaseURL, http: httpCtx}
+		s, err := client.CreateManagedSession(CreateManagedSessionRequest{
+			Agent:         "ag_1",
+			EnvironmentID: "env_1",
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "sess_1", s.ID)
+		require.Len(t, httpCtx.Requests, 1)
+
+		req := httpCtx.Requests[0]
+		assert.Equal(t, anthropicBetaManagedAgents, req.Header.Get("anthropic-beta"))
+		assert.Equal(t, http.MethodPost, req.Method)
+		assert.True(t, strings.HasSuffix(req.URL.Path, "/sessions"))
+	})
+
+	t.Run("GetManagedSession", func(t *testing.T) {
+		httpCtx := &contexts.HTTPContext{
+			Responses: []*http.Response{{
+				StatusCode: 200,
+				Body:       io.NopCloser(strings.NewReader(`{"id":"s","status":"idle"}`)),
+			}},
+		}
+		client := &Client{APIKey: "k", BaseURL: defaultBaseURL, http: httpCtx}
+		s, err := client.GetManagedSession("s")
+		require.NoError(t, err)
+		assert.Equal(t, "idle", s.Status)
+	})
+}
+
+func TestClient_GetLastManagedSessionAgentMessage(t *testing.T) {
+	httpCtx := &contexts.HTTPContext{
+		Responses: []*http.Response{
+			{
+				StatusCode: 200,
+				Body:       io.NopCloser(strings.NewReader(`{"data":[{"type":"user.message","content":[{"type":"text","text":"Hello"}]}],"next_page":"page_2"}`)),
+			},
+			{
+				StatusCode: 200,
+				Body:       io.NopCloser(strings.NewReader(`{"data":[{"type":"agent.message","content":[{"type":"text","text":"Done"}]}],"next_page":"page_3"}`)),
+			},
+		},
+	}
+	client := &Client{APIKey: "k", BaseURL: defaultBaseURL, http: httpCtx}
+
+	message, events, err := client.GetLastManagedSessionAgentMessage("sess_1")
+	require.NoError(t, err)
+	assert.Equal(t, "Done", message)
+	require.Len(t, events, 2)
+	require.Len(t, httpCtx.Requests, 2)
+
+	assert.Equal(t, "desc", httpCtx.Requests[0].URL.Query().Get("order"))
+	assert.Equal(t, sessionEventsPageLimit, httpCtx.Requests[0].URL.Query().Get("limit"))
+	assert.Empty(t, httpCtx.Requests[0].URL.Query().Get("page"))
+	assert.Equal(t, "page_2", httpCtx.Requests[1].URL.Query().Get("page"))
+}
+
+func Test__buildCreateSessionBody__latest(t *testing.T) {
+	b, err := buildCreateSessionBody(CreateManagedSessionRequest{
+		Agent:         "  ag  ",
+		EnvironmentID: "env",
+	})
+	require.NoError(t, err)
+	s, ok := b.Agent.(string)
+	require.True(t, ok)
+	assert.Equal(t, "ag", s)
+}
+
+func Test__buildCreateSessionBody__pinned(t *testing.T) {
+	v := 2
+	b, err := buildCreateSessionBody(CreateManagedSessionRequest{
+		Agent:         "ag",
+		AgentVersion:  &v,
+		EnvironmentID: "env",
+	})
+	require.NoError(t, err)
+	m, ok := b.Agent.(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "ag", m["id"])
+	assert.Equal(t, 2, m["version"])
+}
+
+func TestClient_ListSessionFiles(t *testing.T) {
+	t.Run("paginates with after_id", func(t *testing.T) {
+		httpCtx := &contexts.HTTPContext{
+			Responses: []*http.Response{
+				{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"data":[{"id":"file_1","filename":"a.txt","downloadable":true}],"last_id":"file_1","has_more":true}`))},
+				{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"data":[{"id":"file_2","filename":"b.txt","downloadable":true}],"last_id":"file_2","has_more":false}`))},
+			},
+		}
+		client := &Client{APIKey: "k", BaseURL: defaultBaseURL, http: httpCtx}
+		files, err := client.ListSessionFiles("sess_1")
+		require.NoError(t, err)
+		require.Len(t, files, 2)
+		assert.Equal(t, "file_1", files[0].ID)
+		assert.Equal(t, "file_2", files[1].ID)
+
+		require.Len(t, httpCtx.Requests, 2)
+		assert.Equal(t, "sess_1", httpCtx.Requests[0].URL.Query().Get("scope_id"))
+		assert.Empty(t, httpCtx.Requests[0].URL.Query().Get("after_id"))
+		assert.Equal(t, "file_1", httpCtx.Requests[1].URL.Query().Get("after_id"))
+		assert.Equal(t, anthropicBetaManagedAgents, httpCtx.Requests[0].Header.Get("anthropic-beta"))
+	})
+
+	t.Run("requires session id", func(t *testing.T) {
+		client := &Client{APIKey: "k", BaseURL: defaultBaseURL, http: &contexts.HTTPContext{}}
+		_, err := client.ListSessionFiles("")
+		require.Error(t, err)
+	})
+
+	t.Run("retry re-lists when empty", func(t *testing.T) {
+		httpCtx := &contexts.HTTPContext{
+			Responses: []*http.Response{
+				{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"data":[]}`))},
+				{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"data":[{"id":"file_1","downloadable":true}]}`))},
+			},
+		}
+		client := &Client{APIKey: "k", BaseURL: defaultBaseURL, http: httpCtx}
+		files, err := client.ListSessionFilesWithRetry("sess_1", 2, 0)
+		require.NoError(t, err)
+		require.Len(t, files, 1)
+		require.Len(t, httpCtx.Requests, 2)
+	})
+
+	t.Run("retry re-lists when only mounted inputs are indexed", func(t *testing.T) {
+		// Mounted inputs (never downloadable) can be indexed before the
+		// agent's outputs; a listing with only inputs must not stop the retry.
+		httpCtx := &contexts.HTTPContext{
+			Responses: []*http.Response{
+				{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"data":[{"id":"file_in1","filename":"input.txt","downloadable":false}]}`))},
+				{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"data":[{"id":"file_in1","filename":"input.txt","downloadable":false},{"id":"file_out1","filename":"report.md","downloadable":true}]}`))},
+			},
+		}
+		client := &Client{APIKey: "k", BaseURL: defaultBaseURL, http: httpCtx}
+		files, err := client.ListSessionFilesWithRetry("sess_1", 2, 0)
+		require.NoError(t, err)
+		require.Len(t, files, 2)
+		require.Len(t, httpCtx.Requests, 2)
+	})
+}
+
+func TestCollectSessionArtifacts_listingErrorYieldsNoArtifacts(t *testing.T) {
+	httpCtx := &contexts.HTTPContext{
+		Responses: []*http.Response{
+			{StatusCode: 500, Body: io.NopCloser(strings.NewReader(`boom`))},
+		},
+	}
+	client := &Client{APIKey: "k", BaseURL: defaultBaseURL, http: httpCtx}
+	artifacts := CollectSessionArtifacts(client, "sess_1", true, nil)
+	assert.Nil(t, artifacts)
+}
+
+func Test__SessionMessages__ExpectsArtifacts(t *testing.T) {
+	t.Run("set when events mention the outputs directory", func(t *testing.T) {
+		httpCtx := &contexts.HTTPContext{
+			Responses: []*http.Response{
+				{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"data":[{"type":"session.status_idle"},{"type":"agent.message","content":[{"type":"text","text":"Saved the report to /mnt/session/outputs/report.md"}]}]}`))},
+			},
+		}
+		client := &Client{APIKey: "k", BaseURL: defaultBaseURL, http: httpCtx}
+		sm, err := client.GetSessionMessages("sess_1")
+		require.NoError(t, err)
+		assert.True(t, sm.ExpectsArtifacts)
+	})
+
+	t.Run("unset when events never mention it", func(t *testing.T) {
+		httpCtx := &contexts.HTTPContext{
+			Responses: []*http.Response{
+				{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"data":[{"type":"session.status_idle"},{"type":"agent.message","content":[{"type":"text","text":"Done"}]}]}`))},
+			},
+		}
+		client := &Client{APIKey: "k", BaseURL: defaultBaseURL, http: httpCtx}
+		sm, err := client.GetSessionMessages("sess_1")
+		require.NoError(t, err)
+		assert.False(t, sm.ExpectsArtifacts)
+	})
+}
+
+func Test__GetSessionMessages__recoveredSessionErrorIsNotFatal(t *testing.T) {
+	httpCtx := &contexts.HTTPContext{
+		Responses: []*http.Response{
+			{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"data":[{"type":"session.status_idle"},{"type":"agent.message","content":[{"type":"text","text":"Done after retry"}]},{"type":"session.error","error":{"type":"overloaded_error","message":"temporarily overloaded"}},{"type":"user.message","content":[{"type":"text","text":"Hello"}]}]}`))},
+		},
+	}
+	client := &Client{APIKey: "k", BaseURL: defaultBaseURL, http: httpCtx}
+	sm, err := client.GetSessionMessages("sess_1")
+	require.NoError(t, err)
+	assert.True(t, sm.Complete)
+	assert.Nil(t, sm.Err)
+	assert.Equal(t, "Done after retry", sm.LastMessage)
+}
+
+func Test__GetSessionMessages__unrecoveredSessionErrorIsFatal(t *testing.T) {
+	httpCtx := &contexts.HTTPContext{
+		Responses: []*http.Response{
+			{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"data":[{"type":"session.status_terminated"},{"type":"session.error","error":{"type":"usage_limit_error","message":"Workspace usage limit reached"}}]}`))},
+		},
+	}
+	client := &Client{APIKey: "k", BaseURL: defaultBaseURL, http: httpCtx}
+	sm, err := client.GetSessionMessages("sess_1")
+	require.NoError(t, err)
+	assert.True(t, sm.Complete)
+	require.NotNil(t, sm.Err)
+	assert.Equal(t, "Workspace usage limit reached", sm.Err.Message)
+}
+
+func Test__CollectSessionArtifacts__retryOnlyWhenExpected(t *testing.T) {
+	t.Run("no expected artifacts lists exactly once", func(t *testing.T) {
+		httpCtx := &contexts.HTTPContext{
+			Responses: []*http.Response{
+				{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"data":[]}`))},
+			},
+		}
+		client := &Client{APIKey: "k", BaseURL: defaultBaseURL, http: httpCtx}
+		artifacts := CollectSessionArtifacts(client, "sess_1", false, nil)
+		assert.Nil(t, artifacts)
+		// A single request and no sleep: artifact-less runs finish immediately.
+		require.Len(t, httpCtx.Requests, 1)
+	})
+}

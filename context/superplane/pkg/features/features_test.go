@@ -1,0 +1,267 @@
+package features
+
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
+
+func Test__Get(t *testing.T) {
+	t.Run("known id returns feature and true", func(t *testing.T) {
+		f, ok := Get(FeatureClaudeManagedAgents)
+		assert.True(t, ok)
+		assert.Equal(t, FeatureClaudeManagedAgents, f.ID)
+		assert.Equal(t, "Claude Managed Agents", f.Label)
+		assert.Equal(t, "Chat with a Claude-powered agent against the canvas", f.Description)
+	})
+
+	t.Run("known id returns factory productive intake feature", func(t *testing.T) {
+		f, ok := Get(FeatureFactoryProductiveIntake)
+		assert.True(t, ok)
+		assert.Equal(t, FeatureFactoryProductiveIntake, f.ID)
+		assert.Equal(t, "Factory Productive Intake", f.Label)
+		assert.Equal(t, "Add Productive intake from the Backlog column menu", f.Description)
+	})
+
+	t.Run("known id returns factory datadog intake feature", func(t *testing.T) {
+		f, ok := Get(FeatureFactoryDatadogIntake)
+		assert.True(t, ok)
+		assert.Equal(t, FeatureFactoryDatadogIntake, f.ID)
+		assert.Equal(t, "Factory Datadog Intake", f.Label)
+		assert.Equal(t, "Add Datadog intake from the Backlog column menu", f.Description)
+	})
+
+	t.Run("known id returns bitbucket workspaces feature", func(t *testing.T) {
+		f, ok := Get(FeatureFactoryBitbucket)
+		assert.True(t, ok)
+		assert.Equal(t, FeatureFactoryBitbucket, f.ID)
+		assert.Equal(t, "Bitbucket Workspaces", f.Label)
+		assert.Equal(t, "Connect a Bitbucket workspace and open pull requests from Implement", f.Description)
+		assert.Nil(t, f.Released)
+	})
+
+	t.Run("known id returns workspace models feature", func(t *testing.T) {
+		f, ok := Get(FeatureWorkspaceModels)
+		assert.True(t, ok)
+		assert.Equal(t, FeatureWorkspaceModels, f.ID)
+		assert.Equal(t, "Workspace Models", f.Label)
+		assert.Equal(t, "Show the in-progress workspace Models settings page", f.Description)
+	})
+
+	t.Run("known id returns organization byok feature", func(t *testing.T) {
+		f, ok := Get(FeatureOrganizationBYOK)
+		assert.True(t, ok)
+		assert.Equal(t, FeatureOrganizationBYOK, f.ID)
+		assert.Equal(t, "Organization BYOK", f.Label)
+		assert.Equal(t, "Show the organization LLM Models settings page", f.Description)
+	})
+
+	t.Run("known id returns organization byok custom provider feature", func(t *testing.T) {
+		f, ok := Get(FeatureOrganizationBYOKCustomProvider)
+		assert.True(t, ok)
+		assert.Equal(t, FeatureOrganizationBYOKCustomProvider, f.ID)
+		assert.Equal(t, "Organization BYOK Custom Provider", f.Label)
+		assert.Equal(t, "Add a custom model provider with a URL, token, and API type", f.Description)
+		assert.Nil(t, f.Released)
+	})
+
+	t.Run("known id returns custom automations feature", func(t *testing.T) {
+		f, ok := Get(FeatureFactoryCustomAutomations)
+		assert.True(t, ok)
+		assert.Equal(t, FeatureFactoryCustomAutomations, f.ID)
+		assert.Equal(t, "Custom Automations", f.Label)
+		assert.Equal(t, "Add a blank custom automation to a board column", f.Description)
+		assert.Nil(t, f.Released)
+	})
+
+	t.Run("known id returns workspace MCP feature", func(t *testing.T) {
+		f, ok := Get(FeatureWorkspaceMCP)
+		assert.True(t, ok)
+		assert.Equal(t, FeatureWorkspaceMCP, f.ID)
+		assert.Equal(t, "Workspace MCP", f.Label)
+		assert.Equal(t, "Add MCP servers for workspace agents", f.Description)
+	})
+
+	t.Run("known id returns workspace skills feature", func(t *testing.T) {
+		f, ok := Get(FeatureWorkspaceSkills)
+		assert.True(t, ok)
+		assert.Equal(t, FeatureWorkspaceSkills, f.ID)
+		assert.Equal(t, "Workspace Skills", f.Label)
+		assert.Equal(t, "Add skills for workspace agents", f.Description)
+	})
+
+	t.Run("retired merge confidence flag is absent", func(t *testing.T) {
+		feature, ok := Get("factory_risk_score")
+		assert.False(t, ok)
+		assert.Equal(t, Feature{}, feature)
+	})
+
+	t.Run("known id returns pull request merge feature", func(t *testing.T) {
+		f, ok := Get(FeatureFactoryPullRequestMerge)
+		assert.True(t, ok)
+		assert.Equal(t, FeatureFactoryPullRequestMerge, f.ID)
+		assert.Equal(t, "Pull Request Merge", f.Label)
+		assert.Equal(t, "Show the Mergeable chip on task cards and the Merge button on pull request review", f.Description)
+		assert.Nil(t, f.Released)
+	})
+
+	t.Run("known id returns SuperPlane MCP server feature", func(t *testing.T) {
+		f, ok := Get(FeatureSuperPlaneMCPServer)
+		assert.True(t, ok)
+		assert.Equal(t, FeatureSuperPlaneMCPServer, f.ID)
+		assert.Equal(t, "MCP Server", f.Label)
+		assert.Equal(t, "Allow Cursor and other MCP clients to connect to workspaces in this organization", f.Description)
+		assert.True(t, IsReleased(FeatureSuperPlaneMCPServer))
+	})
+
+	t.Run("retired mobile board flag is absent", func(t *testing.T) {
+		feature, ok := Get("mobile_factory_board")
+		assert.False(t, ok)
+		assert.Equal(t, Feature{}, feature)
+	})
+
+	t.Run("unknown id returns zero value and false", func(t *testing.T) {
+		f, ok := Get("does-not-exist")
+		assert.False(t, ok)
+		assert.Equal(t, Feature{}, f)
+	})
+
+	t.Run("empty id returns false", func(t *testing.T) {
+		_, ok := Get("")
+		assert.False(t, ok)
+	})
+
+	t.Run("retired sentry intake flag is absent", func(t *testing.T) {
+		feature, ok := Get("factory_sentry_intake")
+		assert.False(t, ok)
+		assert.Equal(t, Feature{}, feature)
+	})
+
+	t.Run("retired dependabot intake flag is absent", func(t *testing.T) {
+		feature, ok := Get("factory_dependabot_intake")
+		assert.False(t, ok)
+		assert.Equal(t, Feature{}, feature)
+	})
+
+	t.Run("retired jira intake flag is absent", func(t *testing.T) {
+		feature, ok := Get("factory_jira_intake")
+		assert.False(t, ok)
+		assert.Equal(t, Feature{}, feature)
+	})
+
+	t.Run("retired linear intake flag is absent", func(t *testing.T) {
+		feature, ok := Get("factory_linear_intake")
+		assert.False(t, ok)
+		assert.Equal(t, Feature{}, feature)
+	})
+
+	t.Run("retired task console flag is absent", func(t *testing.T) {
+		feature, ok := Get("factory_task_console")
+		assert.False(t, ok)
+		assert.Equal(t, Feature{}, feature)
+	})
+}
+
+func Test__Exists(t *testing.T) {
+	assert.True(t, Exists(FeatureClaudeManagedAgents))
+	assert.True(t, Exists(FeatureFactories))
+	assert.True(t, Exists(FeatureFactoryProductiveIntake))
+	assert.True(t, Exists(FeatureFactoryDatadogIntake))
+	assert.True(t, Exists(FeatureFactoryBitbucket))
+	assert.True(t, Exists(FeatureWorkspaceModels))
+	assert.True(t, Exists(FeatureOrganizationBYOK))
+	assert.True(t, Exists(FeatureOrganizationBYOKCustomProvider))
+	assert.True(t, Exists(FeatureFactoryCustomAutomations))
+	assert.True(t, Exists(FeatureWorkspaceMCP))
+	assert.True(t, Exists(FeatureWorkspaceSkills))
+	assert.True(t, Exists(FeatureFactoryPullRequestMerge))
+	assert.True(t, Exists(FeatureSuperPlaneMCPServer))
+	assert.False(t, Exists("mobile_factory_board"))
+	assert.False(t, Exists("factory_risk_score"))
+	assert.False(t, Exists("factory_visual_evidence"))
+	assert.False(t, Exists("factory_task_console"))
+	assert.False(t, Exists("factory_sentry_intake"))
+	assert.False(t, Exists("factory_dependabot_intake"))
+	assert.False(t, Exists("factory_jira_intake"))
+	assert.False(t, Exists("factory_linear_intake"))
+	assert.False(t, Exists("does-not-exist"))
+	assert.False(t, Exists(""))
+}
+
+func Test__All_omitsRetiredSentryIntakeFlag(t *testing.T) {
+	for _, feature := range All() {
+		assert.NotEqual(t, "factory_sentry_intake", feature.ID)
+	}
+}
+
+func Test__All_omitsRetiredDependabotIntakeFlag(t *testing.T) {
+	for _, feature := range All() {
+		assert.NotEqual(t, "factory_dependabot_intake", feature.ID)
+	}
+}
+
+func Test__All_omitsRetiredJiraIntakeFlag(t *testing.T) {
+	for _, feature := range All() {
+		assert.NotEqual(t, "factory_jira_intake", feature.ID)
+	}
+}
+
+func Test__All_omitsRetiredLinearIntakeFlag(t *testing.T) {
+	for _, feature := range All() {
+		assert.NotEqual(t, "factory_linear_intake", feature.ID)
+	}
+}
+
+func Test__All_omitsRetiredMergeConfidenceFlag(t *testing.T) {
+	for _, feature := range All() {
+		assert.NotEqual(t, "factory_risk_score", feature.ID)
+	}
+}
+
+func Test__All_omitsRetiredTaskConsoleFlag(t *testing.T) {
+	for _, feature := range All() {
+		assert.NotEqual(t, "factory_task_console", feature.ID)
+	}
+}
+
+func Test__All_isCopy(t *testing.T) {
+	a := All()
+	require := len(a)
+	a[0] = Feature{ID: "mutated"}
+
+	b := All()
+	assert.Equal(t, require, len(b))
+	assert.NotEqual(t, "mutated", b[0].ID)
+}
+
+func Test__IsReleased(t *testing.T) {
+	t.Run("unknown id is not released", func(t *testing.T) {
+		assert.False(t, IsReleased("does-not-exist"))
+	})
+
+	t.Run("registered id with nil Released is not released", func(t *testing.T) {
+		original := registry
+		t.Cleanup(func() { registry = original })
+
+		registry = []Feature{{ID: "preview", Label: "Preview", Description: "Preview feature"}}
+		assert.False(t, IsReleased("preview"))
+	})
+
+	t.Run("registered id with Released=&true is released", func(t *testing.T) {
+		original := registry
+		t.Cleanup(func() { registry = original })
+
+		v := true
+		registry = []Feature{{ID: "graduated", Label: "Graduated", Released: &v}}
+		assert.True(t, IsReleased("graduated"))
+	})
+
+	t.Run("registered id with Released=&false is not released", func(t *testing.T) {
+		original := registry
+		t.Cleanup(func() { registry = original })
+
+		v := false
+		registry = []Feature{{ID: "explicit-false", Label: "X", Released: &v}}
+		assert.False(t, IsReleased("explicit-false"))
+	})
+}

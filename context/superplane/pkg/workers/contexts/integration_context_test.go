@@ -1,0 +1,1018 @@
+package contexts
+
+import (
+	"context"
+	"encoding/json"
+	"reflect"
+	"slices"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/superplanehq/superplane/pkg/core"
+	"github.com/superplanehq/superplane/pkg/crypto"
+	"github.com/superplanehq/superplane/pkg/database"
+	"github.com/superplanehq/superplane/pkg/models"
+	"github.com/superplanehq/superplane/test/support"
+	"github.com/superplanehq/superplane/test/support/impl"
+	"gorm.io/datatypes"
+)
+
+func Test__IntegrationContext_ScheduleResync(t *testing.T) {
+	r := support.Setup(t)
+	defer r.Close()
+
+	//
+	// Create app installation
+	//
+	integration, err := models.CreateIntegration(
+		uuid.New(),
+		r.Organization.ID,
+		"dummy",
+		support.RandomName("installation"),
+		map[string]any{},
+	)
+	require.NoError(t, err)
+
+	ctx := NewIntegrationContext(database.Conn(), nil, integration, r.Encryptor, r.Registry, nil)
+
+	t.Run("rejects short interval", func(t *testing.T) {
+		err = ctx.ScheduleResync(500 * time.Millisecond)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "interval must be bigger than 1s")
+	})
+
+	t.Run("completes previous request on new request", func(t *testing.T) {
+		//
+		// Create previous request
+		//
+		now := time.Now()
+		require.NoError(t, integration.CreateSyncRequest(database.Conn(), &now))
+		requests, err := integration.ListRequests(models.IntegrationRequestTypeSync)
+		require.NoError(t, err)
+		require.Len(t, requests, 1)
+		previousRequest := &requests[0]
+
+		//
+		// Schedule new sync request.
+		//
+		require.NoError(t, ctx.ScheduleResync(2*time.Second))
+
+		//
+		// Verify previous request was completed.
+		//
+		previousRequest, err = integration.GetRequest(previousRequest.ID.String())
+		require.NoError(t, err)
+		require.Equal(t, models.IntegrationRequestStateCompleted, previousRequest.State)
+
+		//
+		// Verify new one was created
+		//
+		requests, err = integration.ListRequests(models.IntegrationRequestTypeSync)
+		require.NoError(t, err)
+		require.Len(t, requests, 2)
+		newRequestIndex := slices.IndexFunc(requests, func(r models.IntegrationRequest) bool { return r.ID.String() != previousRequest.ID.String() })
+		newRequest := requests[newRequestIndex]
+		require.Equal(t, models.IntegrationRequestStatePending, newRequest.State)
+	})
+}
+
+// Test__IntegrationContext_ScheduleActionCall covers the de-duplication that
+// fixes issue #5386: integration-level action calls must keep at most one pending
+// request per (installation, action, parameters), collapsing self-rescheduling
+// or duplicate chains while preserving legitimately distinct calls.
+func Test__IntegrationContext_ScheduleActionCall(t *testing.T) {
+	r := support.Setup(t)
+	defer r.Close()
+
+	integration, err := models.CreateIntegration(
+		uuid.New(),
+		r.Organization.ID,
+		"dummy",
+		support.RandomName("installation"),
+		map[string]any{},
+	)
+	require.NoError(t, err)
+
+	ctx := NewIntegrationContext(database.Conn(), nil, integration, r.Encryptor, r.Registry, nil)
+
+	pendingActions := func(actionName string) int64 {
+		var count int64
+		require.NoError(t, database.Conn().
+			Model(&models.IntegrationRequest{}).
+			Where("app_installation_id = ? AND state = ? AND type = ?",
+				integration.ID, models.IntegrationRequestStatePending, models.IntegrationRequestTypeInvokeAction).
+			Where("spec->'invoke_action'->>'action_name' = ?", actionName).
+			Count(&count).Error)
+		return count
+	}
+
+	t.Run("rejects short interval", func(t *testing.T) {
+		err := ctx.ScheduleActionCall("refresh", map[string]any{}, 500*time.Millisecond)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "interval must be bigger than 1s")
+	})
+
+	t.Run("same action and parameters keeps a single pending request", func(t *testing.T) {
+		for i := 0; i < 4; i++ {
+			require.NoError(t, ctx.ScheduleActionCall("refresh", map[string]any{}, time.Second))
+			require.Equal(t, int64(1), pendingActions("refresh"),
+				"scheduling the same (action, params) must keep exactly one pending request (#5386)")
+		}
+	})
+
+	t.Run("different parameters are preserved as separate requests", func(t *testing.T) {
+		require.NoError(t, ctx.ScheduleActionCall("provision", map[string]any{"region": "us-east-1"}, time.Second))
+		require.NoError(t, ctx.ScheduleActionCall("provision", map[string]any{"region": "eu-west-1"}, time.Second))
+		require.Equal(t, int64(2), pendingActions("provision"),
+			"distinct parameters must remain separate pending requests")
+
+		//
+		// Re-scheduling one of them dedups only its own (action, params) pair.
+		//
+		require.NoError(t, ctx.ScheduleActionCall("provision", map[string]any{"region": "us-east-1"}, time.Second))
+		require.Equal(t, int64(2), pendingActions("provision"))
+	})
+
+	t.Run("collapses accumulated chains for the same action", func(t *testing.T) {
+		//
+		// Seed several orphaned pending requests directly, simulating the runaway
+		// accumulation from issue #5386.
+		//
+		now := time.Now()
+		for i := 0; i < 5; i++ {
+			require.NoError(t, integration.CreateActionRequest(database.Conn(), "drain", map[string]any{}, &now))
+		}
+		require.Equal(t, int64(5), pendingActions("drain"))
+
+		require.NoError(t, ctx.ScheduleActionCall("drain", map[string]any{}, time.Second))
+		require.Equal(t, int64(1), pendingActions("drain"),
+			"a new schedule must collapse all accumulated chains of the same action to one (#5386)")
+	})
+}
+
+// Test__IntegrationContext_ScheduleActionCall_ConcurrentSchedulingDoesNotDuplicate
+// guards the concurrency case behind #5386: the worker processes due requests in
+// parallel, so the primitive must still converge to a single pending request when
+// many goroutines reschedule the same (action, params) at once. Without the
+// per-installation lock, the concurrent complete+create transactions each insert a
+// successor the others cannot see and the count stays above one.
+func Test__IntegrationContext_ScheduleActionCall_ConcurrentSchedulingDoesNotDuplicate(t *testing.T) {
+	r := support.Setup(t)
+	defer r.Close()
+
+	integration, err := models.CreateIntegration(
+		uuid.New(),
+		r.Organization.ID,
+		"dummy",
+		support.RandomName("installation"),
+		map[string]any{},
+	)
+	require.NoError(t, err)
+
+	ctx := NewIntegrationContext(database.Conn(), nil, integration, r.Encryptor, r.Registry, nil)
+
+	//
+	// Seed several accumulated chains, then reschedule them from many goroutines
+	// at once, mirroring the parallel worker processing that caused the bug.
+	//
+	now := time.Now()
+	for i := 0; i < 8; i++ {
+		require.NoError(t, integration.CreateActionRequest(database.Conn(), "refreshAccessToken", map[string]any{}, &now))
+	}
+
+	const concurrency = 8
+	var wg sync.WaitGroup
+	errs := make(chan error, concurrency)
+	for i := 0; i < concurrency; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			errs <- ctx.ScheduleActionCall("refreshAccessToken", map[string]any{}, time.Second)
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		require.NoError(t, err)
+	}
+
+	var count int64
+	require.NoError(t, database.Conn().
+		Model(&models.IntegrationRequest{}).
+		Where("app_installation_id = ? AND state = ? AND type = ?",
+			integration.ID, models.IntegrationRequestStatePending, models.IntegrationRequestTypeInvokeAction).
+		Where("spec->'invoke_action'->>'action_name' = ?", "refreshAccessToken").
+		Count(&count).Error)
+	require.Equal(t, int64(1), count, "concurrent scheduling must converge to a single pending request (#5386)")
+}
+
+func Test__IntegrationContext_RequestWebhook_ReplacesWebhookOnConfigChange(t *testing.T) {
+	r := support.Setup(t)
+	defer r.Close()
+
+	r.Registry.Integrations["dummy"] = impl.NewDummyIntegration(impl.DummyIntegrationOptions{})
+	r.Registry.WebhookHandlers["dummy"] = impl.NewDummyWebhookHandler(impl.DummyWebhookHandlerOptions{
+		CompareConfigFunc: func(a, b any) (bool, error) {
+			return reflect.DeepEqual(a, b), nil
+		},
+	})
+
+	integration, err := models.CreateIntegration(
+		uuid.New(),
+		r.Organization.ID,
+		"dummy",
+		support.RandomName("installation"),
+		map[string]any{},
+	)
+	require.NoError(t, err)
+
+	oldConfig := map[string]any{"repository": "old"}
+	newConfig := map[string]any{"repository": "new"}
+
+	webhookID := uuid.New()
+	_, encryptedKey, err := crypto.NewRandomKey(context.Background(), r.Encryptor, webhookID.String())
+	require.NoError(t, err)
+
+	now := time.Now()
+	webhook := models.Webhook{
+		ID:                webhookID,
+		State:             models.WebhookStateReady,
+		Secret:            encryptedKey,
+		Configuration:     datatypes.NewJSONType[any](oldConfig),
+		Metadata:          datatypes.NewJSONType[any](map[string]any{}),
+		AppInstallationID: &integration.ID,
+		CreatedAt:         &now,
+	}
+	require.NoError(t, database.Conn().Create(&webhook).Error)
+
+	inputNode := models.CanvasNode{
+		NodeID:        "node-1",
+		Name:          "Node 1",
+		Type:          models.NodeTypeTrigger,
+		Ref:           datatypes.NewJSONType(models.NodeRef{Trigger: &models.TriggerRef{Name: "start"}}),
+		Configuration: datatypes.NewJSONType(map[string]any{}),
+		Metadata:      datatypes.NewJSONType(map[string]any{}),
+		Position:      datatypes.NewJSONType(models.Position{}),
+	}
+
+	canvas, nodes := support.CreateCanvas(t, r.Organization.ID, r.User, []models.CanvasNode{inputNode}, nil)
+	require.NotNil(t, canvas)
+	require.Len(t, nodes, 1)
+
+	node := nodes[0]
+	node.AppInstallationID = &integration.ID
+	node.WebhookID = &webhookID
+	require.NoError(t, database.Conn().Save(&node).Error)
+
+	ctx := NewIntegrationContext(database.Conn(), &node, integration, r.Encryptor, r.Registry, nil)
+	require.NoError(t, ctx.RequestWebhook(newConfig))
+
+	require.NotNil(t, node.WebhookID)
+	require.NotEqual(t, webhookID, *node.WebhookID)
+
+	var deletedWebhook models.Webhook
+	require.NoError(t, database.Conn().Unscoped().First(&deletedWebhook, webhookID).Error)
+	require.True(t, deletedWebhook.DeletedAt.Valid)
+
+	newWebhook, err := models.FindWebhookInTransaction(database.Conn(), *node.WebhookID)
+	require.NoError(t, err)
+	require.False(t, newWebhook.DeletedAt.Valid)
+	assert.Equal(t, newConfig, newWebhook.Configuration.Data())
+}
+
+func Test__IntegrationContext_RequestWebhook_ReuseWebhookOnResave(t *testing.T) {
+	r := support.Setup(t)
+	defer r.Close()
+
+	// CompareConfig always returns true — this is the Elastic/Prometheus/SendGrid model
+	// where all triggers for the integration share one webhook.
+	r.Registry.Integrations["dummy"] = impl.NewDummyIntegration(impl.DummyIntegrationOptions{})
+	r.Registry.WebhookHandlers["dummy"] = impl.NewDummyWebhookHandler(impl.DummyWebhookHandlerOptions{
+		CompareConfigFunc: func(a, b any) (bool, error) {
+			return true, nil
+		},
+	})
+
+	integration, err := models.CreateIntegration(
+		uuid.New(),
+		r.Organization.ID,
+		"dummy",
+		support.RandomName("installation"),
+		map[string]any{},
+	)
+	require.NoError(t, err)
+
+	// Create a webhook that the node already points to (simulates first save).
+	webhookID := uuid.New()
+	_, encryptedKey, err := crypto.NewRandomKey(context.Background(), r.Encryptor, webhookID.String())
+	require.NoError(t, err)
+
+	now := time.Now()
+	webhook := models.Webhook{
+		ID:                webhookID,
+		State:             models.WebhookStateReady,
+		Secret:            encryptedKey,
+		Configuration:     datatypes.NewJSONType[any](nil),
+		Metadata:          datatypes.NewJSONType[any](map[string]any{}),
+		AppInstallationID: &integration.ID,
+		CreatedAt:         &now,
+	}
+	require.NoError(t, database.Conn().Create(&webhook).Error)
+
+	inputNode := models.CanvasNode{
+		NodeID:        "node-1",
+		Name:          "Node 1",
+		Type:          models.NodeTypeTrigger,
+		Ref:           datatypes.NewJSONType(models.NodeRef{Trigger: &models.TriggerRef{Name: "start"}}),
+		Configuration: datatypes.NewJSONType(map[string]any{}),
+		Metadata:      datatypes.NewJSONType(map[string]any{}),
+		Position:      datatypes.NewJSONType(models.Position{}),
+	}
+
+	canvas, nodes := support.CreateCanvas(t, r.Organization.ID, r.User, []models.CanvasNode{inputNode}, nil)
+	require.NotNil(t, canvas)
+	require.Len(t, nodes, 1)
+
+	node := nodes[0]
+	node.AppInstallationID = &integration.ID
+	node.WebhookID = &webhookID // node already has a webhook (simulates re-save)
+	require.NoError(t, database.Conn().Save(&node).Error)
+
+	// Simulate re-save: RequestWebhook is called again with nil config.
+	ctx := NewIntegrationContext(database.Conn(), &node, integration, r.Encryptor, r.Registry, nil)
+	require.NoError(t, ctx.RequestWebhook(nil))
+
+	// The node must still point to the original webhook — not a new one.
+	require.NotNil(t, node.WebhookID)
+	assert.Equal(t, webhookID, *node.WebhookID)
+
+	// The original webhook must not have been soft-deleted.
+	var existingWebhook models.Webhook
+	require.NoError(t, database.Conn().Unscoped().First(&existingWebhook, webhookID).Error)
+	assert.False(t, existingWebhook.DeletedAt.Valid, "original webhook should not be soft-deleted on re-save")
+
+	// No additional webhook records should have been created for this integration.
+	var webhooks []models.Webhook
+	require.NoError(t, database.Conn().Where("app_installation_id = ?", integration.ID).Find(&webhooks).Error)
+	assert.Len(t, webhooks, 1, "re-save must not create a second webhook")
+}
+
+func Test__IntegrationContext_RequestWebhook_MergesExistingWebhookConfig(t *testing.T) {
+	r := support.Setup(t)
+	defer r.Close()
+
+	r.Registry.Integrations["dummy"] = impl.NewDummyIntegration(impl.DummyIntegrationOptions{})
+	r.Registry.WebhookHandlers["dummy"] = impl.NewDummyWebhookHandler(impl.DummyWebhookHandlerOptions{
+		CompareConfigFunc: func(a, b any) (bool, error) {
+			return true, nil
+		},
+		MergeFunc: func(current, requested any) (any, bool, error) {
+			currentMap := current.(map[string]any)
+			requestedMap := requested.(map[string]any)
+
+			currentEvents := []string{}
+			switch values := currentMap["eventTypes"].(type) {
+			case []string:
+				currentEvents = append(currentEvents, values...)
+			case []any:
+				for _, item := range values {
+					if eventType, ok := item.(string); ok {
+						currentEvents = append(currentEvents, eventType)
+					}
+				}
+			}
+
+			requestedEvents := []string{}
+			switch values := requestedMap["eventTypes"].(type) {
+			case []string:
+				requestedEvents = append(requestedEvents, values...)
+			case []any:
+				for _, item := range values {
+					if eventType, ok := item.(string); ok {
+						requestedEvents = append(requestedEvents, eventType)
+					}
+				}
+			}
+
+			events := append(currentEvents, requestedEvents...)
+			slices.Sort(events)
+			events = slices.Compact(events)
+
+			return map[string]any{"eventTypes": events}, len(events) != len(currentEvents), nil
+		},
+	})
+
+	integration, err := models.CreateIntegration(
+		uuid.New(),
+		r.Organization.ID,
+		"dummy",
+		support.RandomName("installation"),
+		map[string]any{},
+	)
+	require.NoError(t, err)
+
+	webhookID := uuid.New()
+	_, encryptedKey, err := crypto.NewRandomKey(context.Background(), r.Encryptor, webhookID.String())
+	require.NoError(t, err)
+
+	now := time.Now()
+	webhook := models.Webhook{
+		ID:                webhookID,
+		State:             models.WebhookStateReady,
+		Secret:            encryptedKey,
+		Configuration:     datatypes.NewJSONType[any](map[string]any{"eventTypes": []string{"deploy_ended"}}),
+		Metadata:          datatypes.NewJSONType[any](map[string]any{}),
+		AppInstallationID: &integration.ID,
+		CreatedAt:         &now,
+	}
+	require.NoError(t, database.Conn().Create(&webhook).Error)
+
+	inputNode := models.CanvasNode{
+		NodeID:        "node-1",
+		Name:          "Node 1",
+		Type:          models.NodeTypeTrigger,
+		Ref:           datatypes.NewJSONType(models.NodeRef{Trigger: &models.TriggerRef{Name: "start"}}),
+		Configuration: datatypes.NewJSONType(map[string]any{}),
+		Metadata:      datatypes.NewJSONType(map[string]any{}),
+		Position:      datatypes.NewJSONType(models.Position{}),
+	}
+
+	canvas, nodes := support.CreateCanvas(t, r.Organization.ID, r.User, []models.CanvasNode{inputNode}, nil)
+	require.NotNil(t, canvas)
+	require.Len(t, nodes, 1)
+
+	node := nodes[0]
+	node.AppInstallationID = &integration.ID
+	require.NoError(t, database.Conn().Save(&node).Error)
+
+	ctx := NewIntegrationContext(database.Conn(), &node, integration, r.Encryptor, r.Registry, nil)
+	require.NoError(t, ctx.RequestWebhook(map[string]any{"eventTypes": []string{"build_ended"}}))
+
+	require.NotNil(t, node.WebhookID)
+	require.Equal(t, webhookID, *node.WebhookID)
+
+	updatedWebhook, err := models.FindWebhookInTransaction(database.Conn(), webhookID)
+	require.NoError(t, err)
+	assert.Equal(t, models.WebhookStatePending, updatedWebhook.State)
+
+	configurationJSON, marshalErr := json.Marshal(updatedWebhook.Configuration.Data())
+	require.NoError(t, marshalErr)
+	assert.JSONEq(t, `{"eventTypes":["build_ended","deploy_ended"]}`, string(configurationJSON))
+}
+
+func Test__IntegrationContext_ListSubscriptions_UsesOnEventsCallback(t *testing.T) {
+	r := support.Setup(t)
+	defer r.Close()
+
+	triggerName := "dummy.subscription-trigger"
+	r.Registry.Integrations["dummy"] = impl.NewDummyIntegration(impl.DummyIntegrationOptions{
+		Triggers: []core.Trigger{
+			impl.NewDummyIntegrationTrigger(impl.DummyIntegrationTriggerOptions{
+				Name: triggerName,
+				OnIntegrationMessage: func(ctx core.IntegrationMessageContext) error {
+					return ctx.Events.Emit("test.payload", map[string]any{"message": ctx.Message})
+				},
+			}),
+		},
+	})
+
+	integration, err := models.CreateIntegration(
+		uuid.New(),
+		r.Organization.ID,
+		"dummy",
+		support.RandomName("installation"),
+		map[string]any{},
+	)
+	require.NoError(t, err)
+
+	canvas, nodes := support.CreateCanvas(
+		t,
+		r.Organization.ID,
+		r.User,
+		[]models.CanvasNode{
+			{
+				NodeID:        "trigger-1",
+				Name:          "trigger-1",
+				Type:          models.NodeTypeTrigger,
+				Ref:           datatypes.NewJSONType(models.NodeRef{Trigger: &models.TriggerRef{Name: triggerName}}),
+				Configuration: datatypes.NewJSONType(map[string]any{}),
+			},
+		},
+		nil,
+	)
+	require.NotNil(t, canvas)
+	require.Len(t, nodes, 1)
+
+	node := nodes[0]
+	node.AppInstallationID = &integration.ID
+	require.NoError(t, database.Conn().Save(&node).Error)
+
+	newEvents := []models.CanvasEvent{}
+	onNewEvents := func(events []models.CanvasEvent) {
+		newEvents = append(newEvents, events...)
+	}
+
+	ctx := NewIntegrationContext(database.Conn(), &node, integration, r.Encryptor, r.Registry, onNewEvents)
+	_, err = ctx.Subscribe(map[string]any{"enabled": true})
+	require.NoError(t, err)
+
+	subscriptions, err := ctx.ListSubscriptions()
+	require.NoError(t, err)
+	require.Len(t, subscriptions, 1)
+
+	err = subscriptions[0].SendMessage(map[string]any{"hello": "world"})
+	require.NoError(t, err)
+
+	assert.Len(t, newEvents, 1)
+	assert.Equal(t, canvas.ID, newEvents[0].WorkflowID)
+	assert.Equal(t, node.NodeID, newEvents[0].NodeID)
+	support.VerifyCanvasNodeEventsCount(t, canvas.ID, node.NodeID, 1)
+}
+
+func Test__IntegrationSubscriptionContext_PausedIntakeIgnoresLiveMessages(t *testing.T) {
+	r := support.Setup(t)
+	defer r.Close()
+
+	triggerName := "dummy.paused-intake-trigger"
+	r.Registry.Integrations["dummy"] = impl.NewDummyIntegration(impl.DummyIntegrationOptions{
+		Triggers: []core.Trigger{
+			impl.NewDummyIntegrationTrigger(impl.DummyIntegrationTriggerOptions{
+				Name: triggerName,
+				OnIntegrationMessage: func(ctx core.IntegrationMessageContext) error {
+					return ctx.Events.Emit("test.payload", map[string]any{"message": ctx.Message})
+				},
+			}),
+		},
+	})
+
+	integration, err := models.CreateIntegration(
+		uuid.New(),
+		r.Organization.ID,
+		"dummy",
+		support.RandomName("installation"),
+		map[string]any{},
+	)
+	require.NoError(t, err)
+
+	factory, err := models.CreateFactory(database.Conn(), r.Organization.ID, support.RandomName("factory"), "", "")
+	require.NoError(t, err)
+
+	canvas, nodes := support.CreateCanvas(
+		t,
+		r.Organization.ID,
+		r.User,
+		[]models.CanvasNode{
+			{
+				NodeID:        "trigger-1",
+				Name:          "trigger-1",
+				Type:          models.NodeTypeTrigger,
+				Ref:           datatypes.NewJSONType(models.NodeRef{Trigger: &models.TriggerRef{Name: triggerName}}),
+				Configuration: datatypes.NewJSONType(map[string]any{}),
+			},
+		},
+		nil,
+	)
+	require.NotNil(t, canvas)
+	require.Len(t, nodes, 1)
+
+	node := nodes[0]
+	node.AppInstallationID = &integration.ID
+	require.NoError(t, database.Conn().Save(&node).Error)
+
+	intake, err := factory.CreateIntake(database.Conn(), canvas.ID, models.FactoryIntakeSourceSentryExceptions)
+	require.NoError(t, err)
+
+	newEvents := []models.CanvasEvent{}
+	onNewEvents := func(events []models.CanvasEvent) {
+		newEvents = append(newEvents, events...)
+	}
+
+	ctx := NewIntegrationContext(database.Conn(), &node, integration, r.Encryptor, r.Registry, onNewEvents)
+	_, err = ctx.Subscribe(map[string]any{"enabled": true})
+	require.NoError(t, err)
+
+	subscriptions, err := ctx.ListSubscriptions()
+	require.NoError(t, err)
+	require.Len(t, subscriptions, 1)
+
+	require.NoError(t, subscriptions[0].SendMessage(map[string]any{"hello": "world"}))
+	require.Len(t, newEvents, 1)
+	support.VerifyCanvasNodeEventsCount(t, canvas.ID, node.NodeID, 1)
+
+	require.NoError(t, intake.SetPaused(database.Conn(), true))
+	require.NoError(t, subscriptions[0].SendMessage(map[string]any{"hello": "paused"}))
+	assert.Len(t, newEvents, 1)
+	support.VerifyCanvasNodeEventsCount(t, canvas.ID, node.NodeID, 1)
+
+	require.NoError(t, intake.SetPaused(database.Conn(), false))
+	require.NoError(t, subscriptions[0].SendMessage(map[string]any{"hello": "resumed"}))
+	assert.Len(t, newEvents, 2)
+	support.VerifyCanvasNodeEventsCount(t, canvas.ID, node.NodeID, 2)
+}
+
+func Test__IntegrationSubscriptionContext_DeletedCanvasSkipsMessage(t *testing.T) {
+	r := support.Setup(t)
+	defer r.Close()
+
+	triggerName := "dummy.deleted-canvas-trigger"
+	r.Registry.Integrations["dummy"] = impl.NewDummyIntegration(impl.DummyIntegrationOptions{
+		Triggers: []core.Trigger{
+			impl.NewDummyIntegrationTrigger(impl.DummyIntegrationTriggerOptions{
+				Name: triggerName,
+				OnIntegrationMessage: func(ctx core.IntegrationMessageContext) error {
+					return ctx.Events.Emit("test.payload", map[string]any{"message": ctx.Message})
+				},
+			}),
+		},
+	})
+
+	integration, err := models.CreateIntegration(
+		uuid.New(),
+		r.Organization.ID,
+		"dummy",
+		support.RandomName("installation"),
+		map[string]any{},
+	)
+	require.NoError(t, err)
+
+	canvas, nodes := support.CreateCanvas(
+		t,
+		r.Organization.ID,
+		r.User,
+		[]models.CanvasNode{
+			{
+				NodeID:        "trigger-1",
+				Name:          "trigger-1",
+				Type:          models.NodeTypeTrigger,
+				Ref:           datatypes.NewJSONType(models.NodeRef{Trigger: &models.TriggerRef{Name: triggerName}}),
+				Configuration: datatypes.NewJSONType(map[string]any{}),
+			},
+		},
+		nil,
+	)
+	require.NotNil(t, canvas)
+	require.Len(t, nodes, 1)
+
+	node := nodes[0]
+	node.AppInstallationID = &integration.ID
+	require.NoError(t, database.Conn().Save(&node).Error)
+
+	newEvents := []models.CanvasEvent{}
+	onNewEvents := func(events []models.CanvasEvent) {
+		newEvents = append(newEvents, events...)
+	}
+
+	ctx := NewIntegrationContext(database.Conn(), &node, integration, r.Encryptor, r.Registry, onNewEvents)
+	_, err = ctx.Subscribe(map[string]any{"enabled": true})
+	require.NoError(t, err)
+
+	subscriptions, err := ctx.ListSubscriptions()
+	require.NoError(t, err)
+	require.Len(t, subscriptions, 1)
+
+	require.NoError(t, subscriptions[0].SendMessage(map[string]any{"hello": "before-delete"}))
+	assert.Len(t, newEvents, 1)
+	support.VerifyCanvasNodeEventsCount(t, canvas.ID, node.NodeID, 1)
+
+	require.NoError(t, database.Conn().Delete(&models.Canvas{}, canvas.ID).Error)
+	require.NoError(t, subscriptions[0].SendMessage(map[string]any{"hello": "after-delete"}))
+	assert.Len(t, newEvents, 1)
+	support.VerifyCanvasNodeEventsCount(t, canvas.ID, node.NodeID, 1)
+}
+
+func Test__IntegrationSubscriptionContext_NoLiveVersionSkipsMessage(t *testing.T) {
+	r := support.Setup(t)
+	defer r.Close()
+
+	triggerName := "dummy.no-live-version-trigger"
+	r.Registry.Integrations["dummy"] = impl.NewDummyIntegration(impl.DummyIntegrationOptions{
+		Triggers: []core.Trigger{
+			impl.NewDummyIntegrationTrigger(impl.DummyIntegrationTriggerOptions{
+				Name: triggerName,
+				OnIntegrationMessage: func(ctx core.IntegrationMessageContext) error {
+					return ctx.Events.Emit("test.payload", map[string]any{"message": ctx.Message})
+				},
+			}),
+		},
+	})
+
+	integration, err := models.CreateIntegration(
+		uuid.New(),
+		r.Organization.ID,
+		"dummy",
+		support.RandomName("installation"),
+		map[string]any{},
+	)
+	require.NoError(t, err)
+
+	canvas, nodes := support.CreateCanvas(
+		t,
+		r.Organization.ID,
+		r.User,
+		[]models.CanvasNode{
+			{
+				NodeID:        "trigger-1",
+				Name:          "trigger-1",
+				Type:          models.NodeTypeTrigger,
+				Ref:           datatypes.NewJSONType(models.NodeRef{Trigger: &models.TriggerRef{Name: triggerName}}),
+				Configuration: datatypes.NewJSONType(map[string]any{}),
+			},
+		},
+		nil,
+	)
+	require.NotNil(t, canvas)
+	require.Len(t, nodes, 1)
+
+	node := nodes[0]
+	node.AppInstallationID = &integration.ID
+	require.NoError(t, database.Conn().Save(&node).Error)
+
+	other, _ := support.CreateCanvas(t, r.Organization.ID, r.User, nil, nil)
+	require.NotNil(t, other.LiveVersionID)
+	require.NoError(t, database.Conn().
+		Model(&models.Canvas{}).
+		Where("id = ?", canvas.ID).
+		Update("live_version_id", *other.LiveVersionID).
+		Error)
+
+	newEvents := []models.CanvasEvent{}
+	onNewEvents := func(events []models.CanvasEvent) {
+		newEvents = append(newEvents, events...)
+	}
+
+	ctx := NewIntegrationContext(database.Conn(), &node, integration, r.Encryptor, r.Registry, onNewEvents)
+	_, err = ctx.Subscribe(map[string]any{"enabled": true})
+	require.NoError(t, err)
+
+	subscriptions, err := ctx.ListSubscriptions()
+	require.NoError(t, err)
+	require.Len(t, subscriptions, 1)
+
+	require.NoError(t, subscriptions[0].SendMessage(map[string]any{"hello": "world"}))
+	assert.Len(t, newEvents, 0)
+	support.VerifyCanvasNodeEventsCount(t, canvas.ID, node.NodeID, 0)
+}
+
+func Test__IntegrationSubscriptionContext_LiveListenersStillReceiveOnMixedConnection(t *testing.T) {
+	r := support.Setup(t)
+	defer r.Close()
+
+	triggerName := "dummy.mixed-trigger"
+	r.Registry.Integrations["dummy"] = impl.NewDummyIntegration(impl.DummyIntegrationOptions{
+		Triggers: []core.Trigger{
+			impl.NewDummyIntegrationTrigger(impl.DummyIntegrationTriggerOptions{
+				Name: triggerName,
+				OnIntegrationMessage: func(ctx core.IntegrationMessageContext) error {
+					return ctx.Events.Emit("test.payload", map[string]any{"message": ctx.Message})
+				},
+			}),
+		},
+	})
+
+	integration, err := models.CreateIntegration(
+		uuid.New(),
+		r.Organization.ID,
+		"dummy",
+		support.RandomName("installation"),
+		map[string]any{},
+	)
+	require.NoError(t, err)
+
+	liveCanvas, liveNodes := support.CreateCanvas(
+		t,
+		r.Organization.ID,
+		r.User,
+		[]models.CanvasNode{
+			{
+				NodeID:        "live-trigger",
+				Name:          "live-trigger",
+				Type:          models.NodeTypeTrigger,
+				Ref:           datatypes.NewJSONType(models.NodeRef{Trigger: &models.TriggerRef{Name: triggerName}}),
+				Configuration: datatypes.NewJSONType(map[string]any{}),
+			},
+		},
+		nil,
+	)
+	require.NotNil(t, liveCanvas)
+	require.Len(t, liveNodes, 1)
+
+	deletedCanvas, deletedCanvasNodes := support.CreateCanvas(
+		t,
+		r.Organization.ID,
+		r.User,
+		[]models.CanvasNode{
+			{
+				NodeID:        "deleted-trigger",
+				Name:          "deleted-trigger",
+				Type:          models.NodeTypeTrigger,
+				Ref:           datatypes.NewJSONType(models.NodeRef{Trigger: &models.TriggerRef{Name: triggerName}}),
+				Configuration: datatypes.NewJSONType(map[string]any{}),
+			},
+		},
+		nil,
+	)
+	require.NotNil(t, deletedCanvas)
+	require.Len(t, deletedCanvasNodes, 1)
+
+	liveNode := liveNodes[0]
+	liveNode.AppInstallationID = &integration.ID
+	require.NoError(t, database.Conn().Save(&liveNode).Error)
+
+	deletedNode := deletedCanvasNodes[0]
+	deletedNode.AppInstallationID = &integration.ID
+	require.NoError(t, database.Conn().Save(&deletedNode).Error)
+
+	liveSub, err := models.CreateIntegrationSubscription(&liveNode, integration, map[string]any{"enabled": true})
+	require.NoError(t, err)
+	require.NotNil(t, liveSub)
+
+	deletedSub, err := models.CreateIntegrationSubscription(&deletedNode, integration, map[string]any{"enabled": true})
+	require.NoError(t, err)
+	require.NotNil(t, deletedSub)
+
+	newEvents := []models.CanvasEvent{}
+	onNewEvents := func(events []models.CanvasEvent) {
+		newEvents = append(newEvents, events...)
+	}
+
+	ctx := NewIntegrationContext(database.Conn(), &liveNode, integration, r.Encryptor, r.Registry, onNewEvents)
+	subscriptions, err := ctx.ListSubscriptions()
+	require.NoError(t, err)
+	require.Len(t, subscriptions, 2)
+
+	require.NoError(t, subscriptions[0].SendMessage(map[string]any{"hello": "before-delete"}))
+	require.NoError(t, subscriptions[1].SendMessage(map[string]any{"hello": "before-delete"}))
+	assert.Len(t, newEvents, 2)
+	support.VerifyCanvasNodeEventsCount(t, liveCanvas.ID, liveNode.NodeID, 1)
+	support.VerifyCanvasNodeEventsCount(t, deletedCanvas.ID, deletedNode.NodeID, 1)
+
+	require.NoError(t, database.Conn().Delete(&models.Canvas{}, deletedCanvas.ID).Error)
+
+	newEvents = []models.CanvasEvent{}
+	require.NoError(t, subscriptions[0].SendMessage(map[string]any{"hello": "after-delete-live"}))
+	require.NoError(t, subscriptions[1].SendMessage(map[string]any{"hello": "after-delete-deleted"}))
+	assert.Len(t, newEvents, 1)
+	support.VerifyCanvasNodeEventsCount(t, liveCanvas.ID, liveNode.NodeID, 2)
+	support.VerifyCanvasNodeEventsCount(t, deletedCanvas.ID, deletedNode.NodeID, 1)
+}
+
+func Test_applyMetadataDelta(t *testing.T) {
+	t.Run("writes only the changed key onto concurrent metadata", func(t *testing.T) {
+		latest := map[string]any{"user": "newer-user", "accessTokenExpiresAt": "later"}
+		original := map[string]any{"user": "original-user", "accessTokenExpiresAt": "earlier"}
+		current := map[string]any{"user": "original-user", "accessTokenExpiresAt": "earlier", "webhookId": 34}
+
+		conflict := applyMetadataDelta(latest, original, current)
+
+		assert.False(t, conflict)
+		assert.Equal(t, "newer-user", latest["user"])
+		assert.Equal(t, "later", latest["accessTokenExpiresAt"])
+		assert.Equal(t, float64(34), latest["webhookId"])
+	})
+
+	t.Run("clears a key when the stored value still matches the snapshot", func(t *testing.T) {
+		latest := map[string]any{"user": "newer-user", "webhookId": float64(34)}
+		original := map[string]any{"user": "original-user", "webhookId": float64(34)}
+		current := map[string]any{"user": "original-user"}
+
+		conflict := applyMetadataDelta(latest, original, current)
+
+		assert.False(t, conflict)
+		assert.Equal(t, "newer-user", latest["user"])
+		assert.NotContains(t, latest, "webhookId")
+	})
+
+	t.Run("does not revert a key another writer already changed", func(t *testing.T) {
+		latest := map[string]any{"user": "newer-user", "webhookId": float64(99)}
+		original := map[string]any{"webhookId": float64(34)}
+		current := map[string]any{}
+
+		conflict := applyMetadataDelta(latest, original, current)
+
+		assert.False(t, conflict)
+		assert.Equal(t, "newer-user", latest["user"])
+		assert.Equal(t, float64(99), latest["webhookId"])
+	})
+
+	t.Run("reports conflict when a write is skipped", func(t *testing.T) {
+		latest := map[string]any{"webhookId": float64(99)}
+		original := map[string]any{}
+		current := map[string]any{"webhookId": float64(34)}
+
+		conflict := applyMetadataDelta(latest, original, current)
+
+		assert.True(t, conflict)
+		assert.Equal(t, float64(99), latest["webhookId"])
+	})
+}
+
+func Test__IntegrationContext_PersistMetadata_PreservesConcurrentUpdates(t *testing.T) {
+	r := support.Setup(t)
+	defer r.Close()
+
+	integration, err := models.CreateIntegration(
+		uuid.New(),
+		r.Organization.ID,
+		"dummy",
+		support.RandomName("installation"),
+		map[string]any{},
+	)
+	require.NoError(t, err)
+	require.NoError(t, database.Conn().Model(integration).Update(
+		"metadata",
+		datatypes.NewJSONType(map[string]any{
+			"user":                 "original-user",
+			"accessTokenExpiresAt": "earlier",
+		}),
+	).Error)
+	require.NoError(t, database.Conn().Where("id = ?", integration.ID).First(integration).Error)
+
+	ctx := NewIntegrationContext(database.Conn(), nil, integration, r.Encryptor, r.Registry, nil)
+
+	require.NoError(t, database.Conn().Model(integration).Update(
+		"metadata",
+		datatypes.NewJSONType(map[string]any{
+			"user":                 "newer-user",
+			"accessTokenExpiresAt": "later",
+		}),
+	).Error)
+
+	ctx.SetMetadata(map[string]any{
+		"user":                 "original-user",
+		"accessTokenExpiresAt": "earlier",
+		"webhookId":            34,
+	})
+	require.NoError(t, ctx.PersistMetadata())
+
+	var stored models.Integration
+	require.NoError(t, database.Conn().Where("id = ?", integration.ID).First(&stored).Error)
+	assert.Equal(t, "newer-user", stored.Metadata.Data()["user"])
+	assert.Equal(t, "later", stored.Metadata.Data()["accessTokenExpiresAt"])
+	assert.Equal(t, float64(34), stored.Metadata.Data()["webhookId"])
+}
+
+func Test__IntegrationContext_PersistMetadata_DoesNotClearAReplacedWebhookID(t *testing.T) {
+	r := support.Setup(t)
+	defer r.Close()
+
+	integration, err := models.CreateIntegration(
+		uuid.New(),
+		r.Organization.ID,
+		"dummy",
+		support.RandomName("installation"),
+		map[string]any{},
+	)
+	require.NoError(t, err)
+	require.NoError(t, database.Conn().Model(integration).Update(
+		"metadata",
+		datatypes.NewJSONType(map[string]any{"webhookId": 34}),
+	).Error)
+	require.NoError(t, database.Conn().Where("id = ?", integration.ID).First(integration).Error)
+
+	ctx := NewIntegrationContext(database.Conn(), nil, integration, r.Encryptor, r.Registry, nil)
+
+	require.NoError(t, database.Conn().Model(integration).Update(
+		"metadata",
+		datatypes.NewJSONType(map[string]any{"user": "newer-user", "webhookId": 99}),
+	).Error)
+
+	ctx.SetMetadata(map[string]any{})
+	require.NoError(t, ctx.PersistMetadata())
+
+	var stored models.Integration
+	require.NoError(t, database.Conn().Where("id = ?", integration.ID).First(&stored).Error)
+	assert.Equal(t, "newer-user", stored.Metadata.Data()["user"])
+	assert.Equal(t, float64(99), stored.Metadata.Data()["webhookId"])
+}
+
+func Test__IntegrationContext_PersistMetadata_ReturnsErrorWhenWebhookIDWriteConflicts(t *testing.T) {
+	r := support.Setup(t)
+	defer r.Close()
+
+	integration, err := models.CreateIntegration(
+		uuid.New(),
+		r.Organization.ID,
+		"dummy",
+		support.RandomName("installation"),
+		map[string]any{},
+	)
+	require.NoError(t, err)
+
+	ctx := NewIntegrationContext(database.Conn(), nil, integration, r.Encryptor, r.Registry, nil)
+
+	require.NoError(t, database.Conn().Model(integration).Update(
+		"metadata",
+		datatypes.NewJSONType(map[string]any{"webhookId": 99}),
+	).Error)
+
+	ctx.SetMetadata(map[string]any{"webhookId": 34})
+	require.ErrorIs(t, ctx.PersistMetadata(), errIntegrationMetadataConflict)
+
+	var stored models.Integration
+	require.NoError(t, database.Conn().Where("id = ?", integration.ID).First(&stored).Error)
+	assert.Equal(t, float64(99), stored.Metadata.Data()["webhookId"])
+}

@@ -1,0 +1,57 @@
+package canvases
+
+import (
+	"context"
+	goerrors "errors"
+
+	"github.com/google/uuid"
+	log "github.com/sirupsen/logrus"
+	"github.com/superplanehq/superplane/pkg/database"
+	"github.com/superplanehq/superplane/pkg/grpc/actions/messages"
+	grpcerrors "github.com/superplanehq/superplane/pkg/grpc/errors"
+	"github.com/superplanehq/superplane/pkg/models"
+	pb "github.com/superplanehq/superplane/pkg/protos/canvases"
+	"gorm.io/gorm"
+)
+
+func DeleteNodeQueueItem(ctx context.Context, db *gorm.DB, canvas *models.Canvas, nodeID, itemID string) (*pb.DeleteNodeQueueItemResponse, error) {
+	qID, err := uuid.Parse(itemID)
+	if err != nil {
+		return nil, grpcerrors.InvalidArgument(err, "invalid item id")
+	}
+
+	var item models.CanvasNodeQueueItem
+
+	var runID uuid.UUID
+	err = database.DB(ctx).Transaction(func(tx *gorm.DB) error {
+		err := tx.
+			Where("id = ? AND workflow_id = ? AND node_id = ?", qID, canvas.ID, nodeID).
+			First(&item).
+			Error
+		if goerrors.Is(err, gorm.ErrRecordNotFound) {
+			return nil
+		}
+
+		if err != nil {
+			return err
+		}
+
+		if err := tx.Delete(&item).Error; err != nil {
+			return err
+		}
+
+		runID = item.RunID
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	if runID != uuid.Nil {
+		if err := messages.NewCanvasQueueItemMessage(item).PublishDeleted(); err != nil {
+			log.Errorf("failed to publish queue item deleted RabbitMQ message: %v", err)
+		}
+	}
+
+	return &pb.DeleteNodeQueueItemResponse{}, nil
+}

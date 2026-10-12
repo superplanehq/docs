@@ -1,0 +1,2568 @@
+package public
+
+import (
+	"bytes"
+	"context"
+	cryptorand "crypto/rand"
+	"encoding/binary"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httputil"
+	"net/url"
+	"os"
+	"slices"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/gorilla/mux"
+	"github.com/gorilla/websocket"
+	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
+	log "github.com/sirupsen/logrus"
+	"github.com/superplanehq/superplane/pkg/authentication"
+	"github.com/superplanehq/superplane/pkg/authorization"
+	"github.com/superplanehq/superplane/pkg/config"
+	"github.com/superplanehq/superplane/pkg/core"
+	"github.com/superplanehq/superplane/pkg/database"
+	"github.com/superplanehq/superplane/pkg/grpc"
+	factoryactions "github.com/superplanehq/superplane/pkg/grpc/actions/factories"
+	"github.com/superplanehq/superplane/pkg/grpc/actions/messages"
+	"github.com/superplanehq/superplane/pkg/integrations/sentry"
+	"github.com/superplanehq/superplane/pkg/jwt"
+	"github.com/superplanehq/superplane/pkg/licensing"
+	"github.com/superplanehq/superplane/pkg/logging"
+	"github.com/superplanehq/superplane/pkg/mcpserver"
+	"github.com/superplanehq/superplane/pkg/registry"
+	"github.com/superplanehq/superplane/pkg/workers/contexts"
+	"github.com/superplanehq/superplane/pkg/workers/eventdistributer"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/gorilla/mux/otelmux"
+	"go.opentelemetry.io/otel/attribute"
+	nooptrace "go.opentelemetry.io/otel/trace/noop"
+
+	"github.com/superplanehq/superplane/pkg/crypto"
+	"github.com/superplanehq/superplane/pkg/models"
+	"github.com/superplanehq/superplane/pkg/oidc"
+	pbActions "github.com/superplanehq/superplane/pkg/protos/actions"
+	pbAdminRunners "github.com/superplanehq/superplane/pkg/protos/admin/runners"
+	pbAgents "github.com/superplanehq/superplane/pkg/protos/agents"
+	pbAPIKeys "github.com/superplanehq/superplane/pkg/protos/api_keys"
+	pbCanvases "github.com/superplanehq/superplane/pkg/protos/canvases"
+	pbFactories "github.com/superplanehq/superplane/pkg/protos/factories"
+	pbFiles "github.com/superplanehq/superplane/pkg/protos/files"
+	pbGroups "github.com/superplanehq/superplane/pkg/protos/groups"
+	pbIntegrations "github.com/superplanehq/superplane/pkg/protos/integrations"
+	pbMe "github.com/superplanehq/superplane/pkg/protos/me"
+	pbOrg "github.com/superplanehq/superplane/pkg/protos/organizations"
+	pbRoles "github.com/superplanehq/superplane/pkg/protos/roles"
+	pbSecret "github.com/superplanehq/superplane/pkg/protos/secrets"
+	pbTriggers "github.com/superplanehq/superplane/pkg/protos/triggers"
+	pbUsers "github.com/superplanehq/superplane/pkg/protos/users"
+	pbWidgets "github.com/superplanehq/superplane/pkg/protos/widgets"
+	"github.com/superplanehq/superplane/pkg/public/middleware"
+	"github.com/superplanehq/superplane/pkg/public/ws"
+	"github.com/superplanehq/superplane/pkg/telemetry"
+	"github.com/superplanehq/superplane/pkg/web"
+	"github.com/superplanehq/superplane/pkg/web/assets"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/protobuf/encoding/protojson"
+	"gorm.io/gorm"
+)
+
+const (
+	// Event payload can be up to 512k in size
+	MaxEventSize = config.MaxWebhookPayloadSize
+
+	// The size of the stage execution outputs can be up to 4k
+	MaxExecutionOutputsSize = 4 * 1024
+)
+
+type Server struct {
+	httpServer            *http.Server
+	encryptor             crypto.Encryptor
+	registry              *registry.Registry
+	jwt                   *jwt.Signer
+	oidcProvider          oidc.Provider
+	authService           authorization.Authorization
+	timeoutHandlerTimeout time.Duration
+	upgrader              *websocket.Upgrader
+	Router                *mux.Router
+	adminRouter           *mux.Router
+	BasePath              string
+	BaseURL               string
+	WebhooksBaseURL       string
+	wsHub                 *ws.Hub
+	authHandler           *authentication.Handler
+	isDev                 bool
+	licenseService        *licensing.Service
+}
+
+// SetLicenseService connects the installation license. Without it, the server
+// runs in Community mode and grants no Enterprise features.
+func (s *Server) SetLicenseService(service *licensing.Service) {
+	s.licenseService = service
+}
+
+func (s *Server) entitlements() licensing.Entitlements {
+	if s.licenseService == nil {
+		return licensing.Community
+	}
+
+	return s.licenseService
+}
+
+// WebsocketHub returns the websocket hub for this server
+func (s *Server) WebsocketHub() *ws.Hub {
+	return s.wsHub
+}
+
+type otelMetricRouteContextKey struct{}
+
+type otelMetricRoute struct {
+	pattern string
+}
+
+/*
+ * withOtelMetricRoute creates a request-scoped holder for the final metric route.
+ * This is needed for grpc-gateway endpoints, where the outer Gorilla route only sees
+ * a broad PathPrefix such as /api/v1/canvases, while grpc-gateway knows the exact
+ * proto-backed template such as /api/v1/canvases/{canvas_id}/versions/{version_id}.
+ */
+func withOtelMetricRoute(r *http.Request) *http.Request {
+	return r.WithContext(context.WithValue(
+		r.Context(),
+		otelMetricRouteContextKey{},
+		&otelMetricRoute{},
+	))
+}
+
+func setOtelMetricRoute(ctx context.Context, pattern string) {
+	if pattern == "" {
+		return
+	}
+
+	route, ok := ctx.Value(otelMetricRouteContextKey{}).(*otelMetricRoute)
+	if !ok || route == nil {
+		return
+	}
+
+	route.pattern = pattern
+}
+
+func getOtelMetricRoute(ctx context.Context) string {
+	route, ok := ctx.Value(otelMetricRouteContextKey{}).(*otelMetricRoute)
+	if !ok || route == nil {
+		return ""
+	}
+
+	return route.pattern
+}
+
+func resolveCriticalHTTPRoute(r *http.Request) string {
+	route := getOtelMetricRoute(r.Context())
+	if route != "" {
+		return route
+	}
+
+	if r.Pattern != "" {
+		return r.Pattern
+	}
+
+	currentRoute := mux.CurrentRoute(r)
+	if currentRoute != nil {
+		routeTemplate, err := currentRoute.GetPathTemplate()
+		if err == nil {
+			return routeTemplate
+		}
+	}
+
+	return ""
+}
+
+func NewServer(
+	encryptor crypto.Encryptor,
+	registry *registry.Registry,
+	jwtSigner *jwt.Signer,
+	oidcProvider oidc.Provider,
+	basePath string,
+	baseURL string,
+	webhooksBaseURL string,
+	appEnv string,
+	templateDir string,
+	authorizationService authorization.Authorization,
+	blockSignup bool,
+	middlewares ...mux.MiddlewareFunc,
+) (*Server, error) {
+
+	// Initialize OAuth providers from environment variables
+	passwordLoginEnabled := os.Getenv("ENABLE_PASSWORD_LOGIN") == "yes"
+	magicCodeEnabled := os.Getenv("ENABLE_MAGIC_CODE_LOGIN") == "yes"
+	authHandler := authentication.NewHandler(jwtSigner, encryptor, authorizationService, appEnv, templateDir, blockSignup, passwordLoginEnabled, magicCodeEnabled)
+	providers := getOAuthProviders()
+	authHandler.InitializeProviders(providers)
+
+	server := &Server{
+		BaseURL:               baseURL,
+		WebhooksBaseURL:       webhooksBaseURL,
+		BasePath:              basePath,
+		wsHub:                 ws.NewHub(),
+		authHandler:           authHandler,
+		isDev:                 appEnv == "development",
+		timeoutHandlerTimeout: 15 * time.Second,
+		encryptor:             encryptor,
+		jwt:                   jwtSigner,
+		oidcProvider:          oidcProvider,
+		registry:              registry,
+		authService:           authorizationService,
+		upgrader: &websocket.Upgrader{
+			CheckOrigin:     makeOriginChecker(getAllowedOrigins()),
+			ReadBufferSize:  1024,
+			WriteBufferSize: 1024,
+		},
+	}
+
+	server.timeoutHandlerTimeout = 15 * time.Second
+	sentry.EnableHostedInstallBind(encryptor)
+	eventdistributer.SetPublicBoardBroadcaster(server.wsHub, broadcastPublicFactoryBoard)
+	server.InitRouter(middlewares...)
+	return server, nil
+}
+
+func getOAuthProviders() map[string]authentication.ProviderConfig {
+	baseURL := getBaseURL()
+	providers := make(map[string]authentication.ProviderConfig)
+
+	// GitHub
+	if githubKey := os.Getenv("GITHUB_CLIENT_ID"); githubKey != "" {
+		if githubSecret := os.Getenv("GITHUB_CLIENT_SECRET"); githubSecret != "" {
+			providers["github"] = authentication.ProviderConfig{
+				Key:         githubKey,
+				Secret:      githubSecret,
+				CallbackURL: fmt.Sprintf("%s/auth/github/callback", baseURL),
+			}
+		}
+	}
+
+	// Google
+	if googleKey := os.Getenv("GOOGLE_CLIENT_ID"); googleKey != "" {
+		if googleSecret := os.Getenv("GOOGLE_CLIENT_SECRET"); googleSecret != "" {
+			providers["google"] = authentication.ProviderConfig{
+				Key:         googleKey,
+				Secret:      googleSecret,
+				CallbackURL: fmt.Sprintf("%s/auth/google/callback", baseURL),
+			}
+		}
+	}
+
+	if bitbucketKey := os.Getenv("BITBUCKET_CLIENT_ID"); bitbucketKey != "" {
+		if bitbucketSecret := os.Getenv("BITBUCKET_CLIENT_SECRET"); bitbucketSecret != "" {
+			providers["bitbucket"] = authentication.ProviderConfig{
+				Key:         bitbucketKey,
+				Secret:      bitbucketSecret,
+				CallbackURL: fmt.Sprintf("%s/auth/bitbucket/callback", baseURL),
+			}
+		}
+	}
+	return providers
+}
+
+func newGRPCGatewayMarshaler() runtime.Marshaler {
+	// Keep parity with grpc-gateway's default marshaler configuration
+	// (HTTPBodyMarshaler + JSONPb + EmitUnpopulated=true), but reject unknown
+	// request fields by setting DiscardUnknown=false.
+	//
+	// Note: because this is an explicit override, grpc-gateway default option
+	// changes in future upgrades are not picked up automatically.
+	return &runtime.HTTPBodyMarshaler{
+		Marshaler: &runtime.JSONPb{
+			MarshalOptions: protojson.MarshalOptions{
+				EmitUnpopulated: true,
+			},
+			UnmarshalOptions: protojson.UnmarshalOptions{
+				DiscardUnknown: false,
+			},
+		},
+	}
+}
+
+func (s *Server) RegisterGRPCGateway(services *grpc.Services) error {
+	if services == nil {
+		return fmt.Errorf("grpc services are required")
+	}
+
+	ctx := context.Background()
+
+	authorizer := authorization.NewGatewayAuthorizer(s.authService).WithEntitlements(s.entitlements())
+
+	var grpcGatewayMux *runtime.ServeMux
+	grpcGatewayMux = runtime.NewServeMux(
+		runtime.WithMarshalerOption(runtime.MIMEWildcard, newGRPCGatewayMarshaler()),
+		runtime.WithForwardResponseOption(middleware.GatewayForwardResponseTraceOption()),
+		runtime.WithIncomingHeaderMatcher(headersMatcher),
+		runtime.WithMiddlewares(
+			grpc.GatewayRecoveryMiddleware(),
+			grpc.GatewayAuthorizationMiddleware(authorizer),
+		),
+		runtime.WithErrorHandler(grpc.SanitizedGatewayErrorHandler),
+		runtime.WithMetadata(func(ctx context.Context, _ *http.Request) metadata.MD {
+			/*
+			 * grpc-gateway annotates the matched HTTP path template in the request context.
+			 * We copy it into the request-scoped holder so otelmux can use it later when
+			 * recording metrics for the outer HTTP request.
+			 */
+			pattern, ok := runtime.HTTPPathPattern(ctx)
+			if ok {
+				setOtelMetricRoute(ctx, pattern)
+			}
+
+			return nil
+		}),
+		runtime.SetQueryParameterParser(&grpc.QueryParser{}),
+	)
+
+	err := pbUsers.RegisterUsersHandlerServer(ctx, grpcGatewayMux, services.Users)
+	if err != nil {
+		return err
+	}
+
+	err = pbGroups.RegisterGroupsHandlerServer(ctx, grpcGatewayMux, services.Groups)
+	if err != nil {
+		return err
+	}
+
+	err = pbRoles.RegisterRolesHandlerServer(ctx, grpcGatewayMux, services.Roles)
+	if err != nil {
+		return err
+	}
+
+	err = pbOrg.RegisterOrganizationsHandlerServer(ctx, grpcGatewayMux, services.Organizations)
+	if err != nil {
+		return err
+	}
+
+	err = pbIntegrations.RegisterIntegrationsHandlerServer(ctx, grpcGatewayMux, services.Integrations)
+	if err != nil {
+		return err
+	}
+
+	err = pbSecret.RegisterSecretsHandlerServer(ctx, grpcGatewayMux, services.Secrets)
+	if err != nil {
+		return err
+	}
+
+	err = pbMe.RegisterMeHandlerServer(ctx, grpcGatewayMux, services.Me)
+	if err != nil {
+		return err
+	}
+
+	err = pbActions.RegisterActionsHandlerServer(ctx, grpcGatewayMux, services.Actions)
+	if err != nil {
+		return err
+	}
+
+	err = pbTriggers.RegisterTriggersHandlerServer(ctx, grpcGatewayMux, services.Triggers)
+	if err != nil {
+		return err
+	}
+
+	err = pbWidgets.RegisterWidgetsHandlerServer(ctx, grpcGatewayMux, services.Widgets)
+	if err != nil {
+		return err
+	}
+
+	err = pbCanvases.RegisterCanvasesHandlerServer(ctx, grpcGatewayMux, services.Canvases)
+	if err != nil {
+		return err
+	}
+
+	err = pbFactories.RegisterFactoriesHandlerServer(ctx, grpcGatewayMux, services.Factories)
+	if err != nil {
+		return err
+	}
+
+	err = pbFiles.RegisterFilesHandlerServer(ctx, grpcGatewayMux, services.Files)
+	if err != nil {
+		return err
+	}
+
+	err = pbAPIKeys.RegisterApiKeysHandlerServer(ctx, grpcGatewayMux, services.APIKeys)
+	if err != nil {
+		return err
+	}
+
+	err = pbAgents.RegisterAgentsHandlerServer(ctx, grpcGatewayMux, services.Agents)
+	if err != nil {
+		return err
+	}
+
+	adminGatewayMux := runtime.NewServeMux(
+		runtime.WithMarshalerOption(runtime.MIMEWildcard, newGRPCGatewayMarshaler()),
+		runtime.WithForwardResponseOption(middleware.GatewayForwardResponseTraceOption()),
+		runtime.WithIncomingHeaderMatcher(headersMatcher),
+		runtime.WithMiddlewares(grpc.GatewayRecoveryMiddleware()),
+		runtime.WithErrorHandler(grpc.SanitizedGatewayErrorHandler),
+		runtime.WithMetadata(func(ctx context.Context, _ *http.Request) metadata.MD {
+			pattern, ok := runtime.HTTPPathPattern(ctx)
+			if ok {
+				setOtelMetricRoute(ctx, pattern)
+			}
+			return nil
+		}),
+		runtime.SetQueryParameterParser(&grpc.QueryParser{}),
+	)
+	if err := pbAdminRunners.RegisterRunnersHandlerServer(ctx, adminGatewayMux, services.AdminRunners); err != nil {
+		return err
+	}
+	adminGatewayHandler := s.grpcGatewayAccountHandler(adminGatewayMux)
+	s.adminRouter.PathPrefix("/installation/fleets").Handler(adminGatewayHandler)
+
+	// Public health check
+	s.Router.HandleFunc("/api/v1/canvases/is-alive", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}).Methods("GET")
+
+	s.Router.HandleFunc("/api/v1/runner/planning-sessions/wait", s.handleRunnerPlanningWait).Methods("GET")
+	s.Router.HandleFunc("/api/v1/runner/planning-sessions/specs", s.handleRunnerPlanningSpec).Methods("POST")
+	s.Router.HandleFunc("/api/v1/runner/planning-sessions/updates", s.handleRunnerPlanningUpdate).Methods("POST")
+	s.Router.HandleFunc("/api/v1/runner/planning-sessions/clarity", s.handleRunnerPlanningClarity).Methods("POST")
+	s.Router.HandleFunc("/api/v1/runner/planning-sessions/confidence", s.handleRunnerPlanningConfidence).Methods("POST")
+	s.Router.HandleFunc("/api/v1/runner/planning-sessions/surveys", s.handleRunnerPlanningSurvey).Methods("POST")
+	s.Router.HandleFunc("/api/v1/runner/planning-sessions/agent-messages", s.handleRunnerPlanningAgentMessage).Methods("POST")
+	s.Router.HandleFunc("/api/v1/runner/planning-sessions/activities/{activity_id}", s.handleRunnerPlanningActivity).Methods("PUT")
+	s.Router.HandleFunc("/api/v1/runner/merge-confidence/checks", s.handleRunnerMergeConfidenceCheck).Methods(http.MethodPost)
+	s.Router.HandleFunc("/api/v1/runner/artifacts", s.handleRunnerArtifactUpload).Methods(http.MethodPost)
+
+	s.Router.Handle(
+		"/api/v1/canvases/{canvas_id}/node-executions/{execution_id}/runner-live-logs/session",
+		middleware.OrganizationAuthMiddleware(s.jwt)(http.HandlerFunc(s.handleRunnerLiveLogSession)),
+	).Methods("GET")
+	s.Router.Handle(
+		"/api/v1/canvases/{canvas_id}/node-executions/{execution_id}/runner-logs",
+		middleware.OrganizationAuthMiddleware(s.jwt)(http.HandlerFunc(s.handleRunnerTaskLogs)),
+	).Methods(http.MethodGet)
+
+	// Protect the gRPC gateway routes with organization authentication
+	orgAuthMiddleware := middleware.OrganizationAuthMiddleware(s.jwt)
+
+	//
+	// This is not part of the proto APIs and gRPC gateway route,
+	// because of how we need to handle the file streaming.
+	// There is no good way to handle that through the gRPC gateway,
+	// so we need to lift that endpoint here instead.
+	//
+	s.Router.Handle(
+		"/api/v1/canvases/{canvas_id}/file",
+		orgAuthMiddleware(http.HandlerFunc(s.handleRepositoryFileDownload)),
+	).Methods(http.MethodGet)
+
+	s.Router.Handle(
+		"/api/v1/agents/chats/{chatId}/messages/{messageId}/images/{index}",
+		orgAuthMiddleware(http.HandlerFunc(s.handleAgentChatMessageImage)),
+	).Methods(http.MethodGet)
+
+	s.Router.Handle(
+		"/api/v1/files/{file_id}/content",
+		orgAuthMiddleware(http.HandlerFunc(s.handleFileContentUpload)),
+	).Methods(http.MethodPut)
+
+	s.Router.Handle(
+		"/api/v1/me/feedback",
+		orgAuthMiddleware(http.HandlerFunc(s.handleSubmitFeedback)),
+	).Methods(http.MethodPost)
+
+	protectedGRPCHandler := orgAuthMiddleware(s.grpcGatewayHandler(grpcGatewayMux))
+
+	accountAuthMiddleware := middleware.AccountAuthMiddleware(s.jwt)
+	protectedAccountGRPCHandler := accountAuthMiddleware(s.grpcGatewayAccountHandler(grpcGatewayMux))
+
+	s.Router.PathPrefix("/api/v1/users").Handler(protectedGRPCHandler)
+	s.Router.PathPrefix("/api/v1/groups").Handler(protectedGRPCHandler)
+	s.Router.PathPrefix("/api/v1/roles").Handler(protectedGRPCHandler)
+	s.Router.PathPrefix("/api/v1/canvases").Handler(protectedGRPCHandler)
+	s.Router.PathPrefix("/api/v1/organizations").Handler(protectedGRPCHandler)
+	s.Router.PathPrefix("/api/v1/invite-links").Handler(protectedAccountGRPCHandler)
+	s.Router.PathPrefix("/api/v1/integrations").Handler(protectedGRPCHandler)
+	s.Router.PathPrefix("/api/v1/secrets").Handler(protectedGRPCHandler)
+	s.Router.PathPrefix("/api/v1/me").Handler(protectedGRPCHandler)
+	s.Router.PathPrefix("/api/v1/actions").Handler(protectedGRPCHandler)
+	s.Router.PathPrefix("/api/v1/triggers").Handler(protectedGRPCHandler)
+	s.Router.PathPrefix("/api/v1/widgets").Handler(protectedGRPCHandler)
+	s.Router.PathPrefix("/api/v1/api-keys").Handler(protectedGRPCHandler)
+	s.Router.PathPrefix("/api/v1/agents").Handler(protectedGRPCHandler)
+	s.Router.PathPrefix("/api/v1/workflows").Handler(protectedGRPCHandler)
+	s.Router.PathPrefix("/api/v1/factories").Handler(protectedGRPCHandler)
+
+	return nil
+}
+
+func headersMatcher(key string) (string, bool) {
+	switch key {
+	case "X-User-Id", "X-Organization-Id", "X-Account-Id":
+		return key, true
+	case "X-Token-Scopes":
+		return key, true
+	default:
+		return runtime.DefaultHeaderMatcher(key)
+	}
+}
+
+func (s *Server) grpcGatewayHandler(grpcGatewayMux *runtime.ServeMux) http.HandlerFunc {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		user, ok := middleware.GetUserFromContext(r.Context())
+		if !ok {
+			http.Error(w, "User not found in context", http.StatusUnauthorized)
+			return
+		}
+
+		r2 := middleware.CloneGatewayRequest(r)
+		r2.Header.Set("x-User-id", user.ID.String())
+		r2.Header.Set("x-Organization-id", user.OrganizationID.String())
+		if user.AccountID != nil {
+			r2.Header.Set("x-account-id", user.AccountID.String())
+		}
+
+		//
+		// Remove the scoped token scopes from the request header,
+		// to not allow them to be spoofed by the client.
+		//
+		r2.Header.Del("x-Token-Scopes")
+
+		scopedClaims, ok := middleware.GetScopedTokenClaimsFromContext(r.Context())
+		if ok {
+			scopes, err := json.Marshal(scopedClaims.Scopes)
+			if err != nil {
+				http.Error(w, "Failed to encode scoped token scopes", http.StatusInternalServerError)
+				return
+			}
+			r2.Header.Set("x-Token-Scopes", string(scopes))
+		} else if user.HasAPIKeyCanvasScope() {
+			scopes, err := json.Marshal(apiKeyCanvasScopes(user.APIKeyCanvasIDs))
+			if err != nil {
+				http.Error(w, "Failed to encode API key scopes", http.StatusInternalServerError)
+				return
+			}
+			r2.Header.Set("x-Token-Scopes", string(scopes))
+		}
+
+		middleware.TraceGatewayServe(r.Context(), w, grpcGatewayMux, r2.WithContext(r.Context()))
+	})
+}
+
+func apiKeyCanvasScopes(canvasIDs []string) []string {
+	return jwt.ScopesFromPermissions([]jwt.Permission{
+		{ResourceType: "canvases", Action: "read", Resources: canvasIDs},
+		{ResourceType: "canvases", Action: "update", Resources: canvasIDs},
+		{ResourceType: "canvases", Action: "update_version", Resources: canvasIDs},
+		{ResourceType: "canvases", Action: "delete", Resources: canvasIDs},
+	})
+}
+
+func (s *Server) grpcGatewayAccountHandler(grpcGatewayMux *runtime.ServeMux) http.HandlerFunc {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		account, ok := middleware.GetAccountFromContext(r.Context())
+		if !ok {
+			http.Error(w, "Account not found in context", http.StatusUnauthorized)
+			return
+		}
+
+		r2 := middleware.CloneGatewayRequest(r)
+		r2.Header.Set("x-account-id", account.ID.String())
+		middleware.TraceGatewayServe(r.Context(), w, grpcGatewayMux, r2.WithContext(r.Context()))
+	})
+}
+
+// RegisterOpenAPIHandler adds handlers to serve the OpenAPI specification and Swagger UI
+func (s *Server) RegisterOpenAPIHandler() {
+	swaggerFilesPath := os.Getenv("SWAGGER_BASE_PATH")
+	if swaggerFilesPath == "" {
+		log.Errorf("SWAGGER_BASE_PATH is not set")
+		return
+	}
+
+	if _, err := os.Stat(swaggerFilesPath); os.IsNotExist(err) {
+		log.Errorf("API documentation directory %s does not exist", swaggerFilesPath)
+		return
+	}
+
+	s.Router.HandleFunc(s.BasePath+"/docs", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, swaggerFilesPath+"/swagger-ui.html")
+	})
+
+	s.Router.HandleFunc(s.BasePath+"/docs/superplane.swagger.json", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, swaggerFilesPath+"/superplane.swagger.json")
+	})
+
+	log.Infof("OpenAPI specification available at %s", swaggerFilesPath)
+	log.Infof("Swagger UI available at %s", swaggerFilesPath)
+	log.Infof("Raw API JSON available at %s", swaggerFilesPath+"/superplane.swagger.json")
+}
+
+// RegisterWebSocketRoutes registers canvas, agent-session, factory, and
+// user-notification WebSocket endpoints.
+func (s *Server) RegisterWebSocketRoutes() {
+	log.Info("Registering websocket routes")
+
+	// WebSocket endpoint - protected by organization scoped authentication
+	s.Router.Handle(
+		"/ws/{workflowId}",
+		middleware.OrganizationAuthMiddleware(s.jwt).
+			Middleware(http.HandlerFunc(s.handleWebSocket)),
+	)
+
+	// Agent-session WebSocket: scoped to the session's owning user. Auth
+	// uses the same middleware; ownership is enforced inside the handler
+	// because sessions are private per user, not per organization.
+	s.Router.Handle(
+		"/ws/agents/sessions/{sessionId}",
+		middleware.OrganizationAuthMiddleware(s.jwt).
+			Middleware(http.HandlerFunc(s.handleAgentSessionWebSocket)),
+	)
+
+	// Factory WebSocket: org-scoped work-order updates for a single factory.
+	s.Router.Handle(
+		"/ws/factories/{factoryId}",
+		middleware.OrganizationAuthMiddleware(s.jwt).
+			Middleware(http.HandlerFunc(s.handleFactoryWebSocket)),
+	)
+
+	// Public line board. The message is only board_changed.
+	s.Router.HandleFunc(
+		"/ws/public/organizations/{org}/workspaces/{key}/lines/{lineId}",
+		s.handlePublicFactoryBoardWebSocket,
+	).Methods(http.MethodGet)
+
+	// User notifications WebSocket: live alerts for the authenticated user.
+	s.Router.Handle(
+		"/ws/users/notifications",
+		middleware.OrganizationAuthMiddleware(s.jwt).
+			Middleware(http.HandlerFunc(s.handleUserNotificationsWebSocket)),
+	)
+}
+
+func (s *Server) RegisterWebRoutes(webBasePath string) {
+	log.Infof("Registering web routes with base path: %s", webBasePath)
+
+	registerUnknownAPINotFound(s.Router)
+
+	//
+	// In development mode, we proxy to the Vite dev server.
+	//
+	if s.isDev {
+		log.Info("Running in development mode - proxying to Vite dev server for web app")
+		s.setupDevProxy(webBasePath)
+		return
+	}
+
+	log.Info("Running in production mode - serving static web assets")
+
+	handler := web.NewAssetHandler(http.FS(assets.EmbeddedAssets), webBasePath)
+
+	s.Router.PathPrefix(webBasePath).Handler(handler)
+
+	s.Router.HandleFunc(webBasePath, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == webBasePath {
+			http.Redirect(w, r, webBasePath+"/", http.StatusMovedPermanently)
+			return
+		}
+		handler.ServeHTTP(w, r)
+	})
+}
+
+func (s *Server) InitRouter(additionalMiddlewares ...mux.MiddlewareFunc) {
+	r := mux.NewRouter().StrictSlash(true)
+	r.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			/*
+			 * Seed a per-request holder before otelmux runs so deeper handlers can
+			 * populate the final route template without sharing state across requests.
+			 */
+			next.ServeHTTP(w, withOtelMetricRoute(r))
+		})
+	})
+	r.Use(middleware.CriticalHTTPTraceMiddleware(resolveCriticalHTTPRoute))
+	r.Use(otelmux.Middleware(
+		"superplane-public-api",
+		otelmux.WithMetricAttributesFn(func(r *http.Request) []attribute.KeyValue {
+			/*
+			 * Prefer the route resolved by grpc-gateway. Fall back to Gorilla mux for
+			 * non-gateway routes that are matched directly by the outer router.
+			 */
+			route := getOtelMetricRoute(r.Context())
+
+			if route == "" {
+				route = r.Pattern
+			}
+
+			if route == "" {
+				currentRoute := mux.CurrentRoute(r)
+				if currentRoute != nil {
+					routeTemplate, err := currentRoute.GetPathTemplate()
+					if err == nil {
+						route = routeTemplate
+					}
+				}
+			}
+
+			if route == "" {
+				return nil
+			}
+
+			return []attribute.KeyValue{
+				attribute.String("http.route", route),
+			}
+		}),
+		otelmux.WithTracerProvider(nooptrace.NewTracerProvider()),
+	))
+	r.Use(middleware.LoggingMiddleware(log.StandardLogger()))
+
+	// Register authentication routes (no auth required)
+	s.authHandler.RegisterRoutes(r)
+
+	//
+	// Public routes (no authentication required)
+	//
+	publicRoute := r.Methods(http.MethodGet, http.MethodPost, http.MethodHead).Subrouter()
+
+	// Health check
+	publicRoute.HandleFunc("/health", s.HealthCheck).Methods("GET")
+	publicRoute.HandleFunc("/api/v1/setup-owner", s.setupOwner).Methods("POST")
+	publicRoute.HandleFunc("/api/v1/polar/webhooks", s.handlePolarWebhook).Methods("POST")
+	publicRoute.HandleFunc("/api/v1/public/files/{file_id}", s.handlePublicFileDownload).Methods("GET")
+	publicRoute.HandleFunc("/api/v1/public/organizations/{org}/workspaces/{key}/lines/{lineId}/board", s.handlePublicFactoryBoard).Methods("GET")
+	publicRoute.HandleFunc("/api/v1/public/artifacts/{public_id}/{filename}", s.handlePublicArtifactDownload).Methods(http.MethodGet, http.MethodHead)
+	publicRoute.HandleFunc("/api/v1/public/badges/{token}.svg", s.handlePublicBadge).Methods(http.MethodGet)
+
+	// OIDC discovery endpoints
+	publicRoute.HandleFunc("/.well-known/openid-configuration", s.handleOIDCConfiguration).Methods("GET")
+	publicRoute.HandleFunc("/.well-known/jwks.json", s.handleOIDCJWKS).Methods("GET")
+	publicRoute.HandleFunc("/.well-known/oauth-client", s.HandleMCPOAuthClientMetadata).Methods("GET")
+	publicRoute.HandleFunc(mcpserver.PathProtectedResource, s.handleMCPProtectedResource).Methods("GET")
+	publicRoute.HandleFunc(mcpserver.PathProtectedResourceMCP, s.handleMCPProtectedResource).Methods("GET")
+	publicRoute.HandleFunc(mcpserver.PathAuthorizationServer, s.handleMCPAuthorizationServer).Methods("GET")
+	publicRoute.HandleFunc(mcpserver.PathAuthorizationServerMCP, s.handleMCPAuthorizationServer).Methods("GET")
+	publicRoute.HandleFunc(mcpserver.PathToken, s.handleMCPToken).Methods("POST")
+	publicRoute.HandleFunc(mcpserver.PathRegister, s.handleMCPRegister).Methods("POST")
+	publicRoute.HandleFunc(mcpserver.PathMCP, s.handleMCP).Methods("GET", "POST")
+
+	//
+	// Webhook endpoints for triggers
+	//
+	publicRoute.
+		HandleFunc(s.BasePath+"/webhooks/{webhookID}", s.HandleWebhook).
+		Methods("POST")
+	// The extra segment names the event. Productive.io does not send an
+	// event header, and a shared signature token does not name it either.
+	publicRoute.
+		HandleFunc(s.BasePath+"/webhooks/{webhookID}/{event}", s.HandleWebhook).
+		Methods("POST")
+
+	//
+	// HTTP endpoints for app installations
+	// Match all paths under /integrations/{integrationID}/ including subpaths
+	//
+	r.PathPrefix(s.BasePath+"/integrations/{integrationID}").HandlerFunc(s.HandleIntegrationRequest).
+		Methods("GET", "POST")
+	publicRoute.HandleFunc(s.BasePath+"/github/app/setup", s.HandleGitHubAppSetup).Methods("GET")
+	publicRoute.HandleFunc(s.BasePath+"/github/app/created", s.HandleGitHubAppCreated).Methods("GET")
+	publicRoute.HandleFunc(s.BasePath+"/github/app/webhook", s.HandleGitHubAppWebhook).Methods("POST")
+	githubAppUserRoute := r.NewRoute().Subrouter()
+	githubAppUserRoute.Use(middleware.AccountAuthMiddleware(s.jwt))
+	githubAppUserRoute.HandleFunc(s.BasePath+"/github/app/manifest", s.HandleGitHubAppManifest).Methods("GET")
+	// Forge calls these routes. The Forge Invocation Token authenticates them.
+	// They stay off the gateway authorizer, the same way the GitHub App webhook does.
+	publicRoute.HandleFunc(s.BasePath+"/bitbucket/forge/lifecycle", s.HandleBitbucketForgeDelivery).Methods("POST")
+	publicRoute.HandleFunc(s.BasePath+"/bitbucket/forge/events", s.HandleBitbucketForgeEvent).Methods("POST")
+	publicRoute.HandleFunc(s.BasePath+"/bitbucket/forge/scheduled", s.HandleBitbucketForgeDelivery).Methods("POST")
+	publicRoute.HandleFunc(s.BasePath+"/bitbucket/forge/bootstrap", s.HandleBitbucketForgeDelivery).Methods("POST")
+	publicRoute.HandleFunc(s.BasePath+"/bitbucket/forge/uninstall", s.HandleBitbucketForgeUninstall).Methods("POST")
+	sentryAppUserRoute := r.NewRoute().Subrouter()
+	sentryAppUserRoute.Use(middleware.AccountAuthMiddleware(s.jwt))
+	sentryAppUserRoute.HandleFunc(s.BasePath+"/sentry/app/install", s.HandleSentryAppInstall).Methods("GET")
+	sentryAppUserRoute.HandleFunc(s.BasePath+"/sentry/app/setup", s.HandleSentryAppSetup).Methods("GET")
+	publicRoute.HandleFunc(s.BasePath+"/sentry/app/webhook", s.HandleSentryAppWebhook).Methods("POST")
+	publicRoute.HandleFunc(s.BasePath+"/jira/oauth/callback", s.HandleJiraOAuthCallback).Methods("GET")
+	publicRoute.HandleFunc(s.BasePath+"/linear/oauth/callback", s.HandleLinearOAuthCallback).Methods("GET")
+	publicRoute.HandleFunc(s.BasePath+"/linear/webhook", s.HandleLinearAppWebhook).Methods("POST")
+	publicRoute.HandleFunc(s.BasePath+"/mcp-oauth/callback", s.HandleMCPOAuthCallback).Methods("GET")
+
+	// Account-based endpoints (use account session, not organization context)
+	accountRoute := r.NewRoute().Subrouter()
+	accountRoute.Use(middleware.AccountAuthMiddleware(s.jwt))
+	accountRoute.HandleFunc("/account", s.getAccount).Methods("GET")
+	accountRoute.HandleFunc("/account", s.updateAccount).Methods("PATCH")
+	accountRoute.HandleFunc("/account", s.deleteAccount).Methods("DELETE")
+	accountRoute.HandleFunc("/account/providers/{provider}", s.disconnectAccountProvider).Methods("DELETE")
+	accountRoute.HandleFunc("/account/linked-accounts/{provider}/{providerID}", s.disconnectLinkedAccount).Methods("DELETE")
+	accountRoute.HandleFunc("/account/limits", s.getOrganizationCreationStatus).Methods("GET")
+	accountRoute.HandleFunc("/account/onboarding", s.createInitialWorkspace).Methods("POST")
+	accountRoute.HandleFunc("/account/password", s.changePassword).Methods("POST")
+	accountRoute.HandleFunc("/organizations", s.listAccountOrganizations).Methods("GET")
+	accountRoute.HandleFunc("/organizations", s.createOrganization).Methods("POST")
+	accountRoute.HandleFunc("/account/experimental-features", s.listExperimentalFeatures).Methods("GET")
+	accountRoute.HandleFunc(mcpserver.PathAuthorize, s.handleMCPAuthorize).Methods("GET", "POST")
+
+	// Admin API routes — requires account auth + installation admin
+	adminRoute := r.PathPrefix("/admin/api").Subrouter()
+	adminRoute.Use(middleware.AdminAuthMiddleware(s.jwt))
+	adminRoute.Use(middleware.RequireInstallationAdmin())
+	adminRoute.HandleFunc("/accounts", s.adminListAccounts).Methods("GET")
+	adminRoute.HandleFunc("/organizations", s.adminListOrganizations).Methods("GET")
+	adminRoute.HandleFunc("/organizations/{orgId}", s.adminGetOrganization).Methods("GET")
+	adminRoute.HandleFunc("/organizations/{orgId}/canvases", s.adminListCanvases).Methods("GET")
+	adminRoute.HandleFunc("/organizations/{orgId}/users", s.adminListOrgUsers).Methods("GET")
+	adminRoute.HandleFunc("/organizations/{orgId}/integrations", s.adminListOrgIntegrations).Methods("GET")
+	adminRoute.HandleFunc("/organizations/{orgId}/experimental-features", s.adminListOrgExperimentalFeatures).Methods("GET")
+	adminRoute.HandleFunc("/organizations/{orgId}/experimental-features/{featureId}", s.adminEnableOrgExperimentalFeature).Methods("POST")
+	adminRoute.HandleFunc("/organizations/{orgId}/experimental-features/{featureId}", s.adminDisableOrgExperimentalFeature).Methods("DELETE")
+	adminRoute.HandleFunc("/installation/factory-templates", s.adminListFactoryTemplates).Methods("GET")
+	adminRoute.HandleFunc("/installation/factory-templates/{templateId}/reset", s.adminResetFactoryTemplate).Methods("POST")
+	adminRoute.HandleFunc("/installation/network-settings", s.adminGetInstallationNetworkSettings).Methods("GET")
+	adminRoute.HandleFunc("/installation/network-settings", s.adminUpdateInstallationNetworkSettings).Methods("PATCH")
+	adminRoute.HandleFunc("/installation/first-run/fleet-manager", s.adminPrepareFleetManager).Methods("POST")
+	adminRoute.HandleFunc("/installation/license", s.adminGetInstallationLicense).Methods("GET")
+	adminRoute.HandleFunc("/installation/license", s.adminInstallInstallationLicense).Methods("PUT")
+	adminRoute.HandleFunc("/installation/license", s.adminRemoveInstallationLicense).Methods("DELETE")
+	adminRoute.HandleFunc("/installation/license/keys", s.adminInstallLicenseKeyList).Methods("PUT")
+	adminRoute.HandleFunc("/installation/llm-settings", s.adminGetInstallationLLMSettings).Methods("GET")
+	adminRoute.HandleFunc("/installation/llm-settings", s.adminUpdateInstallationLLMSettings).Methods("PATCH")
+	adminRoute.HandleFunc("/installation/llm-providers/{provider}", s.adminUpdateHostedLLMProvider).Methods("PATCH")
+	adminRoute.HandleFunc("/installation/llm-providers/{provider}/models", s.adminListHostedLLMProviderModels).Methods("POST")
+	adminRoute.HandleFunc("/organizations/{orgId}/llm-credit", s.adminGetOrganizationLLMCredit).Methods("GET")
+	adminRoute.HandleFunc("/organizations/{orgId}/llm-credit/grants", s.adminAddOrganizationLLMCredit).Methods("POST")
+	adminRoute.HandleFunc("/organizations/{orgId}/llm-credit/grants", s.adminListOrganizationCreditGrants).Methods("GET")
+	adminRoute.HandleFunc("/organizations/{orgId}/llm-credit/balances", s.adminSetOrganizationCreditBalance).Methods("PUT")
+	adminRoute.HandleFunc("/organizations/{orgId}/llm-settings", s.adminUpdateOrganizationLLMMarkup).Methods("PATCH")
+	adminRoute.HandleFunc("/organizations/{orgId}/billing-plan", s.adminGetOrganizationBillingPlan).Methods("GET")
+	adminRoute.HandleFunc("/organizations/{orgId}/billing-plan", s.adminSetOrganizationBillingPlan).Methods("PUT")
+	adminRoute.HandleFunc("/organizations/{orgId}/spending-report", s.adminGetOrganizationSpendingReport).Methods("GET")
+	adminRoute.HandleFunc("/organizations/{orgId}/velocity", s.adminGetOrganizationVelocity).Methods("GET")
+	adminRoute.HandleFunc("/runner/tasks", s.adminListRunnerTasks).Methods("GET")
+	adminRoute.HandleFunc("/polar/webhooks", s.adminListPolarWebhooks).Methods("GET")
+	adminRoute.HandleFunc("/polar/webhooks/endpoints", s.adminListPolarWebhookEndpoints).Methods("GET")
+	adminRoute.HandleFunc("/sentry/webhooks", s.adminListSentryWebhooks).Methods("GET")
+	adminRoute.HandleFunc("/datadog/webhooks", s.adminListDatadogWebhooks).Methods("GET")
+	adminRoute.HandleFunc("/linear/webhooks", s.adminListLinearWebhooks).Methods("GET")
+	adminRoute.HandleFunc("/polar/webhooks/{eventId}/redeliver", s.adminRedeliverPolarWebhook).Methods("POST")
+	adminRoute.HandleFunc("/price-books", s.adminGetPriceBooks).Methods("GET")
+	adminRoute.HandleFunc("/price-books", s.adminSavePriceBooks).Methods("PUT")
+	adminRoute.HandleFunc("/price-books", s.adminDeletePriceBook).Methods("DELETE")
+	adminRoute.HandleFunc("/price-books/sync", s.adminSyncPriceBooks).Methods("POST")
+	adminRoute.HandleFunc("/price-books/current", s.adminActivatePriceBook).Methods("PUT")
+	adminRoute.HandleFunc("/impersonate/start", s.startImpersonation).Methods("POST")
+	adminRoute.HandleFunc("/impersonate/end", s.endImpersonation).Methods("POST")
+	adminRoute.HandleFunc("/impersonate/status", s.impersonationStatus).Methods("GET")
+	adminRoute.HandleFunc("/accounts/{accountId}/promote", s.promoteAdmin).Methods("POST")
+	adminRoute.HandleFunc("/accounts/{accountId}/demote", s.demoteAdmin).Methods("POST")
+	adminRoute.HandleFunc("/accounts/{accountId}/block", s.blockAccount).Methods("POST")
+	adminRoute.HandleFunc("/accounts/{accountId}/unblock", s.unblockAccount).Methods("POST")
+	adminRoute.HandleFunc("/accounts/{accountId}", s.adminDeleteAccount).Methods("DELETE")
+	s.adminRouter = adminRoute
+
+	// Apply additional middlewares
+	for _, middleware := range additionalMiddlewares {
+		publicRoute.Use(middleware)
+	}
+
+	s.Router = r
+}
+
+type oidcDiscoveryResponse struct {
+	Issuer                           string   `json:"issuer"`
+	JWKSURI                          string   `json:"jwks_uri"`
+	IDTokenSigningAlgValuesSupported []string `json:"id_token_signing_alg_values_supported"`
+	SubjectTypesSupported            []string `json:"subject_types_supported"`
+	ResponseTypesSupported           []string `json:"response_types_supported"`
+}
+
+type jwksResponse struct {
+	Keys []oidc.PublicJWK `json:"keys"`
+}
+
+func (s *Server) handleOIDCConfiguration(w http.ResponseWriter, _ *http.Request) {
+	baseURL := strings.TrimRight(s.WebhooksBaseURL, "/")
+	response := oidcDiscoveryResponse{
+		Issuer:                           baseURL,
+		JWKSURI:                          baseURL + "/.well-known/jwks.json",
+		IDTokenSigningAlgValuesSupported: []string{"RS256"},
+		SubjectTypesSupported:            []string{"public"},
+		ResponseTypesSupported:           []string{"id_token"},
+	}
+	respondJSON(w, response)
+}
+
+func (s *Server) handleOIDCJWKS(w http.ResponseWriter, _ *http.Request) {
+	response := jwksResponse{
+		Keys: s.oidcProvider.PublicJWKs(),
+	}
+	respondJSON(w, response)
+}
+
+func respondJSON(w http.ResponseWriter, payload any) {
+	w.Header().Set("Content-Type", "application/json")
+	encoder := json.NewEncoder(w)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(payload); err != nil {
+		http.Error(w, "failed to encode response", http.StatusInternalServerError)
+	}
+}
+
+func (s *Server) HandleIntegrationRequest(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+
+	integrationIDFromRequest := vars["integrationID"]
+	integrationID, err := uuid.Parse(integrationIDFromRequest)
+	if err != nil {
+		http.Error(w, "integration not found", http.StatusNotFound)
+		return
+	}
+
+	integrationInstance, err := models.FindUnscopedIntegration(integrationID)
+	if err != nil {
+		http.Error(w, "integration not found", http.StatusNotFound)
+		return
+	}
+
+	if status := hostedSentryAppBrowserCallbackStatus(r.Context(), r, integrationInstance); status != 0 {
+		writeHostedGitHubAppAuthError(w, status)
+		return
+	}
+
+	s.dispatchIntegrationRequest(w, r, integrationInstance)
+}
+
+func (s *Server) dispatchIntegrationRequest(w http.ResponseWriter, r *http.Request, integrationInstance *models.Integration) {
+	integration, err := s.registry.GetIntegration(integrationInstance.AppName)
+	if err != nil {
+		http.Error(w, "integration not found", http.StatusNotFound)
+		return
+	}
+
+	newEvents := []models.CanvasEvent{}
+	onNewEvents := func(events []models.CanvasEvent) {
+		newEvents = append(newEvents, events...)
+	}
+
+	capabilityCtx := contexts.NewCapabilityContext(
+		s.registry.AllCapabilities(integrationInstance.AppName),
+		integrationInstance.Capabilities,
+	)
+
+	logging.ForIntegration(*integrationInstance).WithField("source", "oauth_callback").Info("Integration operation may write secrets")
+	request, response, finishReceipt, deliver := s.trackDatadogWebhook(r, w, integrationInstance)
+	defer finishReceipt()
+	if !deliver {
+		return
+	}
+	integration.HandleRequest(core.HTTPRequestContext{
+		Logger:           logging.ForIntegration(*integrationInstance),
+		Request:          request,
+		Response:         response,
+		BaseURL:          s.BaseURL,
+		WebhooksBaseURL:  s.WebhooksBaseURL,
+		OrganizationID:   integrationInstance.OrganizationID.String(),
+		HTTP:             s.registry.HTTPContext(),
+		Capabilities:     capabilityCtx,
+		IntegrationSetup: contexts.NewIntegrationSetupContext(integrationInstance),
+		Integration: contexts.NewIntegrationContext(
+			database.Conn(),
+			nil,
+			integrationInstance,
+			s.encryptor,
+			s.registry,
+			onNewEvents,
+		),
+	})
+
+	integrationInstance.Capabilities = capabilityCtx.States()
+	err = database.Conn().Save(integrationInstance).Error
+	if err != nil {
+		logging.ForIntegration(*integrationInstance).WithError(err).Error("failed to save integration after request")
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	for _, event := range newEvents {
+		messages.PublishCanvasEventCreatedMessage(&event)
+	}
+}
+
+type OrganizationCreationRequest struct {
+	Name string `json:"name"`
+}
+
+type initialWorkspaceRequest struct {
+	Owner     string `json:"owner"`
+	AttemptID string `json:"attemptID"`
+}
+
+type initialWorkspaceResponse struct {
+	OrganizationSlug string `json:"organizationSlug"`
+	WorkspaceKey     string `json:"workspaceKey"`
+}
+
+type organizationCreationStatusResponse struct {
+	Allowed              bool   `json:"allowed"`
+	CurrentOrganizations int32  `json:"currentOrganizations"`
+	Message              string `json:"message,omitempty"`
+}
+
+func (s *Server) getOrganizationCreationStatus(w http.ResponseWriter, r *http.Request) {
+	account, ok := middleware.GetAccountFromContext(r.Context())
+	if !ok {
+		http.Error(w, "", http.StatusUnauthorized)
+		return
+	}
+
+	response, err := s.describeOrganizationCreationStatus(database.DB(r.Context()), account.ID.String())
+	if err != nil {
+		// describeOrganizationCreationStatus already logs the underlying
+		// error with stage-specific structured fields, so we don't repeat
+		// the full error chain here.
+		log.WithField("account_id", account.ID.String()).
+			Error("failed to load organization creation status")
+		writeOrganizationCreationStatusError(w, "Failed to load organization creation status", err)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+func (s *Server) describeOrganizationCreationStatus(
+	tx *gorm.DB,
+	accountID string,
+) (*organizationCreationStatusResponse, error) {
+	organizationCount, err := models.CountOrganizationsByBillingAccount(tx, accountID)
+	if err != nil {
+		log.WithError(err).
+			WithField("account_id", accountID).
+			WithField("stage", "count_organizations").
+			Error("failed to count organizations for billing account")
+		return nil, fmt.Errorf("count organizations for account %s: %w", accountID, err)
+	}
+
+	return &organizationCreationStatusResponse{
+		Allowed:              true,
+		CurrentOrganizations: int32(organizationCount),
+	}, nil
+}
+
+func writeOrganizationCreationStatusError(w http.ResponseWriter, fallbackMessage string, err error) {
+	http.Error(w, fallbackMessage, http.StatusInternalServerError)
+}
+
+func (s *Server) createOrganization(w http.ResponseWriter, r *http.Request) {
+	account, ok := middleware.GetAccountFromContext(r.Context())
+	if !ok {
+		http.Error(w, "", http.StatusUnauthorized)
+		return
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	var req OrganizationCreationRequest
+	err = json.Unmarshal(body, &req)
+	if err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.Name == "" {
+		http.Error(w, "Name is required", http.StatusBadRequest)
+		return
+	}
+
+	tx, err := acquireOrganizationCreationLock(r.Context(), account.ID)
+	if err != nil {
+		log.WithError(err).WithField("account_id", account.ID).Error("failed to lock organization creation")
+		http.Error(w, "Failed to create organization", http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback()
+
+	creationStatus, err := s.describeOrganizationCreationStatus(tx, account.ID.String())
+	if err != nil {
+		// describeOrganizationCreationStatus already logs the underlying
+		// error with stage-specific structured fields.
+		log.WithField("account_id", account.ID.String()).
+			Error("failed to check organization creation status before creating organization")
+		writeOrganizationCreationStatusError(w, "Failed to create organization", err)
+		return
+	}
+
+	if !creationStatus.Allowed {
+		http.Error(w, creationStatus.Message, http.StatusTooManyRequests)
+		return
+	}
+
+	//
+	// Create the organization
+	//
+	log.Infof("Creating organization %s for account %s", req.Name, account.Email)
+	organization, err := models.CreateOrganizationInTransaction(tx, req.Name, "")
+
+	if err != nil {
+		tx.Rollback()
+
+		if errors.Is(err, models.ErrNameAlreadyUsed) {
+			http.Error(w, "Organization name already in use", http.StatusConflict)
+			return
+		}
+
+		log.Errorf("Error creating organization %s: %v", req.Name, err)
+		http.Error(w, "Failed to create organization", http.StatusInternalServerError)
+		return
+	}
+
+	//
+	// Create the owner user for it
+	//
+	log.Infof("Creating user for new organization %s (%s)", organization.Name, organization.ID)
+	user, err := models.CreateUserInTransaction(tx, organization.ID, account.ID, account.Email, account.Name)
+	if err != nil {
+		tx.Rollback()
+		log.Errorf("Error creating user for new organization %s (%s): %v", organization.Name, organization.ID, err)
+		http.Error(w, "Failed to create user account", http.StatusInternalServerError)
+		return
+	}
+
+	//
+	// Finally, set up RBAC for the new organization.
+	//
+	log.Infof("Setting up RBAC policies for new organization %s (%s)", organization.Name, organization.ID)
+	err = s.authService.SetupOrganization(tx, organization.ID.String(), user.ID.String())
+	if err != nil {
+		tx.Rollback()
+		log.Errorf("Error setting up RBAC policies for %s (%s): %v", organization.Name, organization.ID, err)
+		http.Error(w, "Failed to set up organization roles", http.StatusInternalServerError)
+		return
+	}
+
+	err = models.SetOrganizationCreatedByAccount(tx, organization.ID, account.ID)
+	if err != nil {
+		tx.Rollback()
+		log.Errorf("Error setting creator for organization %s (%s): %v", organization.Name, organization.ID, err)
+		http.Error(w, "Failed to create organization", http.StatusInternalServerError)
+		return
+	}
+
+	err = models.GrantWelcomeCredit(tx, organization.ID, account.ID)
+	if err != nil {
+		tx.Rollback()
+		log.Errorf("Error granting welcome credit for organization %s (%s): %v", organization.Name, organization.ID, err)
+		http.Error(w, "Failed to create organization", http.StatusInternalServerError)
+		return
+	}
+
+	err = tx.Commit().Error
+	if err != nil {
+		log.Errorf("Error committing transaction for organization %s (%s) creation: %v", organization.Name, organization.ID, err)
+		http.Error(w, "Failed to create organization", http.StatusInternalServerError)
+		return
+	}
+
+	log.Infof("Organization %s (%s) created successfully", organization.Name, organization.ID)
+
+	response := map[string]any{}
+	response["id"] = organization.ID.String()
+	response["slug"] = organization.Slug
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+// createInitialWorkspace provisions the first organization and workspace for
+// an account. GitHub is optional: the account name is enough to start setup.
+func (s *Server) createInitialWorkspace(w http.ResponseWriter, r *http.Request) {
+	account, ok := middleware.GetAccountFromContext(r.Context())
+	if !ok {
+		http.Error(w, "", http.StatusUnauthorized)
+		return
+	}
+
+	var req initialWorkspaceRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	owner := initialOrganizationName(account, req.Owner)
+	if owner == "" {
+		http.Error(w, "Organization name is required", http.StatusBadRequest)
+		return
+	}
+	attemptID, err := uuid.Parse(req.AttemptID)
+	if err != nil {
+		http.Error(w, "Invalid onboarding attempt", http.StatusBadRequest)
+		return
+	}
+
+	if !accountMayNameOrganization(database.DB(r.Context()), account, owner) {
+		http.Error(w, "Organization name does not match this account", http.StatusForbidden)
+		return
+	}
+
+	creationLock, err := acquireOrganizationCreationLock(r.Context(), account.ID)
+	if err != nil {
+		log.WithError(err).WithField("account_id", account.ID).Error("failed to lock initial workspace creation")
+		http.Error(w, "Failed to create workspace", http.StatusInternalServerError)
+		return
+	}
+	defer creationLock.Rollback()
+
+	if organization, workspace, found, err := findInitialWorkspace(creationLock, account.ID, attemptID); err != nil {
+		log.WithError(err).WithField("account_id", account.ID).Error("failed to find initial workspace")
+		http.Error(w, "Failed to create workspace", http.StatusInternalServerError)
+		return
+	} else if found {
+		if err := creationLock.Commit().Error; err != nil {
+			log.WithError(err).WithField("account_id", account.ID).Error("failed to finish initial workspace lookup")
+			http.Error(w, "Failed to create workspace", http.StatusInternalServerError)
+			return
+		}
+		writeInitialWorkspaceResponse(w, organization, workspace)
+		return
+	}
+
+	creationStatus, err := s.describeOrganizationCreationStatus(creationLock, account.ID.String())
+	if err != nil {
+		writeOrganizationCreationStatusError(w, "Failed to create workspace", err)
+		return
+	}
+	if !creationStatus.Allowed {
+		http.Error(w, creationStatus.Message, http.StatusTooManyRequests)
+		return
+	}
+
+	organization, workspace, err := s.createInitialOrganizationAndWorkspace(creationLock, account, owner, attemptID)
+	if err != nil {
+		log.WithError(err).WithField("account_id", account.ID).Error("failed to create initial workspace")
+		http.Error(w, "Failed to create workspace", http.StatusInternalServerError)
+		return
+	}
+
+	if err := creationLock.Commit().Error; err != nil {
+		log.WithError(err).WithField("account_id", account.ID).Error("failed to finish initial workspace creation")
+		http.Error(w, "Failed to create workspace", http.StatusInternalServerError)
+		return
+	}
+
+	writeInitialWorkspaceResponse(w, organization, workspace)
+}
+
+// acquireOrganizationCreationLock serializes organization creation for one account.
+// Waiting requests release their database connections between attempts.
+func acquireOrganizationCreationLock(ctx context.Context, accountID uuid.UUID) (*gorm.DB, error) {
+	lockKey := int64(binary.BigEndian.Uint64(accountID[:8]))
+
+	for {
+		tx := database.DB(ctx).Begin()
+		if tx.Error != nil {
+			return nil, tx.Error
+		}
+
+		var locked bool
+		if err := tx.Raw("SELECT pg_try_advisory_xact_lock(?)", lockKey).Scan(&locked).Error; err != nil {
+			tx.Rollback()
+			return nil, err
+		}
+		if locked {
+			return tx, nil
+		}
+		if err := tx.Rollback().Error; err != nil {
+			return nil, err
+		}
+
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+}
+
+func findInitialWorkspace(tx *gorm.DB, accountID, attemptID uuid.UUID) (*models.Organization, *models.Factory, bool, error) {
+	organizations, err := models.ListOrganizationsCreatedByAccount(tx, accountID)
+	if err != nil {
+		return nil, nil, false, err
+	}
+
+	var pendingOrganization *models.Organization
+	var pendingWorkspace *models.Factory
+
+	for i := range organizations {
+		organization := &organizations[i]
+		factories, err := models.ListFactories(tx, organization.ID)
+		if err != nil {
+			return nil, nil, false, err
+		}
+		for j := range factories {
+			factory := &factories[j]
+			if factory.HasInitialOnboardingAttempt(attemptID) {
+				return organization, factory, true, nil
+			}
+			if pendingWorkspace == nil && factory.IsPendingInitialOnboarding() {
+				pendingOrganization = organization
+				pendingWorkspace = factory
+			}
+		}
+	}
+
+	if pendingWorkspace != nil {
+		return pendingOrganization, pendingWorkspace, true, nil
+	}
+
+	return nil, nil, false, nil
+}
+
+func writeInitialWorkspaceResponse(w http.ResponseWriter, organization *models.Organization, workspace *models.Factory) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(initialWorkspaceResponse{
+		OrganizationSlug: organization.Slug,
+		WorkspaceKey:     workspace.Key,
+	})
+}
+
+func initialOrganizationName(account *models.Account, requested string) string {
+	name := strings.TrimSpace(requested)
+	if name != "" {
+		return name
+	}
+	if accountName := strings.TrimSpace(account.Name); accountName != "" {
+		return accountName
+	}
+	return accountEmailLocalPart(account.Email)
+}
+
+func accountMayNameOrganization(tx *gorm.DB, account *models.Account, name string) bool {
+	if name == "" {
+		return false
+	}
+	if name == strings.TrimSpace(account.Name) {
+		return true
+	}
+	if name == accountEmailLocalPart(account.Email) {
+		return true
+	}
+	return accountOwnsGitHubName(tx, account, name)
+}
+
+func accountEmailLocalPart(email string) string {
+	email = strings.TrimSpace(email)
+	local, _, found := strings.Cut(email, "@")
+	if !found {
+		return ""
+	}
+	return strings.TrimSpace(local)
+}
+
+func accountOwnsGitHubName(tx *gorm.DB, account *models.Account, owner string) bool {
+	linkedAccount, err := models.FindAccountLinkedAccount(tx, account.ID, models.ProviderGitHub)
+	if err == nil && (owner == linkedAccount.Name || owner == linkedAccount.Username) {
+		return true
+	}
+
+	providers, err := account.GetAccountProviders(tx)
+	if err != nil {
+		return false
+	}
+	return slices.ContainsFunc(providers, func(provider models.AccountProvider) bool {
+		return provider.Provider == models.ProviderGitHub && owner == provider.Username
+	})
+}
+
+func (s *Server) createInitialOrganizationAndWorkspace(tx *gorm.DB, account *models.Account, owner string, attemptID uuid.UUID) (*models.Organization, *models.Factory, error) {
+	for attempt := 1; attempt <= 100; attempt++ {
+		organizationName := owner
+		if attempt > 1 {
+			suffix, err := randomOrganizationSuffix()
+			if err != nil {
+				return nil, nil, err
+			}
+			organizationName = fmt.Sprintf("%s-%s", owner, suffix)
+		}
+
+		savepoint := fmt.Sprintf("initial_organization_name_%d", attempt)
+		if err := tx.SavePoint(savepoint).Error; err != nil {
+			return nil, nil, fmt.Errorf("create organization savepoint: %w", err)
+		}
+
+		organization, workspace, err := s.createInitialOrganizationAttempt(tx, account, organizationName, attemptID)
+		if errors.Is(err, models.ErrNameAlreadyUsed) || errors.Is(err, models.ErrSlugAlreadyUsed) {
+			if rollbackErr := tx.RollbackTo(savepoint).Error; rollbackErr != nil {
+				return nil, nil, fmt.Errorf("rollback organization name: %w", rollbackErr)
+			}
+			continue
+		}
+		return organization, workspace, err
+	}
+
+	return nil, nil, fmt.Errorf("could not find an available organization name for %q", owner)
+}
+
+const organizationSuffixAlphabet = "abcdefghijklmnopqrstuvwxyz0123456789"
+
+func randomOrganizationSuffix() (string, error) {
+	bytes := make([]byte, 6)
+	if _, err := cryptorand.Read(bytes); err != nil {
+		return "", fmt.Errorf("generate organization suffix: %w", err)
+	}
+
+	suffix := make([]byte, len(bytes))
+	for index, value := range bytes {
+		suffix[index] = organizationSuffixAlphabet[int(value)%len(organizationSuffixAlphabet)]
+	}
+	return string(suffix), nil
+}
+
+func (s *Server) createInitialOrganizationAttempt(tx *gorm.DB, account *models.Account, organizationName string, attemptID uuid.UUID) (*models.Organization, *models.Factory, error) {
+	organization, err := models.CreateOrganizationInTransaction(tx, organizationName, "")
+	if err != nil {
+		return nil, nil, err
+	}
+
+	user, err := models.CreateUserInTransaction(tx, organization.ID, account.ID, account.Email, account.Name)
+	if err != nil {
+		return nil, nil, fmt.Errorf("create organization owner: %w", err)
+	}
+	if err := s.authService.SetupOrganization(tx, organization.ID.String(), user.ID.String()); err != nil {
+		return nil, nil, fmt.Errorf("set up organization roles: %w", err)
+	}
+	if err := models.SetOrganizationCreatedByAccount(tx, organization.ID, account.ID); err != nil {
+		return nil, nil, fmt.Errorf("set organization creator: %w", err)
+	}
+	if err := models.GrantWelcomeCredit(tx, organization.ID, account.ID); err != nil {
+		return nil, nil, fmt.Errorf("grant welcome credit: %w", err)
+	}
+
+	workspace, err := models.CreateFactory(tx, organization.ID, "New workspace", "", "")
+	if err != nil {
+		return nil, nil, fmt.Errorf("create initial workspace: %w", err)
+	}
+	if err := workspace.SetInitialOnboardingAttempt(tx, attemptID); err != nil {
+		return nil, nil, fmt.Errorf("set initial workspace onboarding attempt: %w", err)
+	}
+	return organization, workspace, nil
+}
+
+type AccountImpersonation struct {
+	Active   bool   `json:"active"`
+	UserName string `json:"user_name,omitempty"`
+}
+
+type AccountProviderResponse struct {
+	Provider string `json:"provider"`
+	Email    string `json:"email,omitempty"`
+	Username string `json:"username,omitempty"`
+}
+
+// AccountLinkedAccountResponse describes an identity the member owns on another
+// service. It is not a sign-in method, so it carries no email or token.
+type AccountLinkedAccountResponse struct {
+	Provider   string `json:"provider"`
+	ProviderID string `json:"provider_id"`
+	Username   string `json:"username"`
+	Name       string `json:"name,omitempty"`
+	AvatarURL  string `json:"avatar_url,omitempty"`
+	Active     bool   `json:"active"`
+}
+
+type AccountOrganizationPendingDeletion struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+type AccountResponse struct {
+	ID                           string                               `json:"id"`
+	Name                         string                               `json:"name"`
+	Email                        string                               `json:"email"`
+	AvatarURL                    string                               `json:"avatar_url"`
+	InstallationAdmin            bool                                 `json:"installation_admin"`
+	HasPassword                  bool                                 `json:"has_password"`
+	Providers                    []AccountProviderResponse            `json:"providers"`
+	LinkedAccounts               []AccountLinkedAccountResponse       `json:"linked_accounts"`
+	OrganizationsPendingDeletion []AccountOrganizationPendingDeletion `json:"organizations_pending_deletion"`
+	Impersonation                *AccountImpersonation                `json:"impersonation,omitempty"`
+	License                      AccountLicense                       `json:"license"`
+}
+
+// HideLicenseExpiryBannerEnv hides the license expiry banner when it is "yes"
+// or "true". The default is "no", so the banner stays visible.
+const HideLicenseExpiryBannerEnv = "SUPERPLANE_LICENSE_HIDE_EXPIRY_BANNER"
+
+// AccountLicense tells the UI which Enterprise features are available. Only
+// installation administrators receive the license state and expiry.
+type AccountLicense struct {
+	Edition          string     `json:"edition"`
+	Features         []string   `json:"features"`
+	State            string     `json:"state,omitempty"`
+	ExpiresAt        *time.Time `json:"expires_at,omitempty"`
+	HideExpiryBanner bool       `json:"hide_expiry_banner,omitempty"`
+}
+
+func hideLicenseExpiryBanner() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(HideLicenseExpiryBannerEnv))) {
+	case "yes", "true":
+		return true
+	default:
+		return false
+	}
+}
+
+func accountLicense(status licensing.Status, installationAdmin bool) AccountLicense {
+	license := AccountLicense{
+		Edition:          string(status.Edition),
+		Features:         []string{},
+		HideExpiryBanner: hideLicenseExpiryBanner(),
+	}
+
+	if status.Edition == licensing.EditionEnterprise && status.License != nil {
+		license.Features = featureKeys(status.License.Features)
+	}
+
+	if !installationAdmin {
+		return license
+	}
+
+	license.State = string(status.State)
+	if status.License != nil {
+		expiresAt := status.License.ExpiresAt.UTC()
+		license.ExpiresAt = &expiresAt
+	}
+
+	return license
+}
+
+func accountOrganizationsPendingDeletion(organizations []models.Organization) []AccountOrganizationPendingDeletion {
+	pending := make([]AccountOrganizationPendingDeletion, 0, len(organizations))
+	for _, organization := range organizations {
+		pending = append(pending, AccountOrganizationPendingDeletion{
+			ID:   organization.ID.String(),
+			Name: organization.Name,
+		})
+	}
+	return pending
+}
+
+func (s *Server) getAccount(w http.ResponseWriter, r *http.Request) {
+	account, ok := middleware.GetEffectiveAccountFromContext(r.Context())
+	if !ok {
+		http.Error(w, "", http.StatusUnauthorized)
+		return
+	}
+
+	fresh, err := models.FindAccountByID(account.ID.String())
+	if err != nil {
+		log.Errorf("Error reloading account %s: %v", account.ID, err)
+		http.Error(w, "", http.StatusInternalServerError)
+		return
+	}
+	account = fresh
+
+	providers, err := account.GetAccountProviders(database.DB(r.Context()))
+	if err != nil {
+		log.Errorf("Error getting account providers for %s: %v", account.Email, err)
+		http.Error(w, "", http.StatusInternalServerError)
+		return
+	}
+
+	hasPassword, err := accountHasPassword(account.ID)
+	if err != nil {
+		log.Errorf("Error checking password auth for account %s: %v", account.ID, err)
+		http.Error(w, "", http.StatusInternalServerError)
+		return
+	}
+
+	linkedAccounts, err := models.ListAccountLinkedAccounts(database.DB(r.Context()), account.ID)
+	if err != nil {
+		log.Errorf("Error getting linked accounts for %s: %v", account.ID, err)
+		http.Error(w, "", http.StatusInternalServerError)
+		return
+	}
+
+	pendingOrgs, err := models.ListOrganizationsPendingAccountDeletion(database.DB(r.Context()), account.ID)
+	if err != nil {
+		log.Errorf("Error listing organizations pending deletion for %s: %v", account.ID, err)
+		http.Error(w, "", http.StatusInternalServerError)
+		return
+	}
+
+	accountResponse := AccountResponse{
+		ID:                           account.ID.String(),
+		Name:                         account.Name,
+		Email:                        account.Email,
+		AvatarURL:                    getAvatarURL(providers),
+		InstallationAdmin:            account.IsInstallationAdmin(),
+		HasPassword:                  hasPassword,
+		Providers:                    accountProviderResponses(providers),
+		LinkedAccounts:               accountLinkedAccountResponses(linkedAccounts),
+		OrganizationsPendingDeletion: accountOrganizationsPendingDeletion(pendingOrgs),
+		License:                      accountLicense(s.licenseStatus(), account.IsInstallationAdmin()),
+	}
+
+	if info, ok := middleware.GetImpersonationFromContext(r.Context()); ok && info.Active {
+		accountResponse.Impersonation = &AccountImpersonation{
+			Active:   true,
+			UserName: info.UserName,
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(accountResponse)
+}
+
+func (s *Server) listAccountOrganizations(w http.ResponseWriter, r *http.Request) {
+	account, ok := middleware.GetEffectiveAccountFromContext(r.Context())
+	if !ok {
+		http.Error(w, "", http.StatusUnauthorized)
+		return
+	}
+
+	type Organization struct {
+		ID                       string `json:"id"`
+		Slug                     string `json:"slug"`
+		Name                     string `json:"name"`
+		Description              string `json:"description"`
+		CanvasCount              int64  `json:"canvasCount"`
+		MemberCount              int64  `json:"memberCount"`
+		LastLocationPath         string `json:"lastLocationPath,omitempty"`
+		LastLocationUpdatedAt    string `json:"lastLocationUpdatedAt,omitempty"`
+		InitialOnboardingPending bool   `json:"initialOnboardingPending,omitempty"`
+	}
+
+	organizations, err := models.FindOrganizationsForAccount(account.Email)
+	if err != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	orgIDs := make([]string, 0, len(organizations))
+	for _, organization := range organizations {
+		orgIDs = append(orgIDs, organization.ID.String())
+	}
+
+	canvasCounts, err := models.CountCanvasesByOrganizationIDs(orgIDs)
+	if err != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	memberCounts, err := models.CountActiveUsersByOrganizationIDs(orgIDs)
+	if err != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	lastLocations, err := models.ListUserLastLocationsForAccount(database.DB(r.Context()), account.ID)
+	if err != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	lastLocationByOrg := make(map[string]models.UserLastLocation, len(lastLocations))
+	for _, location := range lastLocations {
+		lastLocationByOrg[location.OrganizationID.String()] = location
+	}
+
+	orgUUIDs := make([]uuid.UUID, 0, len(organizations))
+	for _, organization := range organizations {
+		orgUUIDs = append(orgUUIDs, organization.ID)
+	}
+	pendingInitialOnly, err := models.OrganizationIDsPendingInitialOnboardingOnly(database.DB(r.Context()), orgUUIDs)
+	if err != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	response := []Organization{}
+	for _, organization := range organizations {
+		orgID := organization.ID.String()
+		item := Organization{
+			ID:          organization.ID.String(),
+			Slug:        organization.Slug,
+			Name:        organization.Name,
+			Description: organization.Description,
+			CanvasCount: canvasCounts[orgID],
+			MemberCount: memberCounts[orgID],
+		}
+		if _, pending := pendingInitialOnly[organization.ID]; pending {
+			item.InitialOnboardingPending = true
+		}
+		if location, ok := lastLocationByOrg[orgID]; ok {
+			item.LastLocationPath = location.Path
+			item.LastLocationUpdatedAt = location.UpdatedAt.UTC().Format(time.RFC3339Nano)
+		}
+		response = append(response, item)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+func (s *Server) HealthCheck(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) Serve(host string, port int) error {
+	log.Infof("Starting server at %s:%d", host, port)
+
+	// Start the WebSocket hub
+	log.Info("Starting WebSocket hub")
+	s.wsHub.Run()
+
+	handler := http.Handler(s.Router)
+	if os.Getenv("REDIRECT_HTTP_REQUESTS") == "yes" {
+		handler = middleware.RedirectInsecureForwardedHTTP(handler)
+	}
+
+	s.httpServer = &http.Server{
+		Addr:              fmt.Sprintf("%s:%d", host, port),
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       15 * time.Minute,
+		WriteTimeout:      15 * time.Minute,
+		IdleTimeout:       60 * time.Second,
+		Handler:           handler,
+	}
+
+	return s.httpServer.ListenAndServe()
+}
+
+func (s *Server) Close() {
+	if err := s.httpServer.Close(); err != nil {
+		log.Errorf("Error closing server: %v", err)
+	}
+}
+
+// webhookDeliveryQuery returns the query the trigger should read.
+// The event can be a path segment or a query value. A proxy can drop
+// the query and still forward the path. Use the path when the query
+// does not name the event. Read the last path segment even when Gorilla
+// mux vars are missing, because some proxies forward the path without
+// matching the extra route.
+func webhookDeliveryQuery(r *http.Request) url.Values {
+	query := r.URL.Query()
+	if strings.TrimSpace(query.Get("event")) != "" {
+		return query
+	}
+
+	event := strings.TrimSpace(mux.Vars(r)["event"])
+	if event == "" {
+		event = eventNameFromPath(r.URL.Path)
+	}
+	if event == "" && r.RequestURI != "" {
+		parsed, err := url.ParseRequestURI(r.RequestURI)
+		if err == nil {
+			if value := strings.TrimSpace(parsed.Query().Get("event")); value != "" {
+				return parsed.Query()
+			}
+			event = eventNameFromPath(parsed.Path)
+		}
+	}
+	if event == "" {
+		return query
+	}
+
+	cloned := make(url.Values, len(query)+1)
+	for key, values := range query {
+		cloned[key] = append([]string(nil), values...)
+	}
+	cloned.Set("event", event)
+	return cloned
+}
+
+// eventNameFromPath returns the segment after a webhook UUID.
+// `/webhooks/{id}/task.created` yields `task.created`. A path that
+// ends on the webhook id has no event.
+func eventNameFromPath(rawPath string) string {
+	parts := strings.Split(strings.Trim(rawPath, "/"), "/")
+	if len(parts) < 2 {
+		return ""
+	}
+
+	last := strings.TrimSpace(parts[len(parts)-1])
+	webhookID := strings.TrimSpace(parts[len(parts)-2])
+	if last == "" {
+		return ""
+	}
+	if _, err := uuid.Parse(webhookID); err != nil {
+		return ""
+	}
+	if _, err := uuid.Parse(last); err == nil {
+		return ""
+	}
+	return last
+}
+
+const productiveOnTaskTrigger = "productive.onTask"
+
+func isProductiveOnTaskNode(node models.CanvasNode) bool {
+	if node.Type != models.NodeTypeTrigger {
+		return false
+	}
+	trigger := node.Ref.Data().Trigger
+	return trigger != nil && trigger.Name == productiveOnTaskTrigger
+}
+
+func webhookNodeLogger(node models.CanvasNode, integration *models.Integration) *log.Entry {
+	logger := logging.ForNode(node)
+	organizationID := ""
+	if integration != nil {
+		logger = logging.WithIntegration(logger, *integration)
+		if integration.OrganizationID != uuid.Nil {
+			organizationID = integration.OrganizationID.String()
+		}
+	}
+	webhookID := ""
+	if node.WebhookID != nil {
+		webhookID = node.WebhookID.String()
+	}
+	return logging.WithWebhookNode(logger, logging.WebhookNodeFields{
+		OrganizationID: organizationID,
+		CanvasID:       node.WorkflowID.String(),
+		WebhookID:      webhookID,
+	})
+}
+
+func storeWebhookServerError(r *http.Request, webhook *models.Webhook, node models.CanvasNode, code int, err error, organizationID string) {
+	if r == nil || webhook == nil || err == nil || code < http.StatusInternalServerError {
+		return
+	}
+
+	middleware.SetServerError(r.Context(), err, webhookServerErrorTags(r, webhook, node, organizationID))
+}
+
+func webhookServerErrorTags(r *http.Request, webhook *models.Webhook, node models.CanvasNode, organizationID string) map[string]string {
+	tags := map[string]string{
+		"webhook_id": uuidTag(webhook.ID),
+		"node_id":    node.NodeID,
+		"canvas_id":  uuidTag(node.WorkflowID),
+	}
+	if organizationID != "" {
+		tags["organization_id"] = organizationID
+	}
+	if deliveryID := strings.TrimSpace(r.Header.Get("X-GitHub-Delivery")); deliveryID != "" {
+		tags["github_delivery_id"] = deliveryID
+	}
+	return tags
+}
+
+func uuidTag(id uuid.UUID) string {
+	if id == uuid.Nil {
+		return ""
+	}
+	return id.String()
+}
+
+func (s *Server) replyWebhookError(w http.ResponseWriter, r *http.Request, webhook *models.Webhook, node models.CanvasNode, code int, err error, organizationID string) {
+	message := fmt.Sprintf("error handling webhook: %v", err)
+	if isProductiveOnTaskNode(node) {
+		organizationID = organizationIDForWebhookError(r, node, organizationID)
+		s.logWebhookError(r, webhook, node, code, err, organizationID)
+		storeWebhookServerError(r, webhook, node, code, err, organizationID)
+		http.Error(w, message, code)
+		return
+	}
+
+	s.logWebhookError(r, webhook, node, code, err, "")
+	http.Error(w, message, code)
+	if code < http.StatusInternalServerError {
+		return
+	}
+
+	flushHTTPResponse(w)
+	organizationID = organizationIDForWebhookError(r, node, organizationID)
+	storeWebhookServerError(r, webhook, node, code, err, organizationID)
+}
+
+func organizationIDForWebhookError(r *http.Request, node models.CanvasNode, organizationID string) string {
+	if organizationID != "" || r == nil {
+		return organizationID
+	}
+	return organizationIDForWebhookNode(database.DB(r.Context()), node)
+}
+
+func flushHTTPResponse(w http.ResponseWriter) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		return
+	}
+	flusher.Flush()
+}
+
+func integrationOrganizationID(integration *models.Integration) string {
+	if integration == nil || integration.OrganizationID == uuid.Nil {
+		return ""
+	}
+	return integration.OrganizationID.String()
+}
+
+func (s *Server) logWebhookError(r *http.Request, webhook *models.Webhook, node models.CanvasNode, code int, err error, organizationID string) {
+	if !isProductiveOnTaskNode(node) {
+		log.WithFields(log.Fields{
+			"webhook_id": webhook.ID.String(),
+			"path":       r.URL.Path,
+			"status":     code,
+		}).Errorf("error handling webhook: %v", err)
+		return
+	}
+
+	fields := log.Fields{
+		"workflow_id":   node.WorkflowID.String(),
+		"node_id":       node.NodeID,
+		"webhook_id":    webhook.ID.String(),
+		"webhook_state": webhook.State,
+		"status":        code,
+	}
+	if organizationID != "" {
+		fields["organization_id"] = organizationID
+	}
+	if node.AppInstallationID != nil {
+		fields["app_installation_id"] = node.AppInstallationID.String()
+	}
+	logging.LogProductiveWebhookFailure(webhookDeliveryQuery(r).Get("event"), fields, err)
+}
+
+func organizationIDForWebhookNode(tx *gorm.DB, node models.CanvasNode) string {
+	if node.AppInstallationID != nil {
+		integration, err := models.FindUnscopedIntegrationInTransaction(tx, *node.AppInstallationID)
+		if err == nil && integration.OrganizationID != uuid.Nil {
+			return integration.OrganizationID.String()
+		}
+	}
+
+	canvas, err := models.FindCanvasWithoutOrgScopeInTransaction(tx, node.WorkflowID)
+	if err != nil || canvas == nil || canvas.OrganizationID == uuid.Nil {
+		return ""
+	}
+	return canvas.OrganizationID.String()
+}
+
+func (s *Server) HandleWebhook(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	webhookIDFromRequest := vars["webhookID"]
+	webhookID, err := uuid.Parse(webhookIDFromRequest)
+	if err != nil {
+		http.Error(w, "webhook not found", http.StatusNotFound)
+		return
+	}
+
+	webhook, err := models.FindWebhook(webhookID)
+	if err != nil {
+		http.Error(w, "webhook not found", http.StatusNotFound)
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, MaxEventSize)
+	defer r.Body.Close()
+
+	body, err := io.ReadAll(r.Body)
+	track := s.openLinearWebhookReceipt(r.Context(), webhook, r.Header, body)
+	if err != nil {
+		if _, ok := err.(*http.MaxBytesError); ok {
+			track.complete(r.Context(), http.StatusRequestEntityTooLarge, 0)
+			http.Error(
+				w,
+				fmt.Sprintf("Request body is too large - must be up to %d bytes", MaxEventSize),
+				http.StatusRequestEntityTooLarge,
+			)
+
+			return
+		}
+
+		track.complete(r.Context(), http.StatusBadRequest, 0)
+		http.Error(w, "Error reading request body", http.StatusBadRequest)
+		return
+	}
+
+	nodes, err := models.FindActiveWebhookNodes(webhookID)
+	if err != nil {
+		track.complete(r.Context(), http.StatusNotFound, 0)
+		http.Error(w, "webhook not found", http.StatusNotFound)
+		return
+	}
+
+	eventType := r.Header.Get("X-GitHub-Event")
+	mergeabilityWebhook := factoryactions.IsFactoryMergeabilityWebhook(webhook)
+	if len(nodes) == 0 {
+		if !mergeabilityWebhook || !factoryactions.IsGitHubFactoryMergeabilityEvent(eventType) {
+			track.complete(r.Context(), http.StatusNotFound, 0)
+			http.Error(w, "webhook not found", http.StatusNotFound)
+			return
+		}
+		if code, err := factoryactions.VerifyGitHubFactoryMergeabilitySignature(
+			r.Context(),
+			s.encryptor,
+			webhook,
+			r.Header,
+			body,
+		); err != nil {
+			track.complete(r.Context(), code, 0)
+			http.Error(w, "invalid signature", code)
+			return
+		}
+	}
+
+	requestCtx := withLinearWebhookTrack(r.Context(), track)
+
+	newEvents := []models.CanvasEvent{}
+	onNewEvents := func(events []models.CanvasEvent) {
+		newEvents = append(newEvents, events...)
+	}
+
+	touchedExecutions := map[uuid.UUID]uuid.UUID{}
+	recordExecution := func(workflowID, executionID uuid.UUID) {
+		touchedExecutions[executionID] = workflowID
+	}
+
+	var firstResponse *core.WebhookResponseBody
+
+	for _, node := range nodes {
+		code, response, organizationID, err := s.executeWebhookNode(requestCtx, body, r.Header, webhookDeliveryQuery(r), node, onNewEvents, recordExecution)
+		if err != nil {
+			track.complete(requestCtx, code, len(nodes))
+			s.replyWebhookError(w, r, webhook, node, code, err, organizationID)
+			return
+		}
+
+		if firstResponse == nil && response != nil && len(response.Body) > 0 {
+			firstResponse = response
+		}
+	}
+
+	for _, event := range newEvents {
+		messages.PublishCanvasEventCreatedMessage(&event)
+	}
+
+	for executionID, workflowID := range touchedExecutions {
+		if err := messages.PublishCanvasExecutionByID(workflowID, executionID); err != nil {
+			log.Errorf("error publishing execution state for %s: %v", executionID, err)
+		}
+	}
+
+	if mergeabilityWebhook && factoryactions.IsGitHubFactoryMergeabilityEvent(eventType) {
+		payload := append([]byte(nil), body...)
+		go factoryactions.RefreshFactoryPullRequestMergeabilityFromGitHubEvent(
+			context.WithoutCancel(r.Context()),
+			factoryactions.IntakeDependencies{Registry: s.registry, Encryptor: s.encryptor},
+			webhook,
+			eventType,
+			payload,
+		)
+	}
+
+	track.complete(requestCtx, http.StatusOK, len(nodes))
+	if firstResponse != nil {
+		if firstResponse.ContentType != "" {
+			w.Header().Set("Content-Type", firstResponse.ContentType)
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write(firstResponse.Body)
+	} else {
+		w.WriteHeader(http.StatusOK)
+	}
+}
+
+func (s *Server) executeWebhookNode(ctx context.Context, body []byte, headers http.Header, query url.Values, node models.CanvasNode, onNewEvents func([]models.CanvasEvent), recordExecution func(workflowID, executionID uuid.UUID)) (int, *core.WebhookResponseBody, string, error) {
+	if node.Type == models.NodeTypeTrigger {
+		return s.executeTriggerNode(ctx, body, headers, query, node, onNewEvents)
+	}
+
+	return s.executeActionNode(ctx, body, headers, query, node, onNewEvents, recordExecution)
+}
+
+// lazyWebhookFactory reads the canvas only when a trigger calls it.
+// A webhook must send its response before that lookup.
+type lazyWebhookFactory struct {
+	tx       *gorm.DB
+	canvasID uuid.UUID
+	once     sync.Once
+	inner    core.FactoryContext
+	err      error
+}
+
+func newLazyWebhookFactory(tx *gorm.DB, canvasID uuid.UUID) core.FactoryContext {
+	return &lazyWebhookFactory{tx: tx, canvasID: canvasID}
+}
+
+func (l *lazyWebhookFactory) load() (core.FactoryContext, error) {
+	l.once.Do(func() {
+		canvas, err := models.FindCanvasWithoutOrgScopeInTransaction(l.tx, l.canvasID)
+		if err != nil || canvas == nil || canvas.FactoryID == nil {
+			l.err = errors.New("app is not owned by a factory")
+			return
+		}
+		l.inner = contexts.NewFactoryContext(l.tx, canvas, nil)
+	})
+	return l.inner, l.err
+}
+
+func (l *lazyWebhookFactory) CreateWorkOrder(params core.WorkOrderParams) (*core.WorkOrder, bool, error) {
+	inner, err := l.load()
+	if err != nil {
+		return nil, false, err
+	}
+	return inner.CreateWorkOrder(params)
+}
+
+func (l *lazyWebhookFactory) FindWorkOrder(params core.FindWorkOrderParams) (*core.WorkOrder, error) {
+	inner, err := l.load()
+	if err != nil {
+		return nil, err
+	}
+	return inner.FindWorkOrder(params)
+}
+
+func (l *lazyWebhookFactory) UpdateWorkOrderStatus(params core.UpdateWorkOrderStatusParams) (*core.WorkOrder, bool, error) {
+	inner, err := l.load()
+	if err != nil {
+		return nil, false, err
+	}
+	return inner.UpdateWorkOrderStatus(params)
+}
+
+func (l *lazyWebhookFactory) AddWorkOrderComment(params core.AddWorkOrderCommentParams) error {
+	inner, err := l.load()
+	if err != nil {
+		return err
+	}
+	return inner.AddWorkOrderComment(params)
+}
+
+func (l *lazyWebhookFactory) AddWorkOrderArtifact(params core.AddWorkOrderArtifactParams) (*core.WorkOrderArtifact, error) {
+	inner, err := l.load()
+	if err != nil {
+		return nil, err
+	}
+	return inner.AddWorkOrderArtifact(params)
+}
+
+func (l *lazyWebhookFactory) ReportWorkOrderCheck(params core.ReportWorkOrderCheckParams) (*core.WorkOrderCheck, error) {
+	inner, err := l.load()
+	if err != nil {
+		return nil, err
+	}
+	return inner.ReportWorkOrderCheck(params)
+}
+
+func (l *lazyWebhookFactory) SetWorkOrderStatusNote(params core.SetWorkOrderStatusNoteParams) (*core.WorkOrderStatusNote, error) {
+	inner, err := l.load()
+	if err != nil {
+		return nil, err
+	}
+	return inner.SetWorkOrderStatusNote(params)
+}
+
+func (l *lazyWebhookFactory) AddPullRequest(params core.AddPullRequestParams) (*core.PullRequest, error) {
+	inner, err := l.load()
+	if err != nil {
+		return nil, err
+	}
+	return inner.AddPullRequest(params)
+}
+
+func (l *lazyWebhookFactory) UpdatePullRequest(params core.UpdatePullRequestParams) (*core.PullRequest, error) {
+	inner, err := l.load()
+	if err != nil {
+		return nil, err
+	}
+	return inner.UpdatePullRequest(params)
+}
+
+func (l *lazyWebhookFactory) FindPullRequest(params core.FindPullRequestParams) (*core.PullRequestMatch, error) {
+	inner, err := l.load()
+	if err != nil {
+		return nil, err
+	}
+	return inner.FindPullRequest(params)
+}
+
+func (l *lazyWebhookFactory) AddPullRequestActivity(params core.AddPullRequestActivityParams) (*core.PullRequestActivityResult, error) {
+	inner, err := l.load()
+	if err != nil {
+		return nil, err
+	}
+	return inner.AddPullRequestActivity(params)
+}
+
+func (l *lazyWebhookFactory) UpdatePullRequestActivity(params core.UpdatePullRequestActivityParams) (*core.PullRequestActivityResult, error) {
+	inner, err := l.load()
+	if err != nil {
+		return nil, err
+	}
+	return inner.UpdatePullRequestActivity(params)
+}
+
+func (l *lazyWebhookFactory) VCSProvider() (string, error) {
+	inner, err := l.load()
+	if err != nil {
+		return "", err
+	}
+	return inner.VCSProvider()
+}
+
+func (s *Server) executeTriggerNode(ctx context.Context, body []byte, headers http.Header, query url.Values, node models.CanvasNode, onNewEvents func([]models.CanvasEvent)) (int, *core.WebhookResponseBody, string, error) {
+	tx := database.Conn()
+	skip, err := contexts.SkipPausedIntakeFeed(tx, node.WorkflowID)
+	if err != nil {
+		return http.StatusInternalServerError, nil, "", err
+	}
+	if skip {
+		return http.StatusOK, nil, "", nil
+	}
+
+	ref := node.Ref.Data()
+	trigger, err := s.registry.GetTrigger(ref.Trigger.Name)
+	if err != nil {
+		return http.StatusInternalServerError, nil, "", fmt.Errorf("trigger not found: %w", err)
+	}
+
+	var integrationCtx core.IntegrationContext
+	var integration *models.Integration
+	if node.AppInstallationID != nil {
+		loaded, integrationErr := models.FindUnscopedIntegrationInTransaction(tx, *node.AppInstallationID)
+		if integrationErr != nil {
+			return http.StatusInternalServerError, nil, "", integrationErr
+		}
+
+		integration = loaded
+		integrationCtx = contexts.NewIntegrationContext(tx, &node, integration, s.encryptor, s.registry, onNewEvents)
+	}
+
+	events := core.EventContext(contexts.NewEventContext(tx, &node, nil, onNewEvents))
+	if track := linearWebhookTrackFrom(ctx); track != nil {
+		events = &linearReceiptEvents{inner: events, track: track}
+	}
+
+	code, response, err := trigger.HandleWebhook(core.WebhookRequestContext{
+		Body:          body,
+		Headers:       headers,
+		Query:         query,
+		WorkflowID:    node.WorkflowID.String(),
+		NodeID:        node.NodeID,
+		Configuration: node.Configuration.Data(),
+		Metadata:      contexts.NewNodeMetadataContext(tx, &node),
+		Logger:        webhookNodeLogger(node, integration),
+		HTTP:          s.registry.HTTPContext(),
+		Webhook:       contexts.NewNodeWebhookContext(ctx, tx, s.encryptor, &node, s.BaseURL+s.BasePath),
+		Events:        events,
+		Integration:   integrationCtx,
+		Factory:       newLazyWebhookFactory(tx, node.WorkflowID),
+	})
+	return code, response, integrationOrganizationID(integration), err
+}
+
+func (s *Server) executeActionNode(ctx context.Context, body []byte, headers http.Header, query url.Values, node models.CanvasNode, onNewEvents func([]models.CanvasEvent), recordExecution func(workflowID, executionID uuid.UUID)) (int, *core.WebhookResponseBody, string, error) {
+	ref := node.Ref.Data()
+	action, err := s.registry.GetAction(ref.Component.Name)
+	if err != nil {
+		return http.StatusInternalServerError, nil, "", fmt.Errorf("action not found: %w", err)
+	}
+
+	tx := database.Conn()
+	var integrationCtx core.IntegrationContext
+	var integration *models.Integration
+	if node.AppInstallationID != nil {
+		loaded, integrationErr := models.FindUnscopedIntegrationInTransaction(tx, *node.AppInstallationID)
+		if integrationErr != nil {
+			return http.StatusInternalServerError, nil, "", integrationErr
+		}
+
+		integration = loaded
+		integrationCtx = contexts.NewIntegrationContext(tx, &node, integration, s.encryptor, s.registry, onNewEvents)
+	}
+
+	code, response, err := action.HandleWebhook(core.WebhookRequestContext{
+		Body:          body,
+		Headers:       headers,
+		Query:         query,
+		WorkflowID:    node.WorkflowID.String(),
+		NodeID:        node.NodeID,
+		Configuration: node.Configuration.Data(),
+		Metadata:      contexts.NewNodeMetadataContext(tx, &node),
+		Logger:        webhookNodeLogger(node, integration),
+		HTTP:          s.registry.HTTPContext(),
+		Webhook:       contexts.NewNodeWebhookContext(ctx, tx, s.encryptor, &node, s.BaseURL+s.BasePath),
+		Events:        contexts.NewEventContext(tx, &node, nil, onNewEvents),
+		Integration:   integrationCtx,
+		FindExecutionByKV: func(key string, value string) (*core.ExecutionContext, error) {
+			execution, err := models.FirstNodeExecutionByKVInTransaction(tx, node.WorkflowID, node.NodeID, key, value)
+			if err != nil {
+				return nil, err
+			}
+
+			if recordExecution != nil {
+				recordExecution(execution.WorkflowID, execution.ID)
+			}
+
+			organizationID := ""
+			var organizationUUID uuid.UUID
+			var factoryID *uuid.UUID
+			if workflow, err := models.FindCanvasWithoutOrgScopeInTransaction(tx, execution.WorkflowID); err == nil && workflow != nil {
+				organizationID = workflow.OrganizationID.String()
+				organizationUUID = workflow.OrganizationID
+				factoryID = workflow.FactoryID
+			}
+
+			return &core.ExecutionContext{
+				ID:             execution.ID,
+				WorkflowID:     execution.WorkflowID.String(),
+				OrganizationID: organizationID,
+				NodeID:         execution.NodeID,
+				BaseURL:        s.BaseURL,
+				Configuration:  execution.Configuration.Data(),
+				HTTP:           s.registry.HTTPContext(),
+				Integration:    integrationCtx,
+				Metadata:       contexts.NewExecutionMetadataContext(tx, execution),
+				NodeMetadata:   contexts.NewNodeMetadataContext(tx, &node),
+				ExecutionState: contexts.NewExecutionStateContext(tx, execution, onNewEvents),
+				Requests:       contexts.NewExecutionRequestContext(tx, execution),
+				Logger:         logging.ForExecution(execution),
+				CanvasMemory:   contexts.NewCanvasMemoryContext(tx, execution.WorkflowID),
+				Usage:          contexts.NewUsageContext(organizationUUID, execution),
+				HostedLLM:      contexts.NewHostedLLMContext(tx, s.encryptor, organizationUUID, factoryID),
+			}, nil
+		},
+		FindActiveExecutionByKV: func(key string, value string) (*core.ExecutionContext, error) {
+			execution, err := models.FirstActiveNodeExecutionByKV(tx, node.WorkflowID, node.NodeID, key, value)
+			if err != nil {
+				return nil, err
+			}
+
+			if recordExecution != nil {
+				recordExecution(execution.WorkflowID, execution.ID)
+			}
+
+			organizationID := ""
+			var organizationUUID uuid.UUID
+			var factoryID *uuid.UUID
+			if workflow, err := models.FindCanvasWithoutOrgScopeInTransaction(tx, execution.WorkflowID); err == nil && workflow != nil {
+				organizationID = workflow.OrganizationID.String()
+				organizationUUID = workflow.OrganizationID
+				factoryID = workflow.FactoryID
+			}
+
+			return &core.ExecutionContext{
+				ID:             execution.ID,
+				WorkflowID:     execution.WorkflowID.String(),
+				OrganizationID: organizationID,
+				NodeID:         execution.NodeID,
+				BaseURL:        s.BaseURL,
+				Configuration:  execution.Configuration.Data(),
+				HTTP:           s.registry.HTTPContext(),
+				Integration:    integrationCtx,
+				Metadata:       contexts.NewExecutionMetadataContext(tx, execution),
+				NodeMetadata:   contexts.NewNodeMetadataContext(tx, &node),
+				ExecutionState: contexts.NewExecutionStateContext(tx, execution, onNewEvents),
+				Requests:       contexts.NewExecutionRequestContext(tx, execution),
+				Logger:         logging.ForExecution(execution),
+				CanvasMemory:   contexts.NewCanvasMemoryContext(tx, execution.WorkflowID),
+				Usage:          contexts.NewUsageContext(organizationUUID, execution),
+				HostedLLM:      contexts.NewHostedLLMContext(tx, s.encryptor, organizationUUID, factoryID),
+			}, nil
+		},
+	})
+	return code, response, integrationOrganizationID(integration), err
+}
+
+func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
+	log.Infof("New WebSocket connection from %s", r.RemoteAddr)
+
+	user, ok := middleware.GetUserFromContext(r.Context())
+	if !ok {
+		telemetry.RecordWebSocketConnectionOutcome(
+			r.Context(),
+			ws.KindCanvas,
+			telemetry.WebSocketConnectionOutcomeAuthError,
+		)
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	vars := mux.Vars(r)
+	workflowID := vars["workflowId"]
+
+	parsedWorkflowID, err := uuid.Parse(workflowID)
+	if err != nil {
+		telemetry.RecordWebSocketConnectionOutcome(
+			r.Context(),
+			ws.KindCanvas,
+			telemetry.WebSocketConnectionOutcomeAuthError,
+		)
+		http.Error(w, "workflow not found", http.StatusNotFound)
+		return
+	}
+
+	_, err = models.FindCanvas(user.OrganizationID, parsedWorkflowID)
+	if err != nil {
+		telemetry.RecordWebSocketConnectionOutcome(
+			r.Context(),
+			ws.KindCanvas,
+			telemetry.WebSocketConnectionOutcomeAuthError,
+		)
+		http.Error(w, "canvas not found", http.StatusNotFound)
+		return
+	}
+
+	conn, err := s.upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		telemetry.RecordWebSocketConnectionOutcome(
+			r.Context(),
+			ws.KindCanvas,
+			telemetry.WebSocketConnectionOutcomeUpgradeError,
+		)
+		if _, ok := err.(websocket.HandshakeError); !ok {
+			log.Println(err)
+		}
+		log.Errorf("Failed to upgrade to WebSocket: %v", err)
+		return
+	}
+
+	client := s.wsHub.NewClient(conn, workflowID)
+
+	<-client.Done
+}
+
+func isAPIPath(path string) bool {
+	return strings.HasPrefix(path, "/admin/api") || strings.HasPrefix(path, "/api")
+}
+
+func shouldProxyToVite(path string) bool {
+	return !isAPIPath(path)
+}
+
+func registerUnknownAPINotFound(router *mux.Router) {
+	router.PathPrefix("/api").HandlerFunc(http.NotFound)
+	router.PathPrefix("/admin/api").HandlerFunc(http.NotFound)
+}
+
+// setupDevProxy configures a simple reverse proxy to the Vite development server
+func (s *Server) setupDevProxy(webBasePath string) {
+	viteHost := os.Getenv("VITE_DEV_HOST")
+	if viteHost == "" {
+		viteHost = "localhost"
+	}
+
+	vitePort := os.Getenv("VITE_DEV_PORT")
+	if vitePort == "" {
+		vitePort = "5173"
+	}
+
+	target, err := url.Parse(fmt.Sprintf("http://%s:%s", viteHost, vitePort))
+	if err != nil {
+		log.Fatalf("Error parsing Vite dev server URL: %v", err)
+	}
+
+	proxy := httputil.NewSingleHostReverseProxy(target)
+
+	proxy.ModifyResponse = func(res *http.Response) error {
+		contentType := res.Header.Get("Content-Type")
+		if !strings.HasPrefix(contentType, "text/html") {
+			return nil
+		}
+
+		originalBody, err := io.ReadAll(res.Body)
+		if err != nil {
+			return err
+		}
+		_ = res.Body.Close()
+
+		rendered, err := web.RenderIndexTemplate(originalBody)
+		if err != nil {
+			return err
+		}
+
+		res.Body = io.NopCloser(bytes.NewReader(rendered))
+		res.ContentLength = int64(len(rendered))
+		res.Header.Set("Content-Length", strconv.Itoa(len(rendered)))
+
+		return nil
+	}
+
+	origDirector := proxy.Director
+	proxy.Director = func(req *http.Request) {
+		origDirector(req)
+		req.Host = target.Host
+	}
+
+	proxyHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !shouldProxyToVite(r.URL.Path) {
+			http.NotFound(w, r)
+			return
+		}
+
+		proxy.ServeHTTP(w, r)
+	})
+
+	s.Router.PathPrefix(webBasePath).Handler(proxyHandler)
+}
+
+func getAvatarURL(providers []models.AccountProvider) string {
+	for _, provider := range providers {
+		if provider.AvatarURL != "" {
+			return provider.AvatarURL
+		}
+	}
+	return ""
+}
+
+func getBaseURL() string {
+	baseURL := os.Getenv("BASE_URL")
+	if baseURL == "" {
+		port := os.Getenv("PORT")
+		if port == "" {
+			port = "8000"
+		}
+		baseURL = fmt.Sprintf("http://localhost:%s", port)
+	}
+	return baseURL
+}
+
+// getAllowedOrigins returns the list of origins permitted to establish
+// WebSocket connections. It reads a comma-separated list from
+// ALLOWED_WS_ORIGINS and falls back to BASE_URL for single-tenant
+// deployments.
+func getAllowedOrigins() []string {
+	if raw := os.Getenv("ALLOWED_WS_ORIGINS"); raw != "" {
+		parts := strings.Split(raw, ",")
+		out := make([]string, 0, len(parts))
+		for _, p := range parts {
+			if trimmed := strings.TrimSpace(p); trimmed != "" {
+				out = append(out, trimmed)
+			}
+		}
+		return out
+	}
+	return []string{getBaseURL()}
+}
+
+// makeOriginChecker returns a CheckOrigin function that validates the
+// WebSocket handshake Origin header against the allowed list per RFC 6454.
+// Requests without an Origin header (non-browser clients such as CLI or
+// server-to-server) are permitted, since those rely on Authorization-header
+// auth which is not susceptible to cross-site WebSocket hijacking.
+func makeOriginChecker(allowed []string) func(*http.Request) bool {
+	set := make(map[string]struct{}, len(allowed))
+	for _, o := range allowed {
+		if u, err := url.Parse(strings.TrimRight(o, "/")); err == nil && u.Host != "" {
+			set[strings.ToLower(u.Scheme+"://"+u.Host)] = struct{}{}
+		}
+	}
+	return func(r *http.Request) bool {
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			return true
+		}
+		u, err := url.Parse(origin)
+		if err != nil || u.Scheme == "" || u.Host == "" {
+			return false
+		}
+		_, ok := set[strings.ToLower(u.Scheme+"://"+u.Host)]
+		return ok
+	}
+}

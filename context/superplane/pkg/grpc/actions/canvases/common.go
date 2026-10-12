@@ -1,0 +1,174 @@
+package canvases
+
+import (
+	"context"
+	"errors"
+	"slices"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/superplanehq/superplane/pkg/grpc/actions/canvases/changesets"
+	grpcerrors "github.com/superplanehq/superplane/pkg/grpc/errors"
+	"github.com/superplanehq/superplane/pkg/models"
+	pb "github.com/superplanehq/superplane/pkg/protos/canvases"
+	"github.com/superplanehq/superplane/pkg/telemetry"
+	"gorm.io/datatypes"
+	"gorm.io/gorm"
+)
+
+const canvasNameAlreadyExistsMessage = "Canvas with the same name already exists"
+
+func loadCanvas(ctx context.Context, db *gorm.DB, orgID, canvasID uuid.UUID) (canvas *models.Canvas, err error) {
+	ctx, done := telemetry.Span(ctx, "canvases.find_canvas")
+	defer done(&err)
+
+	return models.FindCanvasInTransaction(db.WithContext(ctx), orgID, canvasID)
+}
+
+func loadLiveCanvasVersion(ctx context.Context, db *gorm.DB, canvas *models.Canvas) (liveVersion *models.CanvasVersion, err error) {
+	ctx, done := telemetry.Span(ctx, "canvases.load_live_version")
+	defer done(&err)
+
+	return models.FindLiveCanvasVersionByCanvasInTransaction(db.WithContext(ctx), canvas)
+}
+
+func loadCanvasStatus(ctx context.Context, db *gorm.DB, canvasID uuid.UUID) (canvasStatus *pb.Canvas_Status, err error) {
+	ctx, done := telemetry.Span(ctx, "canvases.load_status")
+	defer done(&err)
+
+	lastExecutions, err := models.FindLastExecutionPerNode(db.WithContext(ctx), canvasID)
+	if err != nil {
+		return nil, err
+	}
+
+	executionResources, err := LoadNodeExecutionResources(db.WithContext(ctx), lastExecutions)
+	if err != nil {
+		return nil, err
+	}
+
+	serializedExecutions, err := SerializeNodeExecutions(lastExecutions, executionResources)
+	if err != nil {
+		return nil, err
+	}
+
+	lastEvents, err := models.FindLastEventPerNode(db.WithContext(ctx), canvasID)
+	if err != nil {
+		return nil, err
+	}
+
+	serializedEvents, err := SerializeCanvasEvents(lastEvents)
+	if err != nil {
+		return nil, err
+	}
+
+	return &pb.Canvas_Status{
+		LastExecutions: serializedExecutions,
+		LastEvents:     serializedEvents,
+	}, nil
+}
+
+func mapCanvasNameUniqueConstraintError(err error) error {
+	if err == nil {
+		return nil
+	}
+
+	err = models.MapCanvasNameUniqueConstraintError(err)
+	if errors.Is(err, models.ErrCanvasNameAlreadyExists) {
+		return grpcerrors.AlreadyExists(err, canvasNameAlreadyExistsMessage)
+	}
+
+	return err
+}
+
+// PublishGeneratedCanvasNodes commits nodes and edges straight to the canvas's
+// live version. Use it for canvases the server generates and owns, where there
+// is no user draft to reconcile with and a staged graph would never receive
+// events.
+func PublishGeneratedCanvasNodes(
+	ctx context.Context,
+	tx *gorm.DB,
+	canvas *models.Canvas,
+	userID uuid.UUID,
+	commitMessage string,
+	nodes []models.Node,
+	edges []models.Edge,
+	options changesets.CanvasPublisherOptions,
+) error {
+	return PublishGeneratedCanvasNodesWithOwner(ctx, tx, canvas, &userID, commitMessage, nodes, edges, options)
+}
+
+// PublishGeneratedCanvasNodesWithOwner publishes a server-generated graph.
+// ownerID can be nil for a system-owned template upgrade.
+func PublishGeneratedCanvasNodesWithOwner(
+	ctx context.Context,
+	tx *gorm.DB,
+	canvas *models.Canvas,
+	ownerID *uuid.UUID,
+	commitMessage string,
+	nodes []models.Node,
+	edges []models.Edge,
+	options changesets.CanvasPublisherOptions,
+) error {
+	liveVersion, err := models.FindLiveCanvasVersionByCanvasInTransaction(tx, canvas)
+	if err != nil {
+		return err
+	}
+
+	now := time.Now()
+	nextVersion := &models.CanvasVersion{
+		ID:            uuid.New(),
+		WorkflowID:    canvas.ID,
+		OwnerID:       ownerID,
+		CommitMessage: commitMessage,
+		Nodes:         datatypes.NewJSONSlice(nodes),
+		Edges:         datatypes.NewJSONSlice(edges),
+		ConsolePanels: datatypes.NewJSONType(slices.Clone(liveVersion.ConsolePanels.Data())),
+		ConsoleLayout: datatypes.NewJSONType(slices.Clone(liveVersion.ConsoleLayout.Data())),
+		CreatedAt:     &now,
+		UpdatedAt:     &now,
+	}
+
+	if err := tx.Create(nextVersion).Error; err != nil {
+		return err
+	}
+
+	_, err = publishCanvasVersionInTransaction(ctx, tx, canvas, liveVersion, nextVersion, options)
+	return err
+}
+
+func publishCanvasVersionInTransaction(
+	ctx context.Context,
+	tx *gorm.DB,
+	canvas *models.Canvas,
+	liveVersion *models.CanvasVersion,
+	nextVersion *models.CanvasVersion,
+	options changesets.CanvasPublisherOptions,
+) (changesets.CanvasPublishResult, error) {
+	changeset, err := changesets.NewChangesetBuilder(
+		liveVersion.Nodes,
+		liveVersion.Edges,
+		nextVersion.Nodes,
+		nextVersion.Edges,
+	).Build()
+	if err != nil {
+		return changesets.CanvasPublishResult{}, err
+	}
+
+	if len(changeset.Changes) == 0 {
+		return changesets.CanvasPublishResult{}, mapCanvasNameUniqueConstraintError(
+			models.PromoteToLiveInTransaction(tx, nextVersion, nextVersion.Nodes, nextVersion.Edges),
+		)
+	}
+
+	publisher, err := changesets.NewCanvasPublisher(tx, canvas, nextVersion, liveVersion, options)
+	if err != nil {
+		return changesets.CanvasPublishResult{}, err
+	}
+
+	err = mapCanvasNameUniqueConstraintError(publisher.Publish(ctx))
+	if err != nil {
+		return changesets.CanvasPublishResult{}, err
+	}
+
+	return publisher.Result(), nil
+}

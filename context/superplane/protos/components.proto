@@ -1,0 +1,59 @@
+syntax = "proto3";
+
+package Superplane.Components;
+
+import "google/protobuf/struct.proto";
+
+option go_package = "github.com/superplanehq/superplane/pkg/protos/components";
+
+message Node {
+  enum Type {
+    TYPE_ACTION = 0;
+    TYPE_TRIGGER = 1;
+    TYPE_WIDGET = 2;
+  }
+
+  string id = 1;
+  string name = 2;
+  Type type = 3;
+  string component = 4;
+  google.protobuf.Struct configuration = 5;
+  optional google.protobuf.Struct metadata = 6;
+  Position position = 7;
+  bool is_collapsed = 8;
+  optional IntegrationRef integration = 9;
+  optional string error_message = 10;
+  optional string warning_message = 11;
+
+  // Inline concurrency configuration for this node. Absent means the
+  // node runs one execution at a time.
+  optional ConcurrencySpec concurrency = 12;
+}
+
+// ConcurrencySpec is a node's inline concurrency configuration.
+message ConcurrencySpec {
+  // Optional template expression that partitions the node's backlog:
+  // each resolved value is an independent queue. May contain {{ }}
+  // expressions resolved per queue item.
+  optional string key = 1;
+
+  // Maximum number of concurrent executions per key value. Absent
+  // means 1. Must be 1 or greater when set.
+  optional int32 max = 2;
+}
+
+message Position {
+  int32 x = 1;
+  int32 y = 2;
+}
+
+message Edge {
+  string source_id = 1;
+  string target_id = 2;
+  string channel = 3;
+}
+
+message IntegrationRef {
+  optional string id = 1;
+  optional string name = 2;
+}

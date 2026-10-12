@@ -1,0 +1,193 @@
+package canvases
+
+import (
+	"context"
+	"errors"
+	"strings"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/superplanehq/superplane/pkg/authentication"
+	"github.com/superplanehq/superplane/pkg/authorization"
+	"github.com/superplanehq/superplane/pkg/crypto"
+	"github.com/superplanehq/superplane/pkg/database"
+	"github.com/superplanehq/superplane/pkg/grpc/actions/canvases/changesets"
+	grpcerrors "github.com/superplanehq/superplane/pkg/grpc/errors"
+	"github.com/superplanehq/superplane/pkg/models"
+	pb "github.com/superplanehq/superplane/pkg/protos/canvases"
+	"github.com/superplanehq/superplane/pkg/registry"
+	"google.golang.org/grpc/codes"
+	"gorm.io/datatypes"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
+)
+
+func CreateCanvas(
+	ctx context.Context,
+	registry *registry.Registry,
+	encryptor crypto.Encryptor,
+	authService authorization.Authorization,
+	webhookBaseURL string,
+	organizationID uuid.UUID,
+	name string,
+	description string,
+	factoryID *uuid.UUID,
+	nodes []models.Node,
+	edges []models.Edge,
+) (*pb.CreateCanvasResponse, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil, grpcerrors.InvalidArgument(nil, "canvas name is required")
+	}
+
+	userID, ok := authentication.GetUserIdFromMetadata(ctx)
+	if !ok {
+		return nil, grpcerrors.Unauthenticated(nil, "user not authenticated")
+	}
+
+	createdBy, err := uuid.Parse(userID)
+	if err != nil {
+		return nil, grpcerrors.Unauthenticated(err, "user not authenticated")
+	}
+
+	canvasID := uuid.New()
+	versionID := uuid.New()
+
+	now := time.Now()
+	canvas := models.Canvas{
+		ID:             canvasID,
+		OrganizationID: organizationID,
+		FactoryID:      factoryID,
+		LiveVersionID:  &versionID,
+		Name:           name,
+		Description:    description,
+		CreatedBy:      &createdBy,
+		CreatedAt:      &now,
+		UpdatedAt:      &now,
+	}
+
+	err = database.Conn().Transaction(func(tx *gorm.DB) error {
+		if err := validateCanvasFactoryID(tx, organizationID, factoryID); err != nil {
+			return err
+		}
+
+		//
+		// Create the workflow record
+		//
+		err := tx.Clauses(clause.Returning{}).Create(&canvas).Error
+		if err != nil {
+			return mapCanvasNameUniqueConstraintError(err)
+		}
+
+		//
+		// Create new empty canvas version record
+		//
+		emptyVersion := models.CanvasVersion{
+			ID:         versionID,
+			WorkflowID: canvasID,
+			OwnerID:    &createdBy,
+			Nodes:      datatypes.NewJSONSlice([]models.Node{}),
+			Edges:      datatypes.NewJSONSlice([]models.Edge{}),
+			CreatedAt:  &now,
+			UpdatedAt:  &now,
+		}
+
+		if err := tx.Create(&emptyVersion).Error; err != nil {
+			return err
+		}
+
+		//
+		// If this is a canvas creation with no nodes,
+		// nothing else to do here.
+		//
+		if len(nodes) == 0 {
+			return nil
+		}
+
+		//
+		// Otherwise. we generate and apply changeset to the draft version
+		//
+		changeset, err := changesets.NewChangesetBuilder([]models.Node{}, []models.Edge{}, nodes, edges).Build()
+		if err != nil {
+			return err
+		}
+
+		patcher := changesets.NewCanvasPatcher(tx, organizationID, registry, &emptyVersion)
+		if err := patcher.ApplyChangeset(changeset); err != nil {
+			return err
+		}
+
+		updatedVersion := patcher.GetVersion()
+		if err := tx.Save(updatedVersion).Error; err != nil {
+			return err
+		}
+
+		//
+		// Publish the draft version as the live version
+		//
+		publisher, err := changesets.NewCanvasPublisher(tx, &canvas, updatedVersion, &emptyVersion, changesets.CanvasPublisherOptions{
+			Registry:       registry,
+			OrgID:          organizationID,
+			Encryptor:      encryptor,
+			AuthService:    authService,
+			WebhookBaseURL: webhookBaseURL,
+		})
+
+		if err != nil {
+			return err
+		}
+
+		return publisher.Publish(ctx)
+	})
+
+	if err != nil {
+		return nil, classifyCanvasCreateError(err)
+	}
+
+	var user *models.User
+	if canvas.CreatedBy != nil {
+		user, err = models.FindMaybeDeletedUserByID(canvas.OrganizationID.String(), canvas.CreatedBy.String())
+		if err != nil {
+			return nil, classifyCanvasCreateError(err)
+		}
+	}
+
+	liveVersion, err := models.FindLiveCanvasVersionByCanvasInTransaction(database.DB(ctx), &canvas)
+	if err != nil {
+		return nil, grpcerrors.Internal(err, "failed to load canvas spec")
+	}
+
+	proto, err := serializePreparedCanvas(database.DB(ctx), &canvas, liveVersion, user, nil)
+	if err != nil {
+		return nil, classifyCanvasCreateError(err)
+	}
+
+	return &pb.CreateCanvasResponse{
+		Canvas: proto,
+	}, nil
+}
+
+func classifyCanvasCreateError(err error) error {
+	if _, _, ok := grpcerrors.HandlerStatus(err); ok {
+		return err
+	}
+
+	if grpcerrors.Code(err) == codes.ResourceExhausted {
+		return grpcerrors.ResourceExhausted(err, grpcerrors.StatusMessage(err))
+	}
+
+	return grpcerrors.Internal(err, "failed to create canvas")
+}
+
+func validateCanvasFactoryID(tx *gorm.DB, organizationID uuid.UUID, factoryID *uuid.UUID) error {
+	if factoryID == nil {
+		return nil
+	}
+
+	_, err := models.FindFactory(tx, organizationID, *factoryID)
+	if errors.Is(err, models.ErrFactoryNotFound) {
+		return grpcerrors.NotFound(err, "factory not found")
+	}
+
+	return err
+}

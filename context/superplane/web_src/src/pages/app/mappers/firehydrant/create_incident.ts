@@ -1,0 +1,61 @@
+import type { ComponentBaseProps } from "@/ui/componentBase";
+import type React from "react";
+import { getBackgroundColorClass } from "@/lib/colors";
+import { getStateMap } from "../mapperLookup";
+import type {
+  ComponentBaseContext,
+  ComponentBaseMapper,
+  ExecutionDetailsContext,
+  NodeInfo,
+  SubtitleContext,
+} from "../types";
+import type { MetadataItem } from "@/ui/metadataList";
+import firehydrantIcon from "@/assets/icons/integrations/firehydrant.svg";
+import { baseEventSections, buildFireHydrantExecutionDetails } from "./base";
+import { renderTimeAgo } from "@/components/TimeAgo";
+
+export const createIncidentMapper: ComponentBaseMapper = {
+  props(context: ComponentBaseContext): ComponentBaseProps {
+    const lastExecution = context.lastExecutions.length > 0 ? context.lastExecutions[0] : null;
+    const componentName = context.componentDefinition.name || "unknown";
+
+    return {
+      iconSrc: firehydrantIcon,
+      collapsedBackground: getBackgroundColorClass(context.componentDefinition.color),
+      collapsed: context.node.isCollapsed,
+      title:
+        context.node.name ||
+        context.componentDefinition.label ||
+        context.componentDefinition.name ||
+        "Unnamed component",
+      eventSections: lastExecution ? baseEventSections(context.nodes, lastExecution, componentName) : undefined,
+      metadata: metadataList(context.node),
+      includeEmptyState: !lastExecution,
+      eventStateMap: getStateMap(componentName),
+    };
+  },
+
+  getExecutionDetails(context: ExecutionDetailsContext): Record<string, unknown> {
+    return buildFireHydrantExecutionDetails(context.execution);
+  },
+
+  subtitle(context: SubtitleContext): string | React.ReactNode {
+    if (!context.execution.createdAt) return "";
+    return renderTimeAgo(new Date(context.execution.createdAt));
+  },
+};
+
+function metadataList(node: NodeInfo): MetadataItem[] {
+  const metadata: MetadataItem[] = [];
+  const configuration = node.configuration as { severity?: string; priority?: string };
+
+  if (configuration?.severity) {
+    metadata.push({ icon: "funnel", label: "Severity: " + configuration.severity });
+  }
+
+  if (configuration?.priority) {
+    metadata.push({ icon: "funnel", label: "Priority: " + configuration.priority });
+  }
+
+  return metadata;
+}

@@ -1,0 +1,374 @@
+import type {
+  ComponentBaseProps,
+  EventSection,
+  ComponentBaseSpec,
+  EventState,
+  EventStateMap,
+} from "@/ui/componentBase";
+import { DEFAULT_EVENT_STATE_MAP } from "@/ui/componentBase/eventState";
+import { getState, getStateMap, getTriggerRenderer } from "../mapperLookup";
+import type React from "react";
+import type {
+  ComponentBaseMapper,
+  OutputPayload,
+  EventStateRegistry,
+  StateFunction,
+  ComponentBaseContext,
+  SubtitleContext,
+  ExecutionDetailsContext,
+  NodeInfo,
+  ExecutionInfo,
+} from "../types";
+import dash0Icon from "@/assets/icons/integrations/dash0.svg";
+import type { ListIssuesConfiguration, PrometheusResponse } from "./types";
+import { renderWithTimeAgo } from "@/components/TimeAgo";
+
+// Output channel names matching the backend constants
+const CHANNEL_CLEAR = "clear";
+const CHANNEL_DEGRADED = "degraded";
+const CHANNEL_CRITICAL = "critical";
+
+// Type for outputs with new channel structure
+type ListIssuesOutputs = {
+  default?: OutputPayload[];
+  clear?: OutputPayload[];
+  degraded?: OutputPayload[];
+  critical?: OutputPayload[];
+};
+
+/**
+ * Extracts the first payload from execution outputs, checking all possible channels.
+ * Supports both the new channel-based outputs (clear/degraded/critical) and
+ * the legacy default channel for backwards compatibility.
+ */
+function getFirstPayload(execution: ExecutionInfo): OutputPayload | null {
+  const outputs = execution.outputs as ListIssuesOutputs | undefined;
+  if (!outputs) return null;
+
+  // Check new channel-based outputs first (in severity order)
+  for (const channel of [CHANNEL_CRITICAL, CHANNEL_DEGRADED, CHANNEL_CLEAR]) {
+    const channelOutputs = outputs[channel as keyof ListIssuesOutputs];
+    if (channelOutputs && channelOutputs.length > 0) {
+      return channelOutputs[0];
+    }
+  }
+
+  // Fallback to default channel for backwards compatibility
+  if (outputs.default && outputs.default.length > 0) {
+    return outputs.default[0];
+  }
+
+  return null;
+}
+
+/**
+ * Determines which output channel has data, indicating the issue state.
+ * Returns the channel name or null if no output found.
+ */
+function getActiveChannel(execution: ExecutionInfo): string | null {
+  const outputs = execution.outputs as ListIssuesOutputs | undefined;
+  if (!outputs) return null;
+
+  // Check new channel-based outputs
+  if (outputs.critical && outputs.critical.length > 0) return CHANNEL_CRITICAL;
+  if (outputs.degraded && outputs.degraded.length > 0) return CHANNEL_DEGRADED;
+  if (outputs.clear && outputs.clear.length > 0) return CHANNEL_CLEAR;
+
+  // Fallback to default channel
+  if (outputs.default && outputs.default.length > 0) return "default";
+
+  return null;
+}
+
+export const listIssuesMapper: ComponentBaseMapper = {
+  props(context: ComponentBaseContext): ComponentBaseProps {
+    const lastExecution = context.lastExecutions.length > 0 ? context.lastExecutions[0] : null;
+    const componentName = context.componentDefinition.name || "unknown";
+
+    const configuration = context.node.configuration as ListIssuesConfiguration;
+    const specs = getSpecs(configuration);
+
+    return {
+      iconSrc: dash0Icon,
+      collapsedBackground: "bg-white",
+      collapsed: context.node.isCollapsed,
+      title: context.node.name || context.componentDefinition.label || "Unnamed component",
+      eventSections: lastExecution ? baseEventSections(context.nodes, lastExecution, componentName) : undefined,
+      metadata: [],
+      specs,
+      includeEmptyState: !lastExecution,
+      eventStateMap: getStateMap(componentName),
+    };
+  },
+
+  subtitle(context: SubtitleContext): string | React.ReactNode {
+    const date = new Date(context.execution.createdAt!);
+
+    const { critical, degraded } = getIssueCounts(context.execution);
+
+    const countParts: string[] = [];
+    if (critical > 0) {
+      countParts.push(`${critical} critical`);
+    }
+    if (degraded > 0) {
+      countParts.push(`${degraded} degraded`);
+    }
+
+    if (countParts.length > 0) {
+      return renderWithTimeAgo(countParts.join(", "), date);
+    }
+
+    return renderWithTimeAgo("no issues", date);
+  },
+
+  getExecutionDetails(context: ExecutionDetailsContext): Record<string, unknown> {
+    const details: Record<string, string> = {};
+
+    if (context.execution.createdAt) {
+      details["Checked at"] = new Date(context.execution.createdAt).toLocaleString();
+    }
+
+    const payload = getFirstPayload(context.execution);
+    if (!payload || !payload.data) {
+      return details;
+    }
+
+    const responseData = payload.data as PrometheusResponse | undefined;
+    if (!responseData || !responseData.data || !responseData.data.result) {
+      return details;
+    }
+
+    const results = responseData.data.result;
+
+    // Parse issues from Prometheus response
+    results.forEach((result) => {
+      const metric = result.metric || {};
+      const value = result.value;
+
+      // Extract status from value: [timestamp, "status"]
+      let status: "degraded" | "critical" = "degraded";
+      if (value && Array.isArray(value) && value.length >= 2) {
+        const statusValue = String(value[1]);
+        status = statusValue === "2" ? "critical" : "degraded";
+      }
+
+      // Extract check information from metric labels
+      const checkName = metric["dash0_check_name"] || "Unknown Check";
+      const checkSummary = metric["dash0_check_summary_template"] || "";
+      const checkDescription = metric["dash0_check_description_template"] || "";
+      details[checkName] = `${status} - ${checkSummary} - ${checkDescription}`;
+    });
+
+    return details;
+  },
+};
+
+function getSpecs(configuration: ListIssuesConfiguration): ComponentBaseSpec[] | undefined {
+  if (!configuration?.checkRules || configuration.checkRules.length === 0) {
+    return undefined;
+  }
+
+  return [
+    {
+      title: "Check Rule",
+      tooltipTitle: "Check Rules",
+      values: configuration.checkRules.map((rule) => ({
+        badges: [
+          {
+            label: rule,
+            bgColor: "bg-gray-100",
+            textColor: "text-gray-700",
+          },
+        ],
+      })),
+    },
+  ];
+}
+
+export const LIST_ISSUES_STATE_MAP: EventStateMap = {
+  ...DEFAULT_EVENT_STATE_MAP,
+  clear: {
+    icon: "circle-check",
+    textColor: "text-gray-800",
+    backgroundColor: "bg-gray-100",
+    badgeColor: "bg-gray-500",
+  },
+  degraded: {
+    icon: "alert-triangle",
+    textColor: "text-gray-800",
+    backgroundColor: "bg-yellow-100",
+    badgeColor: "bg-yellow-500",
+  },
+  critical: {
+    icon: "circle-x",
+    textColor: "text-gray-800",
+    backgroundColor: "bg-red-100",
+    badgeColor: "bg-red-500",
+  },
+};
+
+export const listIssuesStateFunction: StateFunction = (execution: ExecutionInfo): EventState => {
+  if (!execution) return "neutral";
+
+  // Handle error states
+  if (
+    execution.resultMessage &&
+    (execution.resultReason === "RESULT_REASON_ERROR" ||
+      (execution.result === "RESULT_FAILED" && execution.resultReason !== "RESULT_REASON_ERROR_RESOLVED"))
+  ) {
+    return "error";
+  }
+
+  // Handle cancelled state
+  if (execution.result === "RESULT_CANCELLED") {
+    return "cancelled";
+  }
+
+  // Handle running state
+  if (execution.state === "STATE_PENDING" || execution.state === "STATE_STARTED") {
+    return "running";
+  }
+
+  // Only analyze issue status for finished, successful executions
+  if (execution.state === "STATE_FINISHED" && execution.result === "RESULT_PASSED") {
+    // First, try to determine state from the active output channel
+    // This is the preferred method as the backend now routes to the appropriate channel
+    const activeChannel = getActiveChannel(execution);
+
+    if (activeChannel === CHANNEL_CRITICAL) {
+      return "critical";
+    }
+    if (activeChannel === CHANNEL_DEGRADED) {
+      return "degraded";
+    }
+    if (activeChannel === CHANNEL_CLEAR) {
+      return "clear";
+    }
+
+    // Fallback for legacy executions using 'default' channel:
+    // Analyze the data to determine state
+    if (activeChannel === "default") {
+      const payload = getFirstPayload(execution);
+      if (!payload || !payload.data) {
+        return "clear";
+      }
+
+      const responseData = payload.data as PrometheusResponse | undefined;
+      if (!responseData || !responseData.data || !responseData.data.result) {
+        return "clear";
+      }
+
+      const results = responseData.data.result;
+
+      // No issues found
+      if (results.length === 0) {
+        return "clear";
+      }
+
+      // Analyze issue statuses
+      let hasCritical = false;
+      let hasDegraded = false;
+
+      for (const result of results) {
+        const status = instantQueryStatus(result);
+        if (status === "2") {
+          hasCritical = true;
+        } else if (status === "1") {
+          hasDegraded = true;
+        }
+      }
+
+      // Return critical if there's at least one critical issue
+      if (hasCritical) {
+        return "critical";
+      }
+
+      // Return degraded if there are only degraded issues
+      if (hasDegraded) {
+        return "degraded";
+      }
+
+      // Default to clear if we can't determine status
+      return "clear";
+    }
+
+    // No output found - default to clear
+    return "clear";
+  }
+
+  return "failed";
+};
+
+export const LIST_ISSUES_STATE_REGISTRY: EventStateRegistry = {
+  stateMap: LIST_ISSUES_STATE_MAP,
+  getState: listIssuesStateFunction,
+};
+
+function instantQueryStatus(result: PrometheusResponse["data"]["result"][number]): string | undefined {
+  if (!result.value || !Array.isArray(result.value) || result.value.length < 2) {
+    return undefined;
+  }
+  return String(result.value[1]);
+}
+
+function getIssueCounts(execution: ExecutionInfo): { critical: number; degraded: number } {
+  const payload = getFirstPayload(execution);
+  if (!payload || !payload.data) {
+    return { critical: 0, degraded: 0 };
+  }
+
+  const responseData = payload.data as PrometheusResponse | undefined;
+  if (!responseData || !responseData.data || !responseData.data.result) {
+    return { critical: 0, degraded: 0 };
+  }
+
+  const results = responseData.data.result;
+
+  let critical = 0;
+  let degraded = 0;
+
+  for (const result of results) {
+    const status = instantQueryStatus(result);
+    if (status === "2") {
+      critical++;
+    } else if (status === "1") {
+      degraded++;
+    }
+  }
+
+  return { critical, degraded };
+}
+
+function baseEventSections(nodes: NodeInfo[], execution: ExecutionInfo, componentName: string): EventSection[] {
+  const rootTriggerNode = nodes.find((n) => n.id === execution.rootEvent?.nodeId);
+  const rootTriggerRenderer = getTriggerRenderer(rootTriggerNode?.componentName ?? "");
+  const { title } = rootTriggerRenderer.getTitleAndSubtitle({ event: execution.rootEvent });
+
+  const { critical, degraded } = getIssueCounts(execution);
+  const date = new Date(execution.createdAt!);
+
+  const countParts: string[] = [];
+  if (critical > 0) {
+    countParts.push(`${critical} critical`);
+  }
+  if (degraded > 0) {
+    countParts.push(`${degraded} degraded`);
+  }
+
+  let eventSubtitle: string | React.ReactNode;
+  if (countParts.length > 0) {
+    eventSubtitle = renderWithTimeAgo(countParts.join(", "), date);
+  } else {
+    eventSubtitle = renderWithTimeAgo("no issues", date);
+  }
+
+  return [
+    {
+      receivedAt: new Date(execution.createdAt!),
+      eventTitle: title,
+      eventSubtitle,
+      eventState: getState(componentName)(execution),
+      eventId: execution.rootEvent!.id!,
+    },
+  ];
+}

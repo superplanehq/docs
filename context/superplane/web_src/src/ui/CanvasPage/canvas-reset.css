@@ -1,0 +1,272 @@
+.sp-canvas {
+  --sp-handle-border: #c9d5e1;
+  --sp-handle-border-hover: #94a3b8;
+  --sp-handle-highlight-border: #a1aec0;
+  --sp-append-handle-bg: #ffffff;
+  --sp-append-handle-icon: #94a3b8;
+  --sp-append-handle-icon-hover: #64748b;
+  --xy-edge-stroke: var(--sp-handle-border);
+  --xy-edge-stroke-selected: var(--sp-handle-highlight-border);
+  --xy-edge-stroke-width: 3;
+}
+
+.dark .sp-canvas {
+  --sp-handle-border: #374151;
+  --sp-handle-border-hover: #4b5563;
+  --sp-handle-highlight-border: #6b7280;
+  --sp-append-handle-bg: #1f2937;
+  --sp-append-handle-icon: #9ca3af;
+  --sp-append-handle-icon-hover: #d1d5db;
+}
+
+/* Factory canvases: Storybook WorkOrderCanvas edge weight + slate stroke. */
+.sp-canvas.sp-canvas-factory {
+  --xy-edge-stroke: #94a3b8;
+  --xy-edge-stroke-selected: #64748b;
+  --xy-edge-stroke-width: 2;
+  --sp-handle-border: #e5e7eb;
+  --sp-handle-border-hover: #cbd5e1;
+  --sp-handle-highlight-border: #94a3b8;
+}
+
+.dark .sp-canvas.sp-canvas-factory {
+  --xy-edge-stroke: #4a4740;
+  --xy-edge-stroke-selected: #6b6560;
+  --xy-edge-stroke-width: 2;
+  --sp-handle-border: #4a4740;
+  --sp-handle-border-hover: #6b6560;
+  --sp-handle-highlight-border: #8a847c;
+}
+
+.sp-canvas .react-flow__node {
+  background: none !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  width: auto !important;
+  cursor: default;
+}
+
+.sp-canvas .react-flow__node .canvas-node-drag-handle {
+  cursor: grab;
+}
+
+.sp-canvas .react-flow__node.dragging .canvas-node-drag-handle,
+.sp-canvas .react-flow__node .canvas-node-drag-handle:active {
+  cursor: grabbing;
+}
+
+.sp-canvas .sp-canvas-minimap {
+  cursor: grab;
+}
+
+.sp-canvas .sp-canvas-minimap:active {
+  cursor: grabbing;
+}
+
+.sp-canvas .sp-canvas-minimap * {
+  cursor: inherit;
+}
+
+.sp-canvas .react-flow__edge {
+  z-index: 1;
+}
+
+.sp-canvas .react-flow__edge.selected,
+.sp-canvas .react-flow__edge.hovered {
+  z-index: 1000 !important;
+}
+
+/* Multi-select blue box: add padding so it sits a bit away from the nodes */
+.sp-canvas .react-flow__nodesselection-rect {
+  background: transparent !important;
+  border: none !important;
+}
+.sp-canvas .react-flow__nodesselection-rect::before {
+  content: "";
+  position: absolute;
+  inset: -24px;
+  background: var(--xy-selection-background-color, var(--xy-selection-background-color-default));
+  border: var(--xy-selection-border, var(--xy-selection-border-default));
+  pointer-events: none;
+}
+
+.sp-canvas .react-flow__edge path {
+  transition: stroke 0.2s ease-in-out;
+}
+
+.sp-canvas .react-flow__edge-path {
+  stroke: var(--xy-edge-stroke) !important;
+  stroke-width: var(--xy-edge-stroke-width) !important;
+}
+
+.sp-canvas .react-flow__edge.selected .react-flow__edge-path,
+.sp-canvas .react-flow__edge.hovered .react-flow__edge-path {
+  stroke: var(--xy-edge-stroke-selected) !important;
+}
+
+.sp-canvas .react-flow__edge.sp-edge-draft-added .react-flow__edge-path {
+  stroke: #22c55e !important;
+}
+
+.sp-canvas .react-flow__edge.sp-edge-draft-removed .react-flow__edge-path {
+  stroke: #f87171 !important;
+  stroke-dasharray: 8 4 !important;
+}
+
+/* Factory status edges — beat selected/hover flat stroke (Storybook indigo / red). */
+.sp-canvas.sp-canvas-factory .react-flow__edge.sp-edge-factory-running .react-flow__edge-path {
+  stroke: #818cf8 !important;
+}
+
+.sp-canvas.sp-canvas-factory .react-flow__edge.sp-edge-factory-failed .react-flow__edge-path {
+  stroke: #fca5a5 !important;
+}
+
+.dark .sp-canvas.sp-canvas-factory .react-flow__edge.sp-edge-factory-failed .react-flow__edge-path {
+  stroke: #f87171 !important;
+}
+
+/* Factory run: longer edge in a touch/cross pair — darker flat stroke (beats default !important). */
+.sp-canvas.sp-canvas-factory .react-flow__edge.sp-edge-factory-touching .react-flow__edge-path {
+  stroke: #64748b !important;
+}
+
+.dark .sp-canvas.sp-canvas-factory .react-flow__edge.sp-edge-factory-touching .react-flow__edge-path {
+  stroke: #94a3b8 !important;
+}
+
+/* Status tones win over touching contrast. */
+.sp-canvas.sp-canvas-factory .react-flow__edge.sp-edge-factory-running.sp-edge-factory-touching .react-flow__edge-path {
+  stroke: #818cf8 !important;
+}
+
+.sp-canvas.sp-canvas-factory .react-flow__edge.sp-edge-factory-failed.sp-edge-factory-touching .react-flow__edge-path {
+  stroke: #fca5a5 !important;
+}
+
+.dark
+  .sp-canvas.sp-canvas-factory
+  .react-flow__edge.sp-edge-factory-failed.sp-edge-factory-touching
+  .react-flow__edge-path {
+  stroke: #f87171 !important;
+}
+
+.sp-canvas.sp-canvas-live .react-flow__edge,
+.sp-canvas.sp-canvas-live .react-flow__edge * {
+  cursor: default !important;
+}
+
+.sp-canvas.sp-canvas-live .react-flow__edge path {
+  transition: none;
+}
+
+.sp-canvas .react-flow__connectionline path {
+  stroke: var(--sp-handle-border) !important;
+  stroke-width: 3 !important;
+  stroke-dasharray: 8 4 !important;
+}
+
+.sp-canvas.sp-canvas-factory .react-flow__connectionline path {
+  stroke-width: 2 !important;
+}
+
+.sp-canvas .react-flow__handle {
+  transition: border-color 0.2s ease-in-out;
+  border-color: var(--sp-handle-border) !important;
+}
+
+.sp-canvas.sp-canvas-live:not(.sp-canvas-editing) .react-flow__handle {
+  cursor: default !important;
+  transition: none !important;
+}
+
+.sp-canvas .react-flow__handle::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 30px;
+  height: 30px;
+  pointer-events: auto;
+}
+
+.sp-canvas.sp-canvas-live:not(.sp-canvas-editing) .react-flow__handle::before {
+  pointer-events: none;
+}
+
+.sp-canvas .react-flow__handle:not(.sp-append-source-hitbox):hover,
+.sp-canvas .react-flow__handle.sp-append-source-hitbox:hover {
+  border-color: var(--sp-handle-border-hover) !important;
+  z-index: 10;
+}
+
+.sp-canvas .react-flow__handle.sp-append-source-hitbox.plus-hovered {
+  z-index: auto;
+}
+
+.sp-canvas.sp-canvas-live:not(.sp-canvas-editing) .react-flow__handle:hover {
+  border-color: var(--sp-handle-border) !important;
+  z-index: auto;
+}
+
+.sp-canvas .react-flow__handle.highlighted {
+  border-color: var(--sp-handle-highlight-border) !important;
+}
+
+.sp-canvas .sp-append-source-handle {
+  background-color: var(--sp-append-handle-bg, #ffffff);
+  color: var(--sp-append-handle-icon, #94a3b8);
+  transition:
+    border-color 0.2s ease-in-out,
+    color 0.2s ease-in-out,
+    background-color 0.2s ease-in-out;
+}
+
+.sp-canvas .sp-append-source-handle:hover {
+  border-color: var(--sp-handle-border-hover) !important;
+  color: var(--sp-append-handle-icon-hover, #64748b);
+}
+
+.sp-canvas .sp-append-source-preview {
+  opacity: 0;
+  pointer-events: none;
+  --sp-append-preview-connector-offset-y: 1px;
+  transition:
+    opacity 140ms ease,
+    transform 140ms ease;
+}
+
+.sp-canvas .react-flow__handle.sp-append-source-hitbox.plus-hovered + .sp-append-source-preview {
+  opacity: 1;
+  --sp-append-preview-offset-y: -1px;
+}
+
+.sp-canvas .edge-label {
+  opacity: 0;
+  pointer-events: none;
+  --edge-label-scale: 0.92;
+  transform-origin: center;
+  transition:
+    opacity 140ms ease,
+    transform 140ms ease;
+}
+
+.sp-canvas .edge-label-visible {
+  opacity: 1;
+  pointer-events: auto;
+  --edge-label-scale: 1;
+  transition-delay: 120ms;
+}
+
+.sp-canvas .edge-label .edge-label-button {
+  transition:
+    transform 150ms ease,
+    background-color 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.sp-canvas .edge-label-visible .edge-label-button:hover {
+  transform: scale(2);
+}

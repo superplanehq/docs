@@ -1,0 +1,1202 @@
+package changesets
+
+import (
+	"slices"
+	"testing"
+
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
+	"github.com/superplanehq/superplane/pkg/core"
+	"github.com/superplanehq/superplane/pkg/database"
+	"github.com/superplanehq/superplane/pkg/models"
+	"github.com/superplanehq/superplane/pkg/registry"
+	"github.com/superplanehq/superplane/test/support"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/structpb"
+	"gorm.io/datatypes"
+
+	_ "github.com/superplanehq/superplane/pkg/components/factory"
+)
+
+func Test__CanvasPatcher(t *testing.T) {
+	r := support.Setup(t)
+
+	t.Run("applies mixed operations", func(t *testing.T) {
+		steps := &CanvasPatcherSteps{t: t, registry: r.Registry, orgID: r.Organization.ID}
+		steps.givenCanvasVersion(
+			[]models.Node{
+				{
+					ID:            "node-a",
+					Name:          "Node A",
+					Configuration: map[string]any{"expression": "true"},
+					Type:          models.NodeTypeComponent,
+					Ref: models.NodeRef{
+						Component: &models.ComponentRef{Name: "if"},
+					},
+				},
+				{
+					ID:            "node-b",
+					Name:          "Node B",
+					Configuration: map[string]any{"expression": "false"},
+					Type:          models.NodeTypeComponent,
+					Ref: models.NodeRef{
+						Component: &models.ComponentRef{Name: "if"},
+					},
+				},
+			},
+			[]models.Edge{{SourceID: "node-a", TargetID: "node-b", Channel: "true"}},
+		)
+
+		steps.whenHandling(&CanvasChangeset{
+			Changes: []*Change{
+				{
+					Type: ChangeTypeAddNode,
+					Node: &ChangeNode{
+						ID:            "node-c",
+						Name:          "Node C",
+						Block:         "noop",
+						Configuration: structFromMap(t, map[string]any{}),
+					},
+				},
+				{
+					Type: ChangeTypeUpdateNode,
+					Node: &ChangeNode{
+						ID:            "node-a",
+						Name:          "Node A Updated",
+						Configuration: structFromMap(t, map[string]any{"expression": "false"}),
+					},
+				},
+				{
+					Type: ChangeTypeAddEdge,
+					Edge: &ChangeEdge{
+						SourceID: "node-a",
+						TargetID: "node-c",
+						Channel:  "true",
+					},
+				},
+				{
+					Type: ChangeTypeDeleteNode,
+					Node: &ChangeNode{ID: "node-b"},
+				},
+			},
+		})
+
+		steps.assertNoError()
+		steps.assertHasNode("node-a", "Node A Updated", map[string]any{"expression": "false"})
+		steps.assertHasNode("node-c", "Node C", map[string]any{})
+		steps.assertHasNodeBlock("node-c", "noop")
+		steps.assertHasNoNodeIntegrationID("node-c")
+		steps.assertNodeCount(2)
+		steps.assertHasEdge("node-a", "node-c", "true")
+		steps.assertEdgeCount(1)
+		steps.assertGraphIsValid()
+	})
+
+	t.Run("builds deterministic node and edge ordering", func(t *testing.T) {
+		steps := &CanvasPatcherSteps{t: t, registry: r.Registry}
+		steps.givenCanvasVersion(
+			[]models.Node{
+				{ID: "node-c", Name: "Node C"},
+				{ID: "node-a", Name: "Node A"},
+				{ID: "node-b", Name: "Node B"},
+			},
+			[]models.Edge{
+				{SourceID: "node-c", TargetID: "node-a", Channel: "default"},
+				{SourceID: "node-a", TargetID: "node-b", Channel: "default"},
+				{SourceID: "node-a", TargetID: "node-b", Channel: "alpha"},
+			},
+		)
+
+		steps.whenHandling(&CanvasChangeset{
+			Changes: []*Change{
+				{
+					Type: ChangeTypeUpdateNode,
+					Node: &ChangeNode{
+						ID:   "node-a",
+						Name: "Node A Updated",
+					},
+				},
+			},
+		})
+
+		steps.assertNoError()
+		steps.assertNodeOrder([]string{"node-a", "node-b", "node-c"})
+		steps.assertEdgeOrder([]models.Edge{
+			{SourceID: "node-a", TargetID: "node-b", Channel: "alpha"},
+			{SourceID: "node-a", TargetID: "node-b", Channel: "default"},
+			{SourceID: "node-c", TargetID: "node-a", Channel: "default"},
+		})
+	})
+
+	t.Run("preserves node positions when changeset adds edges", func(t *testing.T) {
+		steps := &CanvasPatcherSteps{t: t, registry: r.Registry}
+		steps.givenCanvasVersion(
+			[]models.Node{
+				{
+					ID:   "node-a",
+					Name: "Node A",
+					Type: models.NodeTypeComponent,
+					Ref: models.NodeRef{
+						Component: &models.ComponentRef{Name: "noop"},
+					},
+					Position: models.Position{X: 125, Y: 240},
+				},
+				{
+					ID:   "node-b",
+					Name: "Node B",
+					Type: models.NodeTypeComponent,
+					Ref: models.NodeRef{
+						Component: &models.ComponentRef{Name: "noop"},
+					},
+					Position: models.Position{X: 780, Y: 95},
+				},
+			},
+			nil,
+		)
+
+		steps.whenHandling(&CanvasChangeset{
+			Changes: []*Change{
+				{
+					Type: ChangeTypeAddEdge,
+					Edge: &ChangeEdge{
+						SourceID: "node-a",
+						TargetID: "node-b",
+						Channel:  "default",
+					},
+				},
+			},
+		})
+
+		steps.assertNoError()
+		steps.assertNodePosition("node-a", 125, 240)
+		steps.assertNodePosition("node-b", 780, 95)
+	})
+
+	t.Run("rejects edges that reference an undefined source output channel", func(t *testing.T) {
+		steps := &CanvasPatcherSteps{t: t, registry: r.Registry, orgID: r.Organization.ID}
+		steps.givenCanvasVersion(
+			[]models.Node{
+				{
+					ID:   "http-1",
+					Name: "HTTP Request",
+					Type: models.NodeTypeComponent,
+					Ref: models.NodeRef{
+						Component: &models.ComponentRef{Name: "http"},
+					},
+					Configuration: map[string]any{
+						"method": "GET",
+						"url":    "https://example.com",
+					},
+				},
+				{
+					ID:   "if-1",
+					Name: "If",
+					Type: models.NodeTypeComponent,
+					Ref: models.NodeRef{
+						Component: &models.ComponentRef{Name: "if"},
+					},
+					Configuration: map[string]any{
+						"expression": "true",
+					},
+				},
+			},
+			nil,
+		)
+
+		steps.whenHandling(&CanvasChangeset{
+			Changes: []*Change{
+				{
+					Type: ChangeTypeAddEdge,
+					Edge: &ChangeEdge{
+						SourceID: "http-1",
+						TargetID: "if-1",
+						Channel:  "default",
+					},
+				},
+			},
+		})
+
+		steps.assertHasError()
+		steps.assertErrorContains(`source node http-1 does not have output channel "default"`)
+	})
+
+	t.Run("returns error when change object is misconfigured", func(t *testing.T) {
+		testCases := []struct {
+			name            string
+			changeset       *CanvasChangeset
+			expectedMessage string
+		}{
+			{
+				name:            "changeset is nil",
+				changeset:       nil,
+				expectedMessage: "changeset is required",
+			},
+			{
+				name:            "changeset has no changes",
+				changeset:       &CanvasChangeset{},
+				expectedMessage: "changeset is required",
+			},
+			{
+				name: "changeset has nil change",
+				changeset: &CanvasChangeset{
+					Changes: []*Change{nil},
+				},
+				expectedMessage: "change is required",
+			},
+			{
+				name: "add node change has no node payload",
+				changeset: &CanvasChangeset{
+					Changes: []*Change{
+						{Type: ChangeTypeAddNode},
+					},
+				},
+				expectedMessage: "node is required for ADD_NODE",
+			},
+			{
+				name: "add node change has empty id",
+				changeset: &CanvasChangeset{
+					Changes: []*Change{
+						{
+							Type: ChangeTypeAddNode,
+							Node: &ChangeNode{Name: "Node A", Block: "noop"},
+						},
+					},
+				},
+				expectedMessage: "target node id is required for ADD_NODE",
+			},
+			{
+				name: "add node change has empty name",
+				changeset: &CanvasChangeset{
+					Changes: []*Change{
+						{
+							Type: ChangeTypeAddNode,
+							Node: &ChangeNode{ID: "node-a", Block: "noop"},
+						},
+					},
+				},
+				expectedMessage: "target node name is required for ADD_NODE",
+			},
+			{
+				name: "update node change has no node payload",
+				changeset: &CanvasChangeset{
+					Changes: []*Change{
+						{Type: ChangeTypeUpdateNode},
+					},
+				},
+				expectedMessage: "node is required for UPDATE_NODE",
+			},
+			{
+				name: "update node change has empty id",
+				changeset: &CanvasChangeset{
+					Changes: []*Change{
+						{
+							Type: ChangeTypeUpdateNode,
+							Node: &ChangeNode{Name: "Node A"},
+						},
+					},
+				},
+				expectedMessage: "node id is required for UPDATE_NODE",
+			},
+			{
+				name: "delete node change has no node payload",
+				changeset: &CanvasChangeset{
+					Changes: []*Change{
+						{Type: ChangeTypeDeleteNode},
+					},
+				},
+				expectedMessage: "target is required for DELETE_NODE",
+			},
+			{
+				name: "delete node change has empty id",
+				changeset: &CanvasChangeset{
+					Changes: []*Change{
+						{
+							Type: ChangeTypeDeleteNode,
+							Node: &ChangeNode{},
+						},
+					},
+				},
+				expectedMessage: "target node id is required for DELETE_NODE",
+			},
+			{
+				name: "add edge change has no edge payload",
+				changeset: &CanvasChangeset{
+					Changes: []*Change{
+						{Type: ChangeTypeAddEdge},
+					},
+				},
+				expectedMessage: "edge is required for ADD_EDGE",
+			},
+			{
+				name: "add edge change has empty source id",
+				changeset: &CanvasChangeset{
+					Changes: []*Change{
+						{
+							Type: ChangeTypeAddEdge,
+							Edge: &ChangeEdge{TargetID: "node-b", Channel: "default"},
+						},
+					},
+				},
+				expectedMessage: "source id is required for ADD_EDGE",
+			},
+			{
+				name: "delete edge change has no edge payload",
+				changeset: &CanvasChangeset{
+					Changes: []*Change{
+						{Type: ChangeTypeDeleteEdge},
+					},
+				},
+				expectedMessage: "edge is required for DELETE_EDGE",
+			},
+			{
+				name: "delete edge change has empty channel",
+				changeset: &CanvasChangeset{
+					Changes: []*Change{
+						{
+							Type: ChangeTypeDeleteEdge,
+							Edge: &ChangeEdge{SourceID: "node-a", TargetID: "node-b"},
+						},
+					},
+				},
+				expectedMessage: "channel is required for DELETE_EDGE",
+			},
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				steps := &CanvasPatcherSteps{t: t, registry: r.Registry}
+				steps.givenCanvasVersion(nil, nil)
+
+				steps.whenHandling(tc.changeset)
+
+				steps.assertHasError()
+				steps.assertErrorContains(tc.expectedMessage)
+				require.Nil(t, steps.finalVersion)
+			})
+		}
+	})
+
+	t.Run("update node -> no configuration provided, previous configuration is preserved", func(t *testing.T) {
+		steps := &CanvasPatcherSteps{t: t, registry: r.Registry}
+		steps.givenCanvasVersion(
+			[]models.Node{{
+				ID:            "node-a",
+				Name:          "Node A",
+				Configuration: map[string]any{"expression": "true"},
+				Type:          models.NodeTypeComponent,
+				Ref: models.NodeRef{
+					Component: &models.ComponentRef{Name: "if"},
+				},
+			}},
+			nil,
+		)
+
+		steps.whenHandling(&CanvasChangeset{
+			Changes: []*Change{
+				{
+					Type: ChangeTypeUpdateNode,
+					Node: &ChangeNode{ID: "node-a", Name: "Node A Updated"},
+				},
+			},
+		})
+
+		steps.assertNoError()
+		steps.assertHasNode("node-a", "Node A Updated", map[string]any{"expression": "true"})
+	})
+
+	t.Run("update node -> assigns first implementation to placeholder component", func(t *testing.T) {
+		steps := &CanvasPatcherSteps{t: t, registry: r.Registry}
+		errorMessage := "component name is required"
+		steps.givenCanvasVersion(
+			[]models.Node{{
+				ID:            "node-a",
+				Name:          "New Component",
+				Type:          models.NodeTypeComponent,
+				Configuration: map[string]any{},
+				ErrorMessage:  &errorMessage,
+			}},
+			nil,
+		)
+
+		steps.whenHandling(&CanvasChangeset{
+			Changes: []*Change{
+				{
+					Type: ChangeTypeUpdateNode,
+					Node: &ChangeNode{
+						ID:            "node-a",
+						Name:          "No-op",
+						Block:         "noop",
+						Configuration: structFromMap(t, map[string]any{}),
+					},
+				},
+			},
+		})
+
+		steps.assertNoError()
+		steps.assertHasNode("node-a", "No-op", map[string]any{})
+		steps.assertHasNodeBlock("node-a", "noop")
+		steps.assertNodeHasNoError("node-a")
+	})
+
+	t.Run("update node -> rejects implementation changes for implemented component", func(t *testing.T) {
+		steps := &CanvasPatcherSteps{t: t, registry: r.Registry}
+		steps.givenCanvasVersion(
+			[]models.Node{{
+				ID:            "node-a",
+				Name:          "Node A",
+				Type:          models.NodeTypeComponent,
+				Configuration: map[string]any{},
+				Ref: models.NodeRef{
+					Component: &models.ComponentRef{Name: "noop"},
+				},
+			}},
+			nil,
+		)
+
+		steps.whenHandling(&CanvasChangeset{
+			Changes: []*Change{
+				{
+					Type: ChangeTypeUpdateNode,
+					Node: &ChangeNode{ID: "node-a", Name: "Node A", Block: "if"},
+				},
+			},
+		})
+
+		steps.assertHasError()
+		steps.assertErrorContains("cannot change node node-a implementation; delete the node and add a new one instead")
+	})
+
+	t.Run("update node -> allows repeated implementation for implemented component", func(t *testing.T) {
+		steps := &CanvasPatcherSteps{t: t, registry: r.Registry}
+		steps.givenCanvasVersion(
+			[]models.Node{{
+				ID:            "node-a",
+				Name:          "Node A",
+				Type:          models.NodeTypeComponent,
+				Configuration: map[string]any{"expression": "true"},
+				Ref: models.NodeRef{
+					Component: &models.ComponentRef{Name: "if"},
+				},
+			}},
+			nil,
+		)
+
+		steps.whenHandling(&CanvasChangeset{
+			Changes: []*Change{
+				{
+					Type: ChangeTypeUpdateNode,
+					Node: &ChangeNode{
+						ID:            "node-a",
+						Name:          "Node A Updated",
+						Block:         "if",
+						Configuration: structFromMap(t, map[string]any{"expression": "false"}),
+					},
+				},
+			},
+		})
+
+		steps.assertNoError()
+		steps.assertHasNode("node-a", "Node A Updated", map[string]any{"expression": "false"})
+		steps.assertHasNodeBlock("node-a", "if")
+	})
+
+	t.Run("update node -> no collapsed change provided, previous collapsed state is preserved", func(t *testing.T) {
+		steps := &CanvasPatcherSteps{t: t, registry: r.Registry}
+		steps.givenCanvasVersion(
+			[]models.Node{{
+				ID:            "node-a",
+				Name:          "Node A",
+				Configuration: map[string]any{"expression": "true"},
+				Type:          models.NodeTypeComponent,
+				IsCollapsed:   true,
+				Ref: models.NodeRef{
+					Component: &models.ComponentRef{Name: "if"},
+				},
+			}},
+			nil,
+		)
+
+		steps.whenHandling(&CanvasChangeset{
+			Changes: []*Change{
+				{
+					Type: ChangeTypeUpdateNode,
+					Node: &ChangeNode{ID: "node-a", Name: "Node A Updated"},
+				},
+			},
+		})
+
+		steps.assertNoError()
+		steps.assertNodeCollapsed("node-a", true)
+	})
+
+	t.Run("update node -> explicit false collapsed change uncollapses node", func(t *testing.T) {
+		steps := &CanvasPatcherSteps{t: t, registry: r.Registry}
+		steps.givenCanvasVersion(
+			[]models.Node{{
+				ID:            "node-a",
+				Name:          "Node A",
+				Configuration: map[string]any{"expression": "true"},
+				Type:          models.NodeTypeComponent,
+				IsCollapsed:   true,
+				Ref: models.NodeRef{
+					Component: &models.ComponentRef{Name: "if"},
+				},
+			}},
+			nil,
+		)
+
+		steps.whenHandling(&CanvasChangeset{
+			Changes: []*Change{
+				{
+					Type: ChangeTypeUpdateNode,
+					Node: &ChangeNode{
+						ID:          "node-a",
+						Name:        "Node A Updated",
+						IsCollapsed: proto.Bool(false),
+					},
+				},
+			},
+		})
+
+		steps.assertNoError()
+		steps.assertNodeCollapsed("node-a", false)
+	})
+
+	t.Run("add node -> keeps the concurrency spec of the change", func(t *testing.T) {
+		steps := &CanvasPatcherSteps{t: t, registry: r.Registry}
+		steps.givenCanvasVersion(nil, nil)
+
+		steps.whenHandling(&CanvasChangeset{
+			Changes: []*Change{
+				{
+					Type: ChangeTypeAddNode,
+					Node: &ChangeNode{
+						ID:            "node-a",
+						Name:          "Node A",
+						Block:         "if",
+						Configuration: structFromMap(t, map[string]any{"expression": "true"}),
+						Concurrency:   concurrencyMax(100),
+					},
+				},
+			},
+		})
+
+		steps.assertNoError()
+		steps.assertNodeConcurrencyMax("node-a", 100)
+	})
+
+	t.Run("update node -> invalid configuration sets node error without returning error", func(t *testing.T) {
+		steps := &CanvasPatcherSteps{t: t, registry: r.Registry}
+		steps.givenCanvasVersion(
+			[]models.Node{
+				{
+					ID:            "node-a",
+					Name:          "Node A",
+					Configuration: map[string]any{"expression": "true"},
+					Type:          models.NodeTypeComponent,
+					Ref: models.NodeRef{
+						Component: &models.ComponentRef{Name: "if"},
+					},
+				},
+			},
+			nil,
+		)
+
+		steps.whenHandling(&CanvasChangeset{
+			Changes: []*Change{
+				{
+					Type: ChangeTypeUpdateNode,
+					Node: &ChangeNode{
+						ID:            "node-a",
+						Name:          "Node A",
+						Configuration: structFromMap(t, map[string]any{"expression": nil}),
+					},
+				},
+			},
+		})
+
+		steps.assertNoError()
+		steps.assertHasNode("node-a", "Node A", map[string]any{"expression": nil})
+		steps.assertNodeErrorContains("node-a", "field 'expression' is required")
+	})
+
+	t.Run("add component node -> name-only branch artifact sets node error", func(t *testing.T) {
+		steps := &CanvasPatcherSteps{t: t, registry: r.Registry}
+		steps.givenCanvasVersion(nil, nil)
+
+		steps.whenHandling(&CanvasChangeset{
+			Changes: []*Change{
+				{
+					Type: ChangeTypeAddNode,
+					Node: &ChangeNode{
+						ID:    "node-a",
+						Name:  "Add Branch Artifact",
+						Block: "addWorkOrderArtifact",
+						Configuration: structFromMap(t, map[string]any{
+							"orderId":      "{{ order().id }}",
+							"artifactType": "branch",
+							"name":         "feature/refund-retry",
+						}),
+					},
+				},
+			},
+		})
+
+		steps.assertNoError()
+		steps.assertNodeCount(1)
+		steps.assertNodeErrorContains("node-a", "branch artifact requires a url or a repository")
+	})
+
+	t.Run("rejects self-loop edge", func(t *testing.T) {
+		steps := &CanvasPatcherSteps{t: t, registry: r.Registry}
+		steps.givenCanvasVersion(
+			[]models.Node{{ID: "node-a", Name: "Node A"}},
+			nil,
+		)
+
+		steps.whenHandling(&CanvasChangeset{
+			Changes: []*Change{
+				{
+					Type: ChangeTypeAddEdge,
+					Edge: &ChangeEdge{
+						SourceID: "node-a",
+						TargetID: "node-a",
+						Channel:  "default",
+					},
+				},
+			},
+		})
+		steps.assertHasError()
+		steps.assertErrorContains("self-loop edges are not allowed")
+	})
+
+	t.Run("rejects block that does not exist", func(t *testing.T) {
+		steps := &CanvasPatcherSteps{t: t, registry: r.Registry}
+		steps.givenCanvasVersion(nil, nil)
+
+		steps.whenHandling(&CanvasChangeset{
+			Changes: []*Change{
+				{
+					Type: ChangeTypeAddNode,
+					Node: &ChangeNode{
+						ID:    "node-a",
+						Name:  "Node A",
+						Block: "core.hello",
+					},
+				},
+			},
+		})
+
+		steps.assertHasError()
+		steps.assertErrorContains("block core.hello not found in registry")
+	})
+
+	t.Run("rejects unknown operation type", func(t *testing.T) {
+		steps := &CanvasPatcherSteps{t: t, registry: r.Registry}
+		steps.givenCanvasVersion(nil, nil)
+
+		steps.whenHandling(&CanvasChangeset{
+			Changes: []*Change{
+				{
+					Type: ChangeTypeUnspecified,
+				},
+			},
+		})
+
+		steps.assertHasError()
+	})
+
+	t.Run("rejects graph with cycles", func(t *testing.T) {
+		steps := &CanvasPatcherSteps{t: t, registry: r.Registry}
+		steps.givenCanvasVersion(
+			[]models.Node{
+				{ID: "node-a", Name: "Node A"},
+				{ID: "node-b", Name: "Node B"},
+			},
+			[]models.Edge{
+				{SourceID: "node-a", TargetID: "node-b", Channel: "default"},
+			},
+		)
+
+		steps.whenHandling(&CanvasChangeset{
+			Changes: []*Change{
+				{
+					Type: ChangeTypeAddEdge,
+					Edge: &ChangeEdge{
+						SourceID: "node-b",
+						TargetID: "node-a",
+						Channel:  "default",
+					},
+				},
+			},
+		})
+		steps.assertHasError()
+	})
+
+	t.Run("add component node -> invalid configuration sets node error without returning error", func(t *testing.T) {
+		steps := &CanvasPatcherSteps{t: t, registry: r.Registry}
+		steps.givenCanvasVersion(nil, nil)
+
+		steps.whenHandling(&CanvasChangeset{
+			Changes: []*Change{
+				{
+					Type: ChangeTypeAddNode,
+					Node: &ChangeNode{
+						ID:    "node-a",
+						Name:  "Node A",
+						Block: "if",
+					},
+				},
+			},
+		})
+
+		steps.assertNoError()
+		steps.assertNodeCount(1)
+		steps.assertHasNode("node-a", "Node A", nil)
+		steps.assertHasNodeBlock("node-a", "if")
+		steps.assertNodeErrorContains("node-a", "field 'expression' is required")
+	})
+
+	t.Run("add trigger node -> invalid configuration sets node error without returning error", func(t *testing.T) {
+		steps := &CanvasPatcherSteps{t: t, registry: r.Registry}
+		steps.givenCanvasVersion(nil, nil)
+
+		steps.whenHandling(&CanvasChangeset{
+			Changes: []*Change{
+				{
+					Type: ChangeTypeAddNode,
+					Node: &ChangeNode{
+						ID:    "node-a",
+						Name:  "Node A",
+						Block: "schedule",
+					},
+				},
+			},
+		})
+
+		steps.assertNoError()
+		steps.assertNodeCount(1)
+		steps.assertHasNode("node-a", "Node A", nil)
+		steps.assertHasNodeBlock("node-a", "schedule")
+		steps.assertNodeErrorContains("node-a", "field 'type' is required")
+	})
+
+	t.Run("add widget node -> invalid configuration sets node error without returning error", func(t *testing.T) {
+		steps := &CanvasPatcherSteps{t: t, registry: r.Registry}
+		steps.givenCanvasVersion(nil, nil)
+
+		steps.whenHandling(&CanvasChangeset{
+			Changes: []*Change{
+				{
+					Type: ChangeTypeAddNode,
+					Node: &ChangeNode{
+						ID:    "node-a",
+						Name:  "Node A",
+						Block: "annotation",
+					},
+				},
+			},
+		})
+		steps.assertNoError()
+		steps.assertNodeCount(1)
+		steps.assertHasNode("node-a", "Node A", nil)
+		steps.assertHasNodeBlock("node-a", "annotation")
+		steps.assertNodeErrorContains("node-a", "field 'text' is required")
+	})
+
+	t.Run("add integration component without integration id -> sets node error without returning error", func(t *testing.T) {
+		steps := &CanvasPatcherSteps{t: t, registry: r.Registry, orgID: r.Organization.ID}
+		steps.givenCanvasVersion(nil, nil)
+
+		steps.whenHandling(&CanvasChangeset{
+			Changes: []*Change{
+				{
+					Type: ChangeTypeAddNode,
+					Node: &ChangeNode{
+						ID:    "node-a",
+						Name:  "Node A",
+						Block: "github.getIssue",
+						Configuration: structFromMap(t, map[string]any{
+							"repository":  "superplanehq/superplane",
+							"issueNumber": "1",
+						}),
+					},
+				},
+			},
+		})
+
+		steps.assertNoError()
+		steps.assertNodeCount(1)
+		steps.assertHasNode("node-a", "Node A", map[string]any{
+			"repository":  "superplanehq/superplane",
+			"issueNumber": "1",
+		})
+		steps.assertHasNodeBlock("node-a", "github.getIssue")
+		steps.assertNodeErrorContains("node-a", "integration is required for github.getIssue")
+	})
+
+	t.Run("add integration component with invalid integration id -> sets node error without returning error", func(t *testing.T) {
+		steps := &CanvasPatcherSteps{t: t, registry: r.Registry, orgID: r.Organization.ID}
+		steps.givenCanvasVersion(nil, nil)
+
+		steps.whenHandling(&CanvasChangeset{
+			Changes: []*Change{
+				{
+					Type: ChangeTypeAddNode,
+					Node: &ChangeNode{
+						ID:            "node-a",
+						Name:          "Node A",
+						Block:         "github.getIssue",
+						IntegrationID: "not-a-uuid",
+						Configuration: structFromMap(t, map[string]any{
+							"repository":  "superplanehq/superplane",
+							"issueNumber": "1",
+						}),
+					},
+				},
+			},
+		})
+
+		steps.assertNoError()
+		steps.assertNodeCount(1)
+		steps.assertHasNode("node-a", "Node A", map[string]any{
+			"repository":  "superplanehq/superplane",
+			"issueNumber": "1",
+		})
+		steps.assertHasNodeBlock("node-a", "github.getIssue")
+		steps.assertNodeErrorContains("node-a", "invalid integration id")
+	})
+
+	t.Run("add integration component with integration id that does not exist -> sets node error without returning error", func(t *testing.T) {
+		steps := &CanvasPatcherSteps{t: t, registry: r.Registry, orgID: r.Organization.ID}
+		steps.givenCanvasVersion(nil, nil)
+
+		missingIntegrationID := uuid.New().String()
+
+		steps.whenHandling(&CanvasChangeset{
+			Changes: []*Change{
+				{
+					Type: ChangeTypeAddNode,
+					Node: &ChangeNode{
+						ID:            "node-a",
+						Name:          "Node A",
+						Block:         "github.getIssue",
+						IntegrationID: missingIntegrationID,
+						Configuration: structFromMap(t, map[string]any{
+							"repository":  "superplanehq/superplane",
+							"issueNumber": "1",
+						}),
+					},
+				},
+			},
+		})
+
+		steps.assertNoError()
+		steps.assertNodeCount(1)
+		steps.assertHasNode("node-a", "Node A", map[string]any{
+			"repository":  "superplanehq/superplane",
+			"issueNumber": "1",
+		})
+		steps.assertHasNodeBlock("node-a", "github.getIssue")
+		steps.assertNodeErrorContains("node-a", "integration "+missingIntegrationID+" not found")
+	})
+
+	t.Run("accepts integration component with existing integration id", func(t *testing.T) {
+		steps := &CanvasPatcherSteps{t: t, registry: r.Registry, orgID: r.Organization.ID}
+		steps.givenCanvasVersion(nil, nil)
+
+		integration, err := models.CreateIntegration(
+			uuid.New(),
+			r.Organization.ID,
+			"github",
+			support.RandomName("integration"),
+			nil,
+		)
+		require.NoError(t, err)
+
+		steps.whenHandling(&CanvasChangeset{
+			Changes: []*Change{
+				{
+					Type: ChangeTypeAddNode,
+					Node: &ChangeNode{
+						ID:            "node-a",
+						Name:          "Node A",
+						Block:         "github.getIssue",
+						IntegrationID: integration.ID.String(),
+						Configuration: structFromMap(t, map[string]any{
+							"repository":  "superplanehq/superplane",
+							"issueNumber": "1",
+						}),
+					},
+				},
+			},
+		})
+
+		steps.assertNoError()
+		steps.assertNodeCount(1)
+		steps.assertHasNode("node-a", "Node A", map[string]any{
+			"repository":  "superplanehq/superplane",
+			"issueNumber": "1",
+		})
+		steps.assertHasNodeBlock("node-a", "github.getIssue")
+		steps.assertHasNodeIntegrationID("node-a", integration.ID.String())
+	})
+
+	t.Run("accepts integration component when capability is enabled", func(t *testing.T) {
+		steps := &CanvasPatcherSteps{t: t, registry: r.Registry, orgID: r.Organization.ID}
+		steps.givenCanvasVersion(nil, nil)
+
+		integration := support.CreateIntegrationWithCapabilities(t, r.Organization.ID, []models.CapabilityState{
+			{Name: "github.getIssue", State: core.IntegrationCapabilityStateEnabled},
+		})
+
+		steps.whenHandling(&CanvasChangeset{
+			Changes: []*Change{
+				{
+					Type: ChangeTypeAddNode,
+					Node: &ChangeNode{
+						ID:            "node-a",
+						Name:          "Node A",
+						Block:         "github.getIssue",
+						IntegrationID: integration.ID.String(),
+						Configuration: structFromMap(t, map[string]any{
+							"repository":  "superplanehq/superplane",
+							"issueNumber": "1",
+						}),
+					},
+				},
+			},
+		})
+
+		steps.assertNoError()
+		steps.assertNodeCount(1)
+		steps.assertHasNode("node-a", "Node A", map[string]any{
+			"repository":  "superplanehq/superplane",
+			"issueNumber": "1",
+		})
+		steps.assertHasNodeBlock("node-a", "github.getIssue")
+		steps.assertHasNodeIntegrationID("node-a", integration.ID.String())
+	})
+
+	t.Run("integration component with disabled capability -> sets node error without returning error", func(t *testing.T) {
+		steps := &CanvasPatcherSteps{t: t, registry: r.Registry, orgID: r.Organization.ID}
+		steps.givenCanvasVersion(nil, nil)
+
+		integration := support.CreateIntegrationWithCapabilities(t, r.Organization.ID, []models.CapabilityState{
+			{Name: "github.getIssue", State: core.IntegrationCapabilityStateDisabled},
+		})
+
+		steps.whenHandling(&CanvasChangeset{
+			Changes: []*Change{
+				{
+					Type: ChangeTypeAddNode,
+					Node: &ChangeNode{
+						ID:            "node-a",
+						Name:          "Node A",
+						Block:         "github.getIssue",
+						IntegrationID: integration.ID.String(),
+						Configuration: structFromMap(t, map[string]any{
+							"repository":  "superplanehq/superplane",
+							"issueNumber": "1",
+						}),
+					},
+				},
+			},
+		})
+
+		steps.assertNoError()
+		steps.assertNodeCount(1)
+		steps.assertHasNodeBlock("node-a", "github.getIssue")
+		steps.assertHasNoNodeIntegrationID("node-a")
+		steps.assertNodeErrorContains("node-a", "github.getIssue is not enabled")
+		steps.assertNodeErrorContains("node-a", integration.InstallationName)
+	})
+}
+
+type CanvasPatcherSteps struct {
+	t            *testing.T
+	registry     *registry.Registry
+	orgID        uuid.UUID
+	patcher      *CanvasPatcher
+	err          error
+	finalVersion *models.CanvasVersion
+}
+
+func (s *CanvasPatcherSteps) givenCanvasVersion(nodes []models.Node, edges []models.Edge) {
+	s.patcher = NewCanvasPatcher(database.Conn(), s.orgID, s.registry, &models.CanvasVersion{
+		ID:         uuid.New(),
+		WorkflowID: uuid.New(),
+		Nodes:      datatypes.NewJSONSlice(nodes),
+		Edges:      datatypes.NewJSONSlice(edges),
+	})
+}
+
+func (s *CanvasPatcherSteps) whenHandling(operations *CanvasChangeset) {
+	s.err = s.patcher.ApplyChangeset(operations)
+	s.finalVersion = s.patcher.GetVersion()
+}
+
+func (s *CanvasPatcherSteps) assertNoError() {
+	require.NoError(s.t, s.err)
+}
+
+func (s *CanvasPatcherSteps) assertHasError() {
+	require.Error(s.t, s.err)
+}
+
+func (s *CanvasPatcherSteps) assertErrorContains(text string) {
+	require.ErrorContains(s.t, s.err, text)
+}
+
+func (s *CanvasPatcherSteps) assertHasNode(nodeID string, name string, configuration map[string]any) {
+	i := slices.IndexFunc(s.finalVersion.Nodes, func(node models.Node) bool {
+		return node.ID == nodeID
+	})
+
+	require.True(s.t, i != -1, "expected node %s", nodeID)
+	require.Equal(s.t, name, s.finalVersion.Nodes[i].Name)
+	require.Equal(s.t, configuration, s.finalVersion.Nodes[i].Configuration)
+}
+
+func (s *CanvasPatcherSteps) assertNodeCount(count int) {
+	require.NotNil(s.t, s.finalVersion)
+	require.Len(s.t, s.finalVersion.Nodes, count)
+}
+
+func (s *CanvasPatcherSteps) assertHasNodeBlock(nodeID string, block string) {
+	i := slices.IndexFunc(s.finalVersion.Nodes, func(node models.Node) bool {
+		return node.ID == nodeID
+	})
+
+	require.True(s.t, i != -1, "expected node %s", nodeID)
+
+	nodeBlock := s.findBlockName(s.finalVersion.Nodes[i])
+	require.Equal(s.t, block, nodeBlock)
+}
+
+func (s *CanvasPatcherSteps) assertHasNodeIntegrationID(nodeID string, integrationID string) {
+	i := slices.IndexFunc(s.finalVersion.Nodes, func(node models.Node) bool {
+		return node.ID == nodeID
+	})
+
+	require.True(s.t, i != -1, "expected node %s", nodeID)
+	require.NotNil(s.t, s.finalVersion.Nodes[i].IntegrationID)
+	require.Equal(s.t, integrationID, *s.finalVersion.Nodes[i].IntegrationID)
+}
+
+func (s *CanvasPatcherSteps) assertHasNoNodeIntegrationID(nodeID string) {
+	i := slices.IndexFunc(s.finalVersion.Nodes, func(node models.Node) bool {
+		return node.ID == nodeID
+	})
+
+	require.True(s.t, i != -1, "expected node %s", nodeID)
+	require.Nil(s.t, s.finalVersion.Nodes[i].IntegrationID)
+}
+
+func (s *CanvasPatcherSteps) assertNodeCollapsed(nodeID string, expected bool) {
+	i := slices.IndexFunc(s.finalVersion.Nodes, func(node models.Node) bool {
+		return node.ID == nodeID
+	})
+
+	require.True(s.t, i != -1, "expected node %s", nodeID)
+	require.Equal(s.t, expected, s.finalVersion.Nodes[i].IsCollapsed)
+}
+
+func (s *CanvasPatcherSteps) assertNodeConcurrencyMax(nodeID string, expected int) {
+	i := slices.IndexFunc(s.finalVersion.Nodes, func(node models.Node) bool {
+		return node.ID == nodeID
+	})
+
+	require.True(s.t, i != -1, "expected node %s", nodeID)
+	require.Equal(s.t, expected, s.finalVersion.Nodes[i].Concurrency.EffectiveMax())
+}
+
+func (s *CanvasPatcherSteps) assertNodeErrorContains(nodeID string, text string) {
+	i := slices.IndexFunc(s.finalVersion.Nodes, func(node models.Node) bool {
+		return node.ID == nodeID
+	})
+
+	require.True(s.t, i != -1, "expected node %s", nodeID)
+	require.NotNil(s.t, s.finalVersion.Nodes[i].ErrorMessage)
+	require.Contains(s.t, *s.finalVersion.Nodes[i].ErrorMessage, text)
+}
+
+func (s *CanvasPatcherSteps) assertNodeHasNoError(nodeID string) {
+	i := slices.IndexFunc(s.finalVersion.Nodes, func(node models.Node) bool {
+		return node.ID == nodeID
+	})
+
+	require.True(s.t, i != -1, "expected node %s", nodeID)
+	require.Nil(s.t, s.finalVersion.Nodes[i].ErrorMessage)
+}
+
+func (s *CanvasPatcherSteps) assertNodePosition(nodeID string, x int, y int) {
+	i := slices.IndexFunc(s.finalVersion.Nodes, func(node models.Node) bool {
+		return node.ID == nodeID
+	})
+
+	require.True(s.t, i != -1, "expected node %s", nodeID)
+	require.Equal(s.t, x, s.finalVersion.Nodes[i].Position.X)
+	require.Equal(s.t, y, s.finalVersion.Nodes[i].Position.Y)
+}
+
+func (s *CanvasPatcherSteps) findBlockName(node models.Node) string {
+	if node.Ref.Component != nil && node.Ref.Component.Name != "" {
+		return node.Ref.Component.Name
+	}
+
+	if node.Ref.Trigger != nil && node.Ref.Trigger.Name != "" {
+		return node.Ref.Trigger.Name
+	}
+
+	if node.Ref.Widget != nil && node.Ref.Widget.Name != "" {
+		return node.Ref.Widget.Name
+	}
+
+	return ""
+}
+
+func (s *CanvasPatcherSteps) assertHasEdge(sourceID string, targetID string, channel string) {
+	i := slices.IndexFunc(s.finalVersion.Edges, func(edge models.Edge) bool {
+		return edge.SourceID == sourceID && edge.TargetID == targetID && edge.Channel == channel
+	})
+
+	require.True(s.t, i != -1, "expected edge %s -> %s on channel %s", sourceID, targetID, channel)
+	require.Equal(s.t, sourceID, s.finalVersion.Edges[i].SourceID)
+	require.Equal(s.t, targetID, s.finalVersion.Edges[i].TargetID)
+	require.Equal(s.t, channel, s.finalVersion.Edges[i].Channel)
+}
+
+func (s *CanvasPatcherSteps) assertEdgeCount(count int) {
+	require.Len(s.t, s.finalVersion.Edges, count)
+}
+
+func (s *CanvasPatcherSteps) assertNodeOrder(nodeIDs []string) {
+	orderedNodeIDs := make([]string, 0, len(s.finalVersion.Nodes))
+	for _, node := range s.finalVersion.Nodes {
+		orderedNodeIDs = append(orderedNodeIDs, node.ID)
+	}
+
+	require.Equal(s.t, nodeIDs, orderedNodeIDs)
+}
+
+func (s *CanvasPatcherSteps) assertEdgeOrder(edges []models.Edge) {
+	require.Equal(s.t, datatypes.NewJSONSlice(edges), s.finalVersion.Edges)
+}
+
+func (s *CanvasPatcherSteps) assertGraphIsValid() {
+	require.NoError(s.t, CheckForCycles(s.finalVersion.Nodes, s.finalVersion.Edges))
+}
+
+func concurrencyMax(max int) *models.ConcurrencySpec {
+	return &models.ConcurrencySpec{Max: &max}
+}
+
+func structFromMap(t *testing.T, value map[string]any) *structpb.Struct {
+	t.Helper()
+
+	result, err := structpb.NewStruct(value)
+	require.NoError(t, err)
+
+	return result
+}

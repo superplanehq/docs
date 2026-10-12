@@ -1,0 +1,446 @@
+package claude
+
+import (
+	"bufio"
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"strings"
+	"time"
+
+	"github.com/superplanehq/superplane/pkg/core"
+)
+
+const (
+	defaultBaseURL        = "https://api.anthropic.com/v1"
+	anthropicVersionValue = "2023-06-01"
+	// anthropicFilesBeta is required to fetch files that server tools
+	// (for example code execution) generate.
+	anthropicFilesBeta = "files-api-2025-04-14"
+	// generationTimeout bounds model generation requests. They block until the
+	// model — and any server-side tools like code execution — finish, which
+	// regularly takes longer than the platform's default request timeout.
+	generationTimeout = 5 * time.Minute
+)
+
+type Client struct {
+	APIKey   string
+	AdminKey string
+	BaseURL  string
+	http     core.HTTPContext
+}
+
+// Message represents a Claude API message.
+type Message struct {
+	Role    string `json:"role"`
+	Content any    `json:"content"`
+}
+
+type CreateMessageRequest struct {
+	Model        string        `json:"model"`
+	Messages     []Message     `json:"messages"`
+	System       string        `json:"system,omitempty"`
+	MaxTokens    int           `json:"max_tokens,omitempty"`
+	Temperature  *float64      `json:"temperature,omitempty"`
+	OutputConfig *OutputConfig `json:"output_config,omitempty"`
+	Tools        []any         `json:"tools,omitempty"`
+}
+
+// OutputConfig configures Claude's response format (structured outputs).
+// See https://platform.claude.com/docs/en/build-with-claude/structured-outputs
+type OutputConfig struct {
+	Format *OutputFormat `json:"format,omitempty"`
+}
+
+// OutputFormat constrains the final text response to a JSON schema.
+type OutputFormat struct {
+	Type   string `json:"type"`   // always "json_schema"
+	Schema any    `json:"schema"` // the JSON Schema object
+}
+
+type MessageContent struct {
+	Type string `json:"type"`
+	Text string `json:"text,omitempty"`
+	// Content carries the nested payload of tool-result blocks (e.g. code
+	// execution results referencing generated file_ids). Kept raw so unknown
+	// block shapes round-trip untouched.
+	Content json.RawMessage `json:"content,omitempty"`
+}
+
+type MessageUsage struct {
+	InputTokens              int `json:"input_tokens"`
+	OutputTokens             int `json:"output_tokens"`
+	CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+	CacheCreation            struct {
+		Ephemeral5mInputTokens int `json:"ephemeral_5m_input_tokens"`
+		Ephemeral1hInputTokens int `json:"ephemeral_1h_input_tokens"`
+	} `json:"cache_creation"`
+}
+
+func (u MessageUsage) cacheWriteTokens() int {
+	if u.CacheCreationInputTokens > 0 {
+		return u.CacheCreationInputTokens
+	}
+	return u.CacheCreation.Ephemeral5mInputTokens + u.CacheCreation.Ephemeral1hInputTokens
+}
+
+type CreateMessageResponse struct {
+	ID           string           `json:"id"`
+	Type         string           `json:"type"`
+	Role         string           `json:"role"`
+	Content      []MessageContent `json:"content"`
+	Model        string           `json:"model"`
+	StopReason   string           `json:"stop_reason"`
+	StopSequence string           `json:"stop_sequence,omitempty"`
+	Usage        MessageUsage     `json:"usage"`
+}
+
+type ModelsResponse struct {
+	Data []Model `json:"data"`
+}
+
+type Model struct {
+	ID string `json:"id"`
+}
+
+// FileMetadata is a file stored in the Anthropic Files API.
+type FileMetadata struct {
+	ID           string `json:"id"`
+	Type         string `json:"type"`
+	Filename     string `json:"filename"`
+	MimeType     string `json:"mime_type"`
+	SizeBytes    int64  `json:"size_bytes"`
+	CreatedAt    string `json:"created_at"`
+	Downloadable bool   `json:"downloadable"`
+}
+
+type claudeErrorResponse struct {
+	Error struct {
+		Type    string `json:"type"`
+		Message string `json:"message"`
+	} `json:"error"`
+}
+
+func NewClient(httpClient core.HTTPContext, ctx core.IntegrationContext) (*Client, error) {
+	if ctx == nil {
+		return nil, fmt.Errorf("no integration context")
+	}
+
+	apiKey, err := ctx.GetConfig("apiKey")
+	if err != nil {
+		return nil, err
+	}
+
+	adminKey, _ := ctx.GetConfig("adminKey")
+
+	return &Client{
+		APIKey:   string(apiKey),
+		AdminKey: string(adminKey),
+		BaseURL:  defaultBaseURL,
+		http:     httpClient,
+	}, nil
+}
+
+func (c *Client) Verify() error {
+	_, err := c.execRequest(http.MethodGet, c.BaseURL+"/models", nil)
+	return err
+}
+
+func (c *Client) ListModels() ([]Model, error) {
+	responseBody, err := c.execRequest(http.MethodGet, c.BaseURL+"/models", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var response ModelsResponse
+	if err := json.Unmarshal(responseBody, &response); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal models response: %v", err)
+	}
+
+	return response.Data, nil
+}
+
+func (c *Client) CreateMessage(req CreateMessageRequest) (*CreateMessageResponse, error) {
+	reqBody, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %v", err)
+	}
+
+	// The files beta is needed to fetch files that server tools
+	// (for example code execution) generate.
+	beta := ""
+	if len(req.Tools) > 0 {
+		beta = anthropicFilesBeta
+	}
+
+	// Generations block until the model finishes, so this request asks for
+	// more time than the platform's default request timeout allows.
+	ctx, cancel := context.WithTimeout(context.Background(), generationTimeout)
+	defer cancel()
+
+	responseBody, err := c.doRequestCtx(ctx, http.MethodPost, c.BaseURL+"/messages", bytes.NewBuffer(reqBody), c.APIKey, beta)
+	if err != nil {
+		return nil, err
+	}
+
+	var response CreateMessageResponse
+	if err := json.Unmarshal(responseBody, &response); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal message response: %v", err)
+	}
+
+	return &response, nil
+}
+
+// GetFileMetadata retrieves a single file's metadata (GET /v1/files/{id}).
+func (c *Client) GetFileMetadata(fileID string) (*FileMetadata, error) {
+	if fileID == "" {
+		return nil, fmt.Errorf("file id is required")
+	}
+
+	responseBody, err := c.execRequestWithBeta(http.MethodGet, c.BaseURL+"/files/"+url.PathEscape(fileID), nil, anthropicFilesBeta)
+	if err != nil {
+		return nil, err
+	}
+
+	var file FileMetadata
+	if err := json.Unmarshal(responseBody, &file); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal file metadata: %v", err)
+	}
+	return &file, nil
+}
+
+// DownloadFile fetches a file's raw content (GET /v1/files/{id}/content).
+// Only files with downloadable=true (created by code execution, skills, or
+// agent sessions) can be downloaded.
+func (c *Client) DownloadFile(fileID string) ([]byte, error) {
+	if fileID == "" {
+		return nil, fmt.Errorf("file id is required")
+	}
+	return c.execRequestWithBeta(http.MethodGet, c.FileContentURL(fileID), nil, anthropicFilesBeta)
+}
+
+// FileContentURL returns the programmatic download link for a file. Requests
+// to it require the API key headers, including the files beta.
+func (c *Client) FileContentURL(fileID string) string {
+	return c.BaseURL + "/files/" + url.PathEscape(fileID) + "/content"
+}
+
+func (c *Client) execRequest(method, URL string, body io.Reader) ([]byte, error) {
+	return c.execRequestWithBeta(method, URL, body, "")
+}
+
+func (c *Client) execRequestWithBeta(method, URL string, body io.Reader, beta string) ([]byte, error) {
+	return c.doRequest(method, URL, body, c.APIKey, beta)
+}
+
+func (c *Client) execAdminRequest(method, URL string, body io.Reader) ([]byte, error) {
+	return c.doRequest(method, URL, body, c.AdminKey, "")
+}
+
+func (c *Client) doRequest(method, URL string, body io.Reader, apiKey, beta string) ([]byte, error) {
+	return c.doRequestCtx(context.Background(), method, URL, body, apiKey, beta)
+}
+
+func (c *Client) doRequestCtx(ctx context.Context, method, URL string, body io.Reader, apiKey, beta string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, method, URL, body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build request: %v", err)
+	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	req.Header.Set("x-api-key", apiKey)
+	req.Header.Set("anthropic-version", anthropicVersionValue)
+	if beta != "" {
+		req.Header.Set("anthropic-beta", beta)
+	}
+
+	res, err := c.http.Do(req)
+	if err != nil {
+		message := fmt.Sprintf("request failed: %v", err)
+		return nil, core.NewProviderTransportError(message, errors.New(message))
+	}
+	defer res.Body.Close()
+
+	responseBody, err := io.ReadAll(res.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %v", err)
+	}
+
+	if res.StatusCode < http.StatusOK || res.StatusCode >= http.StatusMultipleChoices {
+		var apiErr claudeErrorResponse
+		var errorMessage string
+
+		// Try to parse the official Anthropic error message
+		if err := json.Unmarshal(responseBody, &apiErr); err == nil && apiErr.Error.Message != "" {
+			errorMessage = apiErr.Error.Message
+		} else {
+			errorMessage = string(responseBody)
+		}
+
+		// Handle 401 specifically
+		if res.StatusCode == http.StatusUnauthorized {
+			message := fmt.Sprintf("Claude credentials are invalid or expired: %s", errorMessage)
+			return nil, core.NewProviderAPIError(res.StatusCode, message, errors.New(message))
+		}
+
+		message := fmt.Sprintf("request failed (%d): %s", res.StatusCode, errorMessage)
+		return nil, core.NewProviderAPIError(res.StatusCode, message, errors.New(message))
+	}
+	return responseBody, nil
+}
+
+// BatchRequestParams mirrors CreateMessageRequest but is used specifically for
+// the per-item "params" object of a Message Batches request.
+type BatchRequestParams struct {
+	Model        string        `json:"model"`
+	Messages     []Message     `json:"messages"`
+	System       string        `json:"system,omitempty"`
+	MaxTokens    int           `json:"max_tokens,omitempty"`
+	Temperature  *float64      `json:"temperature,omitempty"`
+	OutputConfig *OutputConfig `json:"output_config,omitempty"`
+}
+
+// CreateMessageBatchRequestItem is a single entry in a POST /v1/messages/batches request.
+type CreateMessageBatchRequestItem struct {
+	CustomID string             `json:"custom_id"`
+	Params   BatchRequestParams `json:"params"`
+}
+
+// createMessageBatchBody is the JSON body for POST /v1/messages/batches.
+type createMessageBatchBody struct {
+	Requests []CreateMessageBatchRequestItem `json:"requests"`
+}
+
+// MessageBatchRequestCounts summarizes the processing status of every request in a batch.
+type MessageBatchRequestCounts struct {
+	Processing int `json:"processing"`
+	Succeeded  int `json:"succeeded"`
+	Errored    int `json:"errored"`
+	Canceled   int `json:"canceled"`
+	Expired    int `json:"expired"`
+}
+
+// MessageBatch is the resource returned by the Message Batches API.
+type MessageBatch struct {
+	ID               string                    `json:"id"`
+	Type             string                    `json:"type"`
+	ProcessingStatus string                    `json:"processing_status"`
+	RequestCounts    MessageBatchRequestCounts `json:"request_counts"`
+	CreatedAt        string                    `json:"created_at,omitempty"`
+	EndedAt          string                    `json:"ended_at,omitempty"`
+	ExpiresAt        string                    `json:"expires_at,omitempty"`
+	ResultsURL       string                    `json:"results_url,omitempty"`
+}
+
+// MessageBatchResultError is the error object of an "errored" batch result.
+type MessageBatchResultError struct {
+	Type    string `json:"type"`
+	Message string `json:"message"`
+}
+
+// messageBatchResultBody is the "result" object nested in each batch results line.
+type messageBatchResultBody struct {
+	Type    string                   `json:"type"` // succeeded | errored | canceled | expired
+	Message *CreateMessageResponse   `json:"message,omitempty"`
+	Error   *MessageBatchResultError `json:"error,omitempty"`
+}
+
+// MessageBatchResult is a single line of the batch results JSONL stream.
+type MessageBatchResult struct {
+	CustomID string                 `json:"custom_id"`
+	Result   messageBatchResultBody `json:"result"`
+}
+
+const messageBatchesPath = "/messages/batches"
+
+// CreateMessageBatch submits a batch of Messages API requests for asynchronous processing.
+func (c *Client) CreateMessageBatch(items []CreateMessageBatchRequestItem) (*MessageBatch, error) {
+	if len(items) == 0 {
+		return nil, fmt.Errorf("at least one request is required")
+	}
+
+	body, err := json.Marshal(createMessageBatchBody{Requests: items})
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal batch request: %w", err)
+	}
+
+	responseBody, err := c.execRequest(http.MethodPost, c.BaseURL+messageBatchesPath, bytes.NewBuffer(body))
+	if err != nil {
+		return nil, err
+	}
+
+	var batch MessageBatch
+	if err := json.Unmarshal(responseBody, &batch); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal batch response: %w", err)
+	}
+	return &batch, nil
+}
+
+// GetMessageBatch retrieves the current status of a batch (GET /v1/messages/batches/{id}).
+func (c *Client) GetMessageBatch(batchID string) (*MessageBatch, error) {
+	if batchID == "" {
+		return nil, fmt.Errorf("batch id is required")
+	}
+
+	responseBody, err := c.execRequest(http.MethodGet, c.BaseURL+messageBatchesPath+"/"+url.PathEscape(batchID), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var batch MessageBatch
+	if err := json.Unmarshal(responseBody, &batch); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal batch: %w", err)
+	}
+	return &batch, nil
+}
+
+// CancelMessageBatch requests cancellation of a still-processing batch
+// (POST /v1/messages/batches/{id}/cancel). Already-completed requests are unaffected.
+func (c *Client) CancelMessageBatch(batchID string) error {
+	if batchID == "" {
+		return fmt.Errorf("batch id is required")
+	}
+	_, err := c.execRequest(http.MethodPost, c.BaseURL+messageBatchesPath+"/"+url.PathEscape(batchID)+"/cancel", nil)
+	return err
+}
+
+// GetMessageBatchResults streams and parses the batch's results file
+// (GET /v1/messages/batches/{id}/results), which is a JSONL document — one JSON
+// object per line, in no particular order. Only callable once processing_status
+// is "ended".
+func (c *Client) GetMessageBatchResults(batchID string) ([]MessageBatchResult, error) {
+	if batchID == "" {
+		return nil, fmt.Errorf("batch id is required")
+	}
+
+	responseBody, err := c.execRequest(http.MethodGet, c.BaseURL+messageBatchesPath+"/"+url.PathEscape(batchID)+"/results", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var results []MessageBatchResult
+	scanner := bufio.NewScanner(bytes.NewReader(responseBody))
+	scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		var result MessageBatchResult
+		if err := json.Unmarshal([]byte(line), &result); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal batch result line: %w", err)
+		}
+		results = append(results, result)
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("failed to read batch results: %w", err)
+	}
+	return results, nil
+}

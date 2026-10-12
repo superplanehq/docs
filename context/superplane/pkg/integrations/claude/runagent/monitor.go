@@ -1,0 +1,216 @@
+package runagent
+
+import (
+	"fmt"
+	"net/http"
+	"time"
+
+	"github.com/mitchellh/mapstructure"
+	"github.com/superplanehq/superplane/pkg/core"
+)
+
+// HandleWebhook — Managed Agents completion is observed via polling, not webhooks.
+func (a *RunAgent) HandleWebhook(ctx core.WebhookRequestContext) (int, *core.WebhookResponseBody, error) {
+	return http.StatusOK, nil, nil
+}
+
+func (a *RunAgent) Hooks() []core.Hook {
+	return []core.Hook{{
+		Name: "poll",
+		Type: core.HookTypeInternal,
+	}}
+}
+
+func (a *RunAgent) HandleHook(ctx core.ActionHookContext) error {
+	if ctx.Name == "poll" {
+		return a.poll(ctx)
+	}
+	return fmt.Errorf("unknown hook: %s", ctx.Name)
+}
+
+func (a *RunAgent) poll(ctx core.ActionHookContext) error {
+	if ctx.ExecutionState.IsFinished() {
+		return nil
+	}
+
+	metadata := ExecutionMetadata{}
+	if err := mapstructure.Decode(ctx.Metadata.Get(), &metadata); err != nil {
+		return fmt.Errorf("failed to decode metadata: %w", err)
+	}
+
+	if metadata.Session == nil || metadata.Session.ID == "" {
+		return nil
+	}
+
+	attempt, errs := parsePollParams(ctx)
+	persist := persistSessionFromConfig(ctx.Configuration, ctx.Logger)
+
+	client, err := NewClient(ctx.HTTP, ctx.Integration)
+	if err != nil {
+		return a.handleClientError(ctx, &metadata, attempt, errs, persist, err)
+	}
+
+	// The session's status is read before the timeout is declared: a session that
+	// already finished must report its real outcome, never "timeout".
+	sess, err := client.GetManagedSession(metadata.Session.ID)
+	if err != nil {
+		return a.handlePollError(ctx, client, &metadata, attempt, errs, persist, err)
+	}
+
+	if sess != nil && isSessionTerminal(sess.Status) {
+		return a.handleTerminalSession(ctx, client, &metadata, sess, attempt, errs, persist)
+	}
+
+	if attempt > maxPollAttempts {
+		return a.finishTimeout(ctx, client, &metadata, persist)
+	}
+
+	return a.scheduleNextPoll(ctx, attempt+1, 0)
+}
+
+func parsePollParams(ctx core.ActionHookContext) (int, int) {
+	attempt, errs := 1, 0
+	if a, ok := ctx.Parameters["attempt"].(float64); ok {
+		attempt = int(a)
+	}
+	if e, ok := ctx.Parameters["errors"].(float64); ok {
+		errs = int(e)
+	}
+	return attempt, errs
+}
+
+// handleTerminalSession emits the outcome of a session the API has confirmed is
+// finished, then reclaims it. No interrupt: there is nothing left to stop.
+func (a *RunAgent) handleTerminalSession(ctx core.ActionHookContext, client *Client, metadata *ExecutionMetadata, sess *ManagedSession, attempt, errs int, persist bool) error {
+	sm, err := client.GetSessionMessagesWithRetry(metadata.Session.ID, finalMessageReads, finalMessageDelay)
+	if (err != nil || sm == nil || !sm.Complete) && attempt <= maxPollAttempts {
+		// Give the event stream a chance to finish writing so we can assemble the
+		// full result. Once the budget is spent, emit the session's real terminal
+		// status with whatever we have — the API already confirmed the session
+		// finished, so this is not a timeout.
+		ctx.Logger.Warnf("Events not complete for session %s. Retrying poll.", metadata.Session.ID)
+		return a.scheduleNextPoll(ctx, attempt+1, errs)
+	}
+
+	if sm != nil && sm.Err != nil {
+		ctx.Logger.Errorf("Managed session %s failed: %s", metadata.Session.ID, sm.Err.Message)
+		mergeSessionIntoMetadata(metadata, sess)
+		_ = ctx.Metadata.Set(*metadata)
+		reclaimSession(client, metadata.Session.ID, persist, ctx.Logger)
+		cleanupManagedVaultFromHook(client, ctx, ctx.Logger.Warnf)
+		return ctx.ExecutionState.Fail("error", fmt.Sprintf("managed agent session failed: %s", sm.Err.Message))
+	}
+
+	out := buildOutputFromSessionMessages(sess.Status, metadata.Session.ID, sm)
+	if sm != nil {
+		// Only trust structured output once events are confirmed complete —
+		// past the poll budget, LastMessage may not be the real final message.
+		if sm.Complete {
+			applyStructuredOutput(&out, sess.Status, schemaFromConfiguration(ctx.Configuration))
+		}
+		out.Artifacts = CollectSessionArtifacts(client, metadata.Session.ID, sm.ExpectsArtifacts, ctx.Logger.Warnf)
+	}
+	RecordSessionUsage(ctx.Usage, ctx.Logger, sess)
+	if emitErr := ctx.ExecutionState.Emit(defaultChannel, payloadType, []any{out}); emitErr != nil {
+		return emitErr
+	}
+
+	// Only persist terminal status after successful emit
+	mergeSessionIntoMetadata(metadata, sess)
+	_ = ctx.Metadata.Set(*metadata)
+
+	reclaimSession(client, metadata.Session.ID, persist, ctx.Logger)
+	cleanupManagedVaultFromHook(client, ctx, ctx.Logger.Warnf)
+	return nil
+}
+
+// finishTimeout reports a run we stopped waiting on. The session was not
+// terminal on the read just above, so it is still working: interrupt and
+// reclaim it, because nothing polls this execution again.
+func (a *RunAgent) finishTimeout(ctx core.ActionHookContext, client *Client, metadata *ExecutionMetadata, persist bool) error {
+	ctx.Logger.Errorf("Managed session %s exceeded max poll attempts", metadata.Session.ID)
+	out := buildOutput("timeout", metadata.Session.ID)
+	if emitErr := ctx.ExecutionState.Emit(defaultChannel, payloadType, []any{out}); emitErr != nil {
+		return emitErr
+	}
+	stopAndReclaim(client, metadata.Session.ID, persist, ctx.Logger)
+	cleanupManagedVaultFromHook(client, ctx, ctx.Logger.Warnf)
+	return nil
+}
+
+// handlePollError retries a failed status read, then reports an error and
+// reclaims. We can no longer see the session, so assume it is still running.
+func (a *RunAgent) handlePollError(ctx core.ActionHookContext, client *Client, metadata *ExecutionMetadata, attempt, errs int, persist bool, cause error) error {
+	errs++
+	if errs < maxPollErrors {
+		return a.scheduleNextPoll(ctx, attempt+1, errs)
+	}
+	ctx.Logger.Errorf("Managed session %s: polling failed repeatedly: %v", metadata.Session.ID, cause)
+	out := buildOutput("error", metadata.Session.ID)
+	if emitErr := ctx.ExecutionState.Emit(defaultChannel, payloadType, []any{out}); emitErr != nil {
+		return emitErr
+	}
+	stopAndReclaim(client, metadata.Session.ID, persist, ctx.Logger)
+	cleanupManagedVaultFromHook(client, ctx, ctx.Logger.Warnf)
+	return nil
+}
+
+// handleClientError surfaces client/config failures as errors. This counts
+// attempts rather than polling forever: the timeout check now sits below the
+// status read, so a client that never builds would otherwise never terminate.
+func (a *RunAgent) handleClientError(ctx core.ActionHookContext, metadata *ExecutionMetadata, attempt, errs int, persist bool, cause error) error {
+	errs++
+	if errs < maxPollErrors {
+		return a.scheduleNextPoll(ctx, attempt+1, errs)
+	}
+	ctx.Logger.Errorf("Managed session %s: cannot create client to poll: %v", metadata.Session.ID, cause)
+	out := buildOutput("error", metadata.Session.ID)
+	if emitErr := ctx.ExecutionState.Emit(defaultChannel, payloadType, []any{out}); emitErr != nil {
+		return emitErr
+	}
+	// Best-effort reclaim: retry building a client now that the run is finished.
+	if c, cErr := NewClient(ctx.HTTP, ctx.Integration); cErr == nil {
+		stopAndReclaim(c, metadata.Session.ID, persist, ctx.Logger)
+		cleanupManagedVaultFromHook(c, ctx, ctx.Logger.Warnf)
+	} else {
+		ctx.Logger.Warnf("Cannot reclaim managed session %s: client unavailable: %v", metadata.Session.ID, cErr)
+	}
+	return nil
+}
+
+func (a *RunAgent) scheduleNextPoll(ctx core.ActionHookContext, nextAttempt, errors int) error {
+	interval := initialPoll * time.Duration(1<<uint(min(nextAttempt-1, 8)))
+	if interval > maxPollInterval {
+		interval = maxPollInterval
+	}
+	return ctx.Requests.ScheduleActionCall("poll", map[string]any{
+		"attempt": nextAttempt,
+		"errors":  errors,
+	}, interval)
+}
+
+func (a *RunAgent) Cancel(ctx core.ExecutionContext) error {
+	metadata := ExecutionMetadata{}
+	if err := mapstructure.Decode(ctx.Metadata.Get(), &metadata); err != nil {
+		return nil
+	}
+	if metadata.Session == nil || metadata.Session.ID == "" {
+		return nil
+	}
+	client, err := NewClient(ctx.HTTP, ctx.Integration)
+	if err != nil {
+		return nil
+	}
+	if err := client.SendManagedSessionInterrupt(metadata.Session.ID); err != nil {
+		ctx.Logger.Warnf("Failed to interrupt managed session %s: %v", metadata.Session.ID, err)
+	} else {
+		ctx.Logger.Infof("Sent interrupt to managed session %s", metadata.Session.ID)
+	}
+	// Best effort cleanup; may fail if session is still running. This ignores
+	// "Keep Session After Run" on purpose: the run never finished, and
+	// cancelling often accompanies deleting the node, which drops the only
+	// record of this session ID.
+	_ = client.DeleteManagedSession(metadata.Session.ID)
+	cleanupManagedVault(client, ctx, ctx.Logger.Warnf)
+	return nil
+}

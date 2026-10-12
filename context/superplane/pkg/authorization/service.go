@@ -1,0 +1,1405 @@
+package authorization
+
+import (
+	"bytes"
+	"context"
+	"encoding/csv"
+	"fmt"
+	"io"
+	"os"
+	"strings"
+
+	"github.com/casbin/casbin/v2"
+	"github.com/casbin/casbin/v2/model"
+	"github.com/casbin/casbin/v2/util"
+	gormadapter "github.com/casbin/gorm-adapter/v3"
+	"github.com/google/uuid"
+	log "github.com/sirupsen/logrus"
+	"github.com/superplanehq/superplane/pkg/database"
+	"github.com/superplanehq/superplane/pkg/models"
+	"gorm.io/gorm"
+)
+
+const (
+	OrgIDTemplate = "{ORG_ID}"
+)
+
+// implements Authorization
+var _ Authorization = (*AuthService)(nil)
+
+type AuthService struct {
+	enforcer           *casbin.SyncedEnforcer
+	casbinModel        model.Model
+	orgPolicyTemplates [][5]string
+}
+
+func NewAuthService() (*AuthService, error) {
+	modelPath := os.Getenv("RBAC_MODEL_PATH")
+	orgPolicyPath := os.Getenv("RBAC_ORG_POLICY_PATH")
+
+	casbinModel, err := model.NewModelFromFile(modelPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load casbin model: %w", err)
+	}
+
+	adapter, err := newCasbinAdapter(database.Conn())
+	if err != nil {
+		return nil, fmt.Errorf("failed to create casbin adapter: %w", err)
+	}
+
+	enforcer, err := casbin.NewSyncedEnforcer(casbinModel, adapter)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create casbin enforcer: %w", err)
+	}
+
+	enforcer.EnableAutoSave(true)
+	enforcer.AddNamedDomainMatchingFunc("g", "keyMatch", util.KeyMatch)
+
+	if err := enforcer.LoadPolicy(); err != nil {
+		return nil, fmt.Errorf("failed to load policies: %w", err)
+	}
+
+	orgPoliciesCsv, err := os.ReadFile(orgPolicyPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read org policies: %w", err)
+	}
+
+	orgPolicyTemplates, err := parsePoliciesFromCsv(orgPoliciesCsv)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse org policies: %w", err)
+	}
+
+	service := &AuthService{
+		enforcer:           enforcer,
+		casbinModel:        casbinModel,
+		orgPolicyTemplates: orgPolicyTemplates,
+	}
+
+	if err := service.loadDefaultPolicies(); err != nil {
+		return nil, fmt.Errorf("failed to load default policies: %w", err)
+	}
+
+	return service, nil
+}
+
+func (a *AuthService) CheckOrganizationPermission(ctx context.Context, userID, orgID, resource, action string) (bool, error) {
+	return a.checkPermission(ctx, userID, orgID, models.DomainTypeOrganization, resource, action)
+}
+
+func (a *AuthService) IsValidPermission(domainType string, permission *Permission) bool {
+	if permission == nil {
+		return false
+	}
+
+	if domainType != models.DomainTypeOrganization {
+		return false
+	}
+
+	for _, policy := range a.orgPolicyTemplates {
+		if policy[0] != "p" {
+			continue
+		}
+		if policy[3] == permission.Resource && policy[4] == permission.Action {
+			return true
+		}
+	}
+
+	return false
+}
+
+func policyFiltersForDomain(domainType, domainID string) []gormadapter.Filter {
+	domain := prefixDomain(domainType, domainID)
+	policyDomains := []string{domain}
+	if domainType == models.DomainTypeOrganization {
+		policyDomains = append(policyDomains, "/org/*")
+	}
+
+	return []gormadapter.Filter{
+		{
+			Ptype: []string{"p"},
+			V1:    policyDomains,
+		},
+		{
+			Ptype: []string{"g"},
+			V2:    policyDomains,
+		},
+	}
+}
+
+func (a *AuthService) newReadEnforcer(ctx context.Context, filters []gormadapter.Filter) (casbin.IEnforcer, error) {
+	adapter, err := newCasbinFilteredAdapter(database.DB(ctx))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create casbin adapter: %w", err)
+	}
+
+	enforcer, err := casbin.NewEnforcer(a.casbinModel.Copy(), adapter)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create casbin enforcer: %w", err)
+	}
+
+	enforcer.EnableAutoSave(false)
+	enforcer.AddNamedDomainMatchingFunc("g", "keyMatch", util.KeyMatch)
+
+	if err := enforcer.LoadFilteredPolicy(filters); err != nil {
+		return nil, fmt.Errorf("failed to load filtered policy: %w", err)
+	}
+
+	if err := a.loadDefaultPoliciesOn(enforcer); err != nil {
+		return nil, fmt.Errorf("failed to load default policies: %w", err)
+	}
+
+	return enforcer, nil
+}
+
+func (a *AuthService) withReadEnforcer(ctx context.Context, domainType, domainID string, fn func(casbin.IEnforcer) error) error {
+	enforcer, err := a.newReadEnforcer(ctx, policyFiltersForDomain(domainType, domainID))
+	if err != nil {
+		return err
+	}
+
+	return fn(enforcer)
+}
+
+func (a *AuthService) checkPermission(ctx context.Context, userID, domainID, domainType, resource, action string) (bool, error) {
+	domain := prefixDomain(domainType, domainID)
+	filters := policyFiltersForDomain(domainType, domainID)
+
+	enforcer, err := a.newReadEnforcer(ctx, filters)
+	if err != nil {
+		return false, err
+	}
+
+	prefixedUserID := prefixUserID(userID)
+	allowed, err := enforcer.Enforce(prefixedUserID, domain, resource, action)
+	if err != nil {
+		return false, err
+	}
+
+	return allowed, nil
+}
+
+func (a *AuthService) CreateGroup(domainID string, domainType string, groupName string, role string, displayName string, description string) error {
+	domain := prefixDomain(domainType, domainID)
+	prefixedRole := prefixRoleName(role)
+
+	if !a.roleExistsInDomain(role, domain) {
+		return fmt.Errorf("invalid role %s for domain type %s", role, domainType)
+	}
+
+	prefixedGroupName := prefixGroupName(groupName)
+
+	tx := database.Conn().Begin()
+	err := models.UpsertGroupMetadataInTransaction(tx, groupName, domainType, domainID, displayName, description)
+	if err != nil {
+		tx.Rollback()
+		return fmt.Errorf("failed to create group metadata: %w", err)
+	}
+
+	ruleAdded, err := a.enforcer.AddGroupingPolicy(prefixedGroupName, prefixedRole, domain)
+	if err != nil {
+		tx.Rollback()
+		return fmt.Errorf("failed to create group: %w", err)
+	}
+
+	if !ruleAdded {
+		tx.Rollback()
+		return fmt.Errorf("group %s already exists with role %s in %s %s", groupName, role, domainType, domainID)
+	}
+
+	return tx.Commit().Error
+}
+
+func (a *AuthService) DeleteGroup(domainID string, domainType string, groupName string) error {
+	domain := prefixDomain(domainType, domainID)
+	prefixedGroupName := prefixGroupName(groupName)
+
+	tx := database.Conn().Begin()
+	err := models.DeleteGroupMetadataInTransaction(tx, groupName, domainType, domainID)
+	if err != nil {
+		tx.Rollback()
+		return fmt.Errorf("failed to delete group metadata: %w", err)
+	}
+
+	db := a.enforcer.GetAdapter().(*gormadapter.Adapter)
+	err = db.Transaction(a.enforcer, func(enforcerTx casbin.IEnforcer) error {
+		_, err := enforcerTx.RemoveFilteredGroupingPolicy(0, prefixedGroupName, "", domain)
+		if err != nil {
+			return fmt.Errorf("failed to remove group role assignments: %w", err)
+		}
+
+		_, err = enforcerTx.RemoveFilteredGroupingPolicy(1, prefixedGroupName, domain)
+		if err != nil {
+			return fmt.Errorf("failed to remove users from group: %w", err)
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		tx.Rollback()
+		return fmt.Errorf("failed to remove casbin grouping policies for group: %w", err)
+	}
+
+	return tx.Commit().Error
+}
+
+func (a *AuthService) UpdateGroup(domainID string, domainType string, groupName string, newRole string, displayName string, description string) error {
+	if err := models.ValidateDomainType(domainType); err != nil {
+		return err
+	}
+
+	domain := prefixDomain(domainType, domainID)
+
+	if !a.roleExistsInDomain(newRole, domain) {
+		return fmt.Errorf("invalid role %s for domain type %s", newRole, domainType)
+	}
+
+	prefixedGroupName := prefixGroupName(groupName)
+
+	currentRole, err := a.GetGroupRole(context.Background(), domainID, domainType, groupName)
+	if err != nil {
+		return fmt.Errorf("failed to get current group role: %w", err)
+	}
+
+	currentGroupMetadata, err := models.FindGroupMetadata(groupName, domainType, domainID)
+	if err != nil {
+		return fmt.Errorf("failed to get current group metadata: %w", err)
+	}
+
+	tx := database.Conn().Begin()
+	err = models.UpsertGroupMetadataInTransaction(
+		tx,
+		groupName,
+		domainType,
+		domainID,
+		useIfNonEmpty(displayName, currentGroupMetadata.DisplayName),
+		useIfNonEmpty(description, currentGroupMetadata.Description),
+	)
+
+	if err != nil {
+		tx.Rollback()
+		return fmt.Errorf("failed to update group metadata: %w", err)
+	}
+
+	prefixedOldRole := prefixRoleName(currentRole)
+	db := a.enforcer.GetAdapter().(*gormadapter.Adapter)
+	err = db.Transaction(a.enforcer, func(enforcerTx casbin.IEnforcer) error {
+		ruleRemoved, err := enforcerTx.RemoveGroupingPolicy(prefixedGroupName, prefixedOldRole, domain)
+		if err != nil {
+			return fmt.Errorf("failed to remove old group role: %w", err)
+		}
+		if !ruleRemoved {
+			return fmt.Errorf("old group role assignment not found")
+		}
+
+		prefixedNewRole := prefixRoleName(newRole)
+		ruleAdded, err := enforcerTx.AddGroupingPolicy(prefixedGroupName, prefixedNewRole, domain)
+		if err != nil {
+			return fmt.Errorf("failed to add new group role: %w", err)
+		}
+		if !ruleAdded {
+			return fmt.Errorf("failed to add new group role assignment")
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		tx.Rollback()
+		return fmt.Errorf("failed to update casbin grouping policies: %w", err)
+	}
+
+	return tx.Commit().Error
+}
+
+func (a *AuthService) AddUserToGroup(domainID string, domainType string, userID string, group string) error {
+	domain := prefixDomain(domainType, domainID)
+	prefixedUserID := prefixUserID(userID)
+
+	groupExists, err := a.groupExistsInDomain(group, domain)
+	if err != nil {
+		return fmt.Errorf("failed to check group existence: %w", err)
+	}
+
+	if !groupExists {
+		return fmt.Errorf("group %s does not exist in %s %s", group, domainType, domainID)
+	}
+
+	prefixedGroupName := prefixGroupName(group)
+	ruleAdded, err := a.enforcer.AddGroupingPolicy(prefixedUserID, prefixedGroupName, domain)
+	if err != nil {
+		return fmt.Errorf("failed to add user to group: %w", err)
+	}
+
+	if !ruleAdded {
+		log.Infof("user %s is already a member of group %s", userID, group)
+	}
+
+	return nil
+}
+
+func (a *AuthService) RemoveUserFromGroup(domainID string, domainType string, userID string, group string) error {
+	domain := prefixDomain(domainType, domainID)
+	prefixedGroupName := prefixGroupName(group)
+	prefixedUserID := prefixUserID(userID)
+
+	ruleRemoved, err := a.enforcer.RemoveGroupingPolicy(prefixedUserID, prefixedGroupName, domain)
+	if err != nil {
+		return fmt.Errorf("failed to remove user from group: %w", err)
+	}
+
+	if !ruleRemoved {
+		return fmt.Errorf("user %s is not a member of group %s", userID, group)
+	}
+
+	return nil
+}
+
+func (a *AuthService) GetGroupUsers(ctx context.Context, domainID string, domainType string, group string) ([]string, error) {
+	domain := prefixDomain(domainType, domainID)
+	prefixedGroupName := prefixGroupName(group)
+
+	var users []string
+	err := a.withReadEnforcer(ctx, domainType, domainID, func(enforcer casbin.IEnforcer) error {
+		exists, err := a.groupExistsWithEnforcer(enforcer, group, domain)
+		if err != nil {
+			return fmt.Errorf("failed to check group existence: %w", err)
+		}
+		if !exists {
+			return fmt.Errorf("group %s does not exist in %s %s", group, domainType, domainID)
+		}
+
+		policies, err := enforcer.GetFilteredGroupingPolicy(1, prefixedGroupName, domain)
+		if err != nil {
+			return fmt.Errorf("failed to get group users: %w", err)
+		}
+
+		for _, policy := range policies {
+			unprefixedUserID := strings.TrimPrefix(policy[0], "/users/")
+			users = append(users, unprefixedUserID)
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return users, nil
+}
+
+func (a *AuthService) groupExistsInDomain(group, domain string) (bool, error) {
+	return a.groupExistsWithEnforcer(a.enforcer, group, domain)
+}
+
+func (a *AuthService) groupExistsWithEnforcer(enforcer casbin.IEnforcer, group, domain string) (bool, error) {
+	prefixedGroupName := prefixGroupName(group)
+	groups, err := enforcer.GetFilteredGroupingPolicy(0, prefixedGroupName, "", domain)
+	if err != nil {
+		return false, err
+	}
+
+	for _, g := range groups {
+		if len(g) >= 3 && g[2] == domain {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
+func (a *AuthService) GetUserGroups(ctx context.Context, domainID string, domainType string, userID string) ([]string, error) {
+	domain := prefixDomain(domainType, domainID)
+	prefixedUserID := prefixUserID(userID)
+
+	var userGroups []string
+	err := a.withReadEnforcer(ctx, domainType, domainID, func(enforcer casbin.IEnforcer) error {
+		groups, err := enforcer.GetFilteredGroupingPolicy(0, prefixedUserID, "", domain)
+		if err != nil {
+			return fmt.Errorf("failed to get user groups: %w", err)
+		}
+
+		for _, group := range groups {
+			if strings.HasPrefix(group[1], "/groups/") {
+				userGroups = append(userGroups, strings.TrimPrefix(group[1], "/groups/"))
+			}
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return userGroups, nil
+}
+
+func (a *AuthService) GetGroups(ctx context.Context, domainID string, domainType string) ([]string, error) {
+	domain := prefixDomain(domainType, domainID)
+
+	var groups []string
+	err := a.withReadEnforcer(ctx, domainType, domainID, func(enforcer casbin.IEnforcer) error {
+		policies, err := enforcer.GetFilteredGroupingPolicy(2, domain)
+		if err != nil {
+			return fmt.Errorf("failed to get groups: %w", err)
+		}
+
+		groupMap := make(map[string]bool)
+		for _, policy := range policies {
+			if strings.HasPrefix(policy[0], "/groups/") {
+				groupName := policy[0][len("/groups/"):]
+				groupMap[groupName] = true
+			}
+		}
+
+		groups = make([]string, 0, len(groupMap))
+		for group := range groupMap {
+			groups = append(groups, group)
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return groups, nil
+}
+
+func (a *AuthService) GetGroupRole(ctx context.Context, domainID string, domainType string, group string) (string, error) {
+	domain := prefixDomain(domainType, domainID)
+	prefixedGroupName := prefixGroupName(group)
+
+	var role string
+	err := a.withReadEnforcer(ctx, domainType, domainID, func(enforcer casbin.IEnforcer) error {
+		roles := enforcer.GetRolesForUserInDomain(prefixedGroupName, domain)
+		unprefixedRoles := []string{}
+		for _, r := range roles {
+			if strings.HasPrefix(r, "/roles/") {
+				unprefixedRoles = append(unprefixedRoles, strings.TrimPrefix(r, "/roles/"))
+			}
+		}
+		if len(unprefixedRoles) == 0 {
+			return fmt.Errorf("group %s not found in domain %s", group, domainID)
+		}
+
+		role = unprefixedRoles[0]
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+
+	return role, nil
+}
+
+func (a *AuthService) AssignRole(userID, role, domainID string, domainType string) error {
+	adapter := a.enforcer.GetAdapter().(*gormadapter.Adapter)
+
+	return adapter.Transaction(a.enforcer, func(enforcerTx casbin.IEnforcer) error {
+		return a.assignRoleWithEnforcer(enforcerTx, userID, role, domainID, domainType)
+	})
+}
+
+func (a *AuthService) assignRoleWithEnforcer(enforcer casbin.IEnforcer, userID, role, domainID, domainType string) error {
+	domain := prefixDomain(domainType, domainID)
+	prefixedRole := prefixRoleName(role)
+
+	// Check if it's a default role
+	validRoles := map[string][]string{
+		models.DomainTypeOrganization: models.DefaultOrganizationRoles,
+	}
+
+	isValidDefaultRole := false
+	if roles, exists := validRoles[domainType]; exists {
+		isValidDefaultRole = contains(roles, role)
+	}
+
+	// If not a default role, check if it's a custom role that exists
+	if !isValidDefaultRole {
+		policies, _ := enforcer.GetFilteredPolicy(0, prefixedRole, domain)
+		if len(policies) == 0 {
+			return fmt.Errorf("invalid role %s for domain type %s", role, domainType)
+		}
+	}
+
+	prefixedUserID := prefixUserID(userID)
+	existingRoles, err := enforcer.GetFilteredGroupingPolicy(0, prefixedUserID, "", domain)
+	if err != nil {
+		return fmt.Errorf("failed to get existing roles for user: %w", err)
+	}
+
+	for _, existingRole := range existingRoles {
+		if strings.HasPrefix(existingRole[1], "/roles/") {
+			_, err := enforcer.RemoveGroupingPolicy(prefixedUserID, existingRole[1], domain)
+			if err != nil {
+				log.Warnf("failed to remove existing role %s for user %s: %v", existingRole[1], userID, err)
+			}
+		}
+	}
+
+	ruleAdded, err := enforcer.AddGroupingPolicy(prefixedUserID, prefixedRole, domain)
+	if err != nil {
+		return fmt.Errorf("failed to add role: %w", err)
+	}
+
+	if !ruleAdded {
+		log.Infof("role %s already exists for user %s", role, userID)
+	}
+
+	return nil
+}
+
+func (a *AuthService) RemoveRole(userID, role, domainID string, domainType string) error {
+	domain := prefixDomain(domainType, domainID)
+	prefixedRole := prefixRoleName(role)
+	prefixedUserID := prefixUserID(userID)
+	ruleRemoved, err := a.enforcer.RemoveGroupingPolicy(prefixedUserID, prefixedRole, domain)
+	if err != nil {
+		return fmt.Errorf("failed to remove role: %w", err)
+	}
+	if !ruleRemoved {
+		log.Infof("role %s not found for user %s", role, userID)
+	}
+
+	return nil
+}
+
+func (a *AuthService) GetOrgUsersForRole(ctx context.Context, role string, orgID string) ([]string, error) {
+	prefixedRole := prefixRoleName(role)
+	orgDomain := prefixDomain(models.DomainTypeOrganization, orgID)
+
+	var unprefixedUsers []string
+	err := a.withReadEnforcer(ctx, models.DomainTypeOrganization, orgID, func(enforcer casbin.IEnforcer) error {
+		users, err := enforcer.GetUsersForRole(prefixedRole, orgDomain)
+		if err != nil {
+			return err
+		}
+
+		for _, user := range users {
+			if strings.HasPrefix(user, "/users/") {
+				unprefixedUsers = append(unprefixedUsers, strings.TrimPrefix(user, "/users/"))
+			}
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return unprefixedUsers, nil
+}
+
+func (a *AuthService) SetupOrganization(tx *gorm.DB, orgID, ownerID string) error {
+	//
+	// First, we update our own database tables,
+	// with the metadata about the roles that will be created in casbin.
+	//
+	log.Infof("Setting up default organization role metadata for %s", orgID)
+	err := a.setupDefaultOrganizationRoleMetadataInTransaction(tx, orgID)
+	if err != nil {
+		log.Errorf("Error setting up default organization role metadata for %s: %v", orgID, err)
+		return err
+	}
+
+	log.Infof("Role metadata added - assigning owner for %s", orgID)
+
+	ownerUUID, parseErr := uuid.Parse(ownerID)
+	if parseErr != nil {
+		return fmt.Errorf("invalid owner ID: %w", parseErr)
+	}
+
+	if err := models.SetUserIsOwner(tx, ownerUUID, true); err != nil {
+		log.Errorf("Error setting owner flag for %s: %v", orgID, err)
+		return fmt.Errorf("failed to set organization owner: %w", err)
+	}
+
+	//
+	// Then, we make the casbin admin assignment in a transaction.
+	// If this succeeds, we commit the tx we started above.
+	// Otherwise, we fail it, rolling back the metadata changes.
+	// The owner flag lives on users. Write it on the caller
+	// transaction, not inside the Casbin adapter session.
+	//
+	db := a.enforcer.GetAdapter().(*gormadapter.Adapter)
+	err = db.Transaction(a.enforcer, func(enforcerTx casbin.IEnforcer) error {
+		err = a.assignRoleWithEnforcer(enforcerTx, ownerID, models.RoleOrgAdmin, orgID, models.DomainTypeOrganization)
+		if err != nil {
+			return fmt.Errorf("failed to assign organization admin: %w", err)
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		log.Errorf("Error assigning owner for %s: %v", orgID, err)
+		return fmt.Errorf("failed to setup organization roles for %s: %w", orgID, err)
+	}
+
+	log.Infof("Owner assigned - loading policies for %s", orgID)
+
+	return nil
+}
+
+func (a *AuthService) DestroyOrganization(tx *gorm.DB, orgID string) error {
+	domain := prefixDomain(models.DomainTypeOrganization, orgID)
+
+	db := a.enforcer.GetAdapter().(*gormadapter.Adapter)
+	err := db.Transaction(a.enforcer, func(enforcerTx casbin.IEnforcer) error {
+		_, err := a.enforcer.RemoveFilteredGroupingPolicy(2, domain)
+		if err != nil {
+			return fmt.Errorf("failed to remove organization roles: %w", err)
+		}
+
+		_, err = a.enforcer.RemoveFilteredPolicy(1, domain)
+		if err != nil {
+			return fmt.Errorf("failed to remove organization policies: %w", err)
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return fmt.Errorf("failed to remove policies for %s: %w", orgID, err)
+	}
+
+	err = models.DeleteMetadataForOrganization(tx, models.DomainTypeOrganization, orgID)
+	if err != nil {
+		return fmt.Errorf("failed to delete organization metadata for %s: %w", orgID, err)
+	}
+
+	return nil
+}
+
+func (a *AuthService) GetUserRolesForOrg(ctx context.Context, userID string, orgID string) ([]*RoleDefinition, error) {
+	orgDomain := prefixDomain(models.DomainTypeOrganization, orgID)
+	filters := policyFiltersForDomain(models.DomainTypeOrganization, orgID)
+
+	enforcer, err := a.newReadEnforcer(ctx, filters)
+	if err != nil {
+		return nil, err
+	}
+
+	prefixedUserID := prefixUserID(userID)
+	roleNames, err := enforcer.GetImplicitRolesForUser(prefixedUserID, orgDomain)
+	if err != nil {
+		return nil, err
+	}
+
+	unprefixedRoleNames := []string{}
+	for _, roleName := range roleNames {
+		if strings.HasPrefix(roleName, "/roles/") {
+			unprefixedRoleNames = append(unprefixedRoleNames, strings.TrimPrefix(roleName, "/roles/"))
+		}
+	}
+
+	roles := []*RoleDefinition{}
+	for _, roleName := range unprefixedRoleNames {
+		roleDef, err := a.getRoleDefinition(enforcer, roleName, models.DomainTypeOrganization, orgID)
+		if err != nil {
+			continue
+		}
+		roles = append(roles, roleDef)
+	}
+
+	return roles, nil
+}
+
+func (a *AuthService) GetRoleDefinition(ctx context.Context, roleName string, domainType string, domainID string) (*RoleDefinition, error) {
+	var roleDefinition *RoleDefinition
+	err := a.withReadEnforcer(ctx, domainType, domainID, func(enforcer casbin.IEnforcer) error {
+		var err error
+		roleDefinition, err = a.getRoleDefinition(enforcer, roleName, domainType, domainID)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return roleDefinition, nil
+}
+
+func (a *AuthService) getRoleDefinition(enforcer casbin.IEnforcer, roleName string, domainType string, domainID string) (*RoleDefinition, error) {
+	if err := models.ValidateDomainType(domainType); err != nil {
+		return nil, err
+	}
+
+	domain := prefixDomain(domainType, domainID)
+	prefixedRoleName := prefixRoleName(roleName)
+
+	// For custom roles, check if role exists by looking for policies
+	if !a.IsDefaultRole(roleName, domainType) {
+		// For custom roles, check if role exists by looking for policies
+		policies, _ := enforcer.GetFilteredPolicy(0, prefixedRoleName, domain)
+		groupingPolicies, _ := enforcer.GetFilteredGroupingPolicy(0, prefixedRoleName, "", domain)
+		if len(policies) == 0 && len(groupingPolicies) == 0 {
+			return nil, fmt.Errorf("role %s not found in domain %s", roleName, domain)
+		}
+	}
+
+	// For default roles, show all permissions (including inherited)
+	// For custom roles, show only direct permissions
+	var permissions []*Permission
+	if a.IsDefaultRole(roleName, domainType) {
+		permissions = a.getRolePermissions(enforcer, roleName, domain, domainType)
+	} else {
+		permissions = a.getDirectRolePermissions(enforcer, roleName, domain, domainType)
+	}
+
+	roleDefinition := &RoleDefinition{
+		Name:        roleName,
+		DomainType:  domainType,
+		Description: a.getRoleDescription(roleName),
+		Permissions: permissions,
+		Readonly:    true,
+	}
+
+	inheritedRole := a.getInheritedRole(enforcer, roleName, domain, domainType)
+	if inheritedRole != nil {
+		roleDefinition.InheritsFrom = inheritedRole
+	}
+
+	return roleDefinition, nil
+}
+
+func (a *AuthService) GetAllRoleDefinitions(ctx context.Context, domainType string, domainID string) ([]*RoleDefinition, error) {
+	domain := prefixDomain(domainType, domainID)
+
+	var roleDefinitions []*RoleDefinition
+	err := a.withReadEnforcer(ctx, domainType, domainID, func(enforcer casbin.IEnforcer) error {
+		roles, err := a.getRolesFromPoliciesWithEnforcer(enforcer, domain)
+		if err != nil {
+			return fmt.Errorf("failed to get roles for domain %s: %w", domain, err)
+		}
+
+		for _, roleName := range roles {
+			roleDef, err := a.getRoleDefinition(enforcer, roleName, domainType, domainID)
+			if err != nil {
+				continue
+			}
+			roleDefinitions = append(roleDefinitions, roleDef)
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return roleDefinitions, nil
+}
+
+func (a *AuthService) GetRolePermissions(ctx context.Context, roleName string, domainType string, domainID string) ([]*Permission, error) {
+	if err := models.ValidateDomainType(domainType); err != nil {
+		return nil, err
+	}
+
+	domain := prefixDomain(domainType, domainID)
+	prefixedRoleName := prefixRoleName(roleName)
+
+	var permissions []*Permission
+	err := a.withReadEnforcer(ctx, domainType, domainID, func(enforcer casbin.IEnforcer) error {
+		if !a.IsDefaultRole(roleName, domainType) {
+			policies, _ := enforcer.GetFilteredPolicy(0, prefixedRoleName, domain)
+			groupingPolicies, _ := enforcer.GetFilteredGroupingPolicy(0, prefixedRoleName, "", domain)
+			if len(policies) == 0 && len(groupingPolicies) == 0 {
+				return fmt.Errorf("role %s not found in domain %s", roleName, domain)
+			}
+		}
+
+		permissions = a.getRolePermissions(enforcer, roleName, domain, domainType)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return permissions, nil
+}
+
+func (a *AuthService) GetRoleHierarchy(ctx context.Context, roleName string, domainType string, domainID string) ([]string, error) {
+	if err := models.ValidateDomainType(domainType); err != nil {
+		return nil, err
+	}
+
+	domain := prefixDomain(domainType, domainID)
+	prefixedRoleName := prefixRoleName(roleName)
+
+	var hierarchy []string
+	err := a.withReadEnforcer(ctx, domainType, domainID, func(enforcer casbin.IEnforcer) error {
+		if !a.IsDefaultRole(roleName, domainType) {
+			policies, _ := enforcer.GetFilteredPolicy(0, prefixedRoleName, domain)
+			groupingPolicies, _ := enforcer.GetFilteredGroupingPolicy(0, prefixedRoleName, "", domain)
+			if len(policies) == 0 && len(groupingPolicies) == 0 {
+				return fmt.Errorf("role %s not found in domain %s", roleName, domain)
+			}
+		}
+
+		implicitRoles, err := enforcer.GetImplicitRolesForUser(roleName, domain)
+		if err != nil {
+			return fmt.Errorf("failed to get role hierarchy: %w", err)
+		}
+
+		hierarchy = []string{roleName}
+		for _, role := range implicitRoles {
+			if role != roleName {
+				hierarchy = append(hierarchy, role)
+			}
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return hierarchy, nil
+}
+
+func (a *AuthService) CreateCustomRole(domainID string, roleDefinition *RoleDefinition) error {
+	if a.IsDefaultRole(roleDefinition.Name, roleDefinition.DomainType) {
+		return fmt.Errorf("cannot create custom role with default role name: %s", roleDefinition.Name)
+	}
+
+	domain := prefixDomain(roleDefinition.DomainType, domainID)
+	prefixedRoleName := prefixRoleName(roleDefinition.Name)
+
+	if roleDefinition.InheritsFrom != nil {
+		if !a.IsDefaultRole(roleDefinition.InheritsFrom.Name, roleDefinition.DomainType) {
+			prefixedInheritedRole := prefixRoleName(roleDefinition.InheritsFrom.Name)
+			policies, _ := a.enforcer.GetFilteredPolicy(0, prefixedInheritedRole, domain)
+			if len(policies) == 0 {
+				return fmt.Errorf("inherited role not found: %s", roleDefinition.InheritsFrom.Name)
+			}
+		}
+	}
+
+	tx := database.Conn().Begin()
+	err := models.UpsertRoleMetadataInTransaction(tx, roleDefinition.Name, roleDefinition.DomainType, domainID, roleDefinition.DisplayName, roleDefinition.Description)
+	if err != nil {
+		tx.Rollback()
+		return fmt.Errorf("failed to upsert role metadata for role %s: %w", roleDefinition.Name, err)
+	}
+
+	db := a.enforcer.GetAdapter().(*gormadapter.Adapter)
+	err = db.Transaction(a.enforcer, func(enforcerTx casbin.IEnforcer) error {
+		for _, permission := range roleDefinition.Permissions {
+			_, err := enforcerTx.AddPolicy(prefixedRoleName, domain, permission.Resource, permission.Action)
+			if err != nil {
+				return fmt.Errorf("failed to add policy for role %s: %w", roleDefinition.Name, err)
+			}
+		}
+
+		if roleDefinition.InheritsFrom != nil {
+			prefixedInheritedRole := prefixRoleName(roleDefinition.InheritsFrom.Name)
+			_, err := enforcerTx.AddGroupingPolicy(prefixedRoleName, prefixedInheritedRole, domain)
+			if err != nil {
+				return fmt.Errorf("failed to add inheritance for role %s: %w", roleDefinition.Name, err)
+			}
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		tx.Rollback()
+		return fmt.Errorf("failed to create custom role: %w", err)
+	}
+
+	return tx.Commit().Error
+}
+
+func (a *AuthService) UpdateCustomRole(domainID string, roleDefinition *RoleDefinition) error {
+	if a.IsDefaultRole(roleDefinition.Name, roleDefinition.DomainType) {
+		return fmt.Errorf("cannot update default role: %s", roleDefinition.Name)
+	}
+
+	domain := prefixDomain(roleDefinition.DomainType, domainID)
+	prefixedRoleName := prefixRoleName(roleDefinition.Name)
+
+	existingPolicies, _ := a.enforcer.GetFilteredPolicy(0, prefixedRoleName, domain)
+	if len(existingPolicies) == 0 {
+		return fmt.Errorf("role %s not found in domain %s", roleDefinition.Name, domain)
+	}
+
+	if roleDefinition.InheritsFrom != nil {
+		if !a.IsDefaultRole(roleDefinition.InheritsFrom.Name, roleDefinition.DomainType) {
+			prefixedInheritedRole := prefixRoleName(roleDefinition.InheritsFrom.Name)
+			policies, _ := a.enforcer.GetFilteredPolicy(0, prefixedInheritedRole, domain)
+			if len(policies) == 0 {
+				return fmt.Errorf("inherited role not found: %s", roleDefinition.InheritsFrom.Name)
+			}
+		}
+	}
+
+	tx := database.Conn().Begin()
+	err := models.UpsertRoleMetadataInTransaction(tx, roleDefinition.Name, roleDefinition.DomainType, domainID, roleDefinition.DisplayName, roleDefinition.Description)
+	if err != nil {
+		tx.Rollback()
+		return fmt.Errorf("failed to upsert role metadata for role %s: %w", roleDefinition.Name, err)
+	}
+
+	db := a.enforcer.GetAdapter().(*gormadapter.Adapter)
+	err = db.Transaction(a.enforcer, func(enforcerTx casbin.IEnforcer) error {
+		_, err = enforcerTx.RemoveFilteredPolicy(0, prefixedRoleName, domain)
+		if err != nil {
+			return fmt.Errorf("failed to remove existing policies for role %s: %w", roleDefinition.Name, err)
+		}
+
+		_, err = enforcerTx.RemoveFilteredGroupingPolicy(0, prefixedRoleName, "", domain)
+		if err != nil {
+			return fmt.Errorf("failed to remove existing inheritance for role %s: %w", roleDefinition.Name, err)
+		}
+
+		for _, permission := range roleDefinition.Permissions {
+			_, err := enforcerTx.AddPolicy(prefixedRoleName, domain, permission.Resource, permission.Action)
+			if err != nil {
+				return fmt.Errorf("failed to add policy for role %s: %w", roleDefinition.Name, err)
+			}
+		}
+
+		if roleDefinition.InheritsFrom != nil {
+			prefixedInheritedRole := prefixRoleName(roleDefinition.InheritsFrom.Name)
+			_, err := enforcerTx.AddGroupingPolicy(prefixedRoleName, prefixedInheritedRole, domain)
+			if err != nil {
+				return fmt.Errorf("failed to add inheritance for role %s: %w", roleDefinition.Name, err)
+			}
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		tx.Rollback()
+		return fmt.Errorf("failed to update custom role: %w", err)
+	}
+
+	return tx.Commit().Error
+}
+
+func (a *AuthService) DeleteCustomRole(domainID string, domainType string, roleName string) error {
+	if a.IsDefaultRole(roleName, domainType) {
+		return fmt.Errorf("cannot delete default role: %s", roleName)
+	}
+
+	domain := prefixDomain(domainType, domainID)
+	prefixedRoleName := prefixRoleName(roleName)
+
+	existingPolicies, _ := a.enforcer.GetFilteredPolicy(0, prefixedRoleName, domain)
+	if len(existingPolicies) == 0 {
+		return fmt.Errorf("role %s not found in domain %s", roleName, domain)
+	}
+
+	tx := database.Conn().Begin()
+	err := models.DeleteRoleMetadataInTransaction(tx, roleName, domainType, domainID)
+	if err != nil {
+		tx.Rollback()
+		return fmt.Errorf("failed to delete role metadata for role %s: %w", roleName, err)
+	}
+
+	db := a.enforcer.GetAdapter().(*gormadapter.Adapter)
+	err = db.Transaction(a.enforcer, func(enforcerTx casbin.IEnforcer) error {
+		_, err = enforcerTx.RemoveFilteredPolicy(0, prefixedRoleName, domain)
+		if err != nil {
+			return fmt.Errorf("failed to remove existing policies for role %s: %w", roleName, err)
+		}
+
+		_, err = enforcerTx.RemoveFilteredGroupingPolicy(0, prefixedRoleName, "", domain)
+		if err != nil {
+			return fmt.Errorf("failed to remove inheritance for role %s: %w", roleName, err)
+		}
+
+		_, err = enforcerTx.RemoveFilteredGroupingPolicy(1, prefixedRoleName, domain)
+		if err != nil {
+			return fmt.Errorf("failed to remove users from role %s: %w", roleName, err)
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		tx.Rollback()
+		return fmt.Errorf("failed to delete custom role: %w", err)
+	}
+
+	return tx.Commit().Error
+}
+
+func (a *AuthService) IsDefaultRole(roleName string, domainType string) bool {
+	defaultRoles := map[string][]string{
+		models.DomainTypeOrganization: models.DefaultOrganizationRoles,
+	}
+
+	roles, exists := defaultRoles[domainType]
+	if !exists {
+		return false
+	}
+
+	return contains(roles, roleName)
+}
+
+func parsePoliciesFromCsv(content []byte) ([][5]string, error) {
+	var policies [][5]string
+
+	csvReader := csv.NewReader(bytes.NewReader(content))
+	for {
+		record, err := csvReader.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("error reading CSV: %v", err)
+		}
+		if len(record) != 5 {
+			return nil, fmt.Errorf("invalid CSV record: %v", record)
+		}
+		policies = append(policies, [5]string{record[0], record[1], record[2], record[3], record[4]})
+	}
+
+	return policies, nil
+}
+
+func (a *AuthService) loadDefaultPolicies() error {
+	return a.loadDefaultPoliciesOn(a.enforcer)
+}
+
+func (a *AuthService) loadDefaultPoliciesOn(enforcer casbin.IEnforcer) error {
+	for _, policy := range a.orgPolicyTemplates {
+		switch policy[0] {
+		case "g":
+			_, err := enforcer.AddGroupingPolicy(policy[1], policy[2], policy[3])
+			if err != nil {
+				return fmt.Errorf("failed to add default grouping policy: %w", err)
+			}
+		case "p":
+			_, err := enforcer.AddPolicy(policy[1], policy[2], policy[3], policy[4])
+			if err != nil {
+				return fmt.Errorf("failed to add default policy: %w", err)
+			}
+		default:
+			return fmt.Errorf("unknown policy type: %s", policy[0])
+		}
+	}
+
+	return nil
+}
+
+func (a *AuthService) roleExistsInDomain(roleName, domain string) bool {
+	prefixedRoleName := prefixRoleName(roleName)
+
+	// Check if role has any policies in this domain
+	policies, err := a.enforcer.GetFilteredPolicy(0, prefixedRoleName, domain)
+	if err == nil && len(policies) > 0 {
+		return true
+	}
+
+	// Check if role exists in grouping policies (inheritance)
+	leftRoles, err := a.enforcer.GetFilteredGroupingPolicy(0, prefixedRoleName, "", domain)
+	if err == nil && len(leftRoles) > 0 {
+		return true
+	}
+
+	rightRoles, err := a.enforcer.GetFilteredGroupingPolicy(1, prefixedRoleName, domain)
+	if err == nil && len(rightRoles) > 0 {
+		return true
+	}
+
+	// Check if it's a default role (always exists)
+	if a.IsDefaultRole(roleName, a.getDomainTypeFromDomain(domain)) {
+		return true
+	}
+
+	return false
+}
+
+func (a *AuthService) getRolePermissions(enforcer casbin.IEnforcer, roleName, domain, domainType string) []*Permission {
+	if a.IsDefaultRole(roleName, domainType) {
+		return a.getDefaultRolePermissions(roleName, domainType)
+	}
+
+	prefixedRoleName := prefixRoleName(roleName)
+	roleSet := map[string]bool{
+		prefixedRoleName: true,
+	}
+
+	implicitRoles, err := enforcer.GetImplicitRolesForUser(prefixedRoleName, domain)
+	if err == nil {
+		for _, role := range implicitRoles {
+			roleSet[role] = true
+		}
+	}
+
+	permissionSet := make(map[string]*Permission)
+	for role := range roleSet {
+		unprefixedRole := strings.TrimPrefix(role, "/roles/")
+		if a.IsDefaultRole(unprefixedRole, domainType) {
+			for _, perm := range a.getDefaultRolePermissions(unprefixedRole, domainType) {
+				key := perm.Resource + ":" + perm.Action
+				permissionSet[key] = perm
+			}
+			continue
+		}
+
+		permissions, err := enforcer.GetFilteredPolicy(0, role, domain)
+		if err != nil {
+			continue
+		}
+		for _, permission := range permissions {
+			if len(permission) >= 4 {
+				key := permission[2] + ":" + permission[3]
+				permissionSet[key] = &Permission{
+					Resource:   permission[2],
+					Action:     permission[3],
+					DomainType: domainType,
+				}
+			}
+		}
+	}
+
+	rolePermissions := make([]*Permission, 0, len(permissionSet))
+	for _, perm := range permissionSet {
+		rolePermissions = append(rolePermissions, perm)
+	}
+
+	return rolePermissions
+}
+
+func (a *AuthService) getDefaultRolePermissions(roleName, domainType string) []*Permission {
+	roleSet := map[string]bool{
+		prefixRoleName(roleName): true,
+	}
+
+	queue := []string{prefixRoleName(roleName)}
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+		for _, policy := range a.orgPolicyTemplates {
+			if policy[0] != "g" {
+				continue
+			}
+			if policy[1] != current {
+				continue
+			}
+			if roleSet[policy[2]] {
+				continue
+			}
+			roleSet[policy[2]] = true
+			queue = append(queue, policy[2])
+		}
+	}
+
+	permissionSet := make(map[string]*Permission)
+	for _, policy := range a.orgPolicyTemplates {
+		if policy[0] != "p" {
+			continue
+		}
+		if !roleSet[policy[1]] {
+			continue
+		}
+		key := policy[3] + ":" + policy[4]
+		permissionSet[key] = &Permission{
+			Resource:   policy[3],
+			Action:     policy[4],
+			DomainType: domainType,
+		}
+	}
+
+	rolePermissions := make([]*Permission, 0, len(permissionSet))
+	for _, perm := range permissionSet {
+		rolePermissions = append(rolePermissions, perm)
+	}
+
+	return rolePermissions
+}
+
+func (a *AuthService) getDirectRolePermissions(enforcer casbin.IEnforcer, roleName, domain, domainType string) []*Permission {
+	prefixedRoleName := prefixRoleName(roleName)
+	// Get only direct permissions for this role, not inherited ones
+	permissions, err := enforcer.GetFilteredPolicy(0, prefixedRoleName, domain)
+	if err != nil {
+		return []*Permission{}
+	}
+
+	rolePermissions := make([]*Permission, 0, len(permissions))
+	for _, permission := range permissions {
+		if len(permission) >= 4 {
+			rolePermissions = append(rolePermissions, &Permission{
+				Resource:   permission[2],
+				Action:     permission[3],
+				DomainType: domainType,
+			})
+		}
+	}
+
+	return rolePermissions
+}
+
+func (a *AuthService) getInheritedRole(enforcer casbin.IEnforcer, roleName, domain, domainType string) *RoleDefinition {
+	prefixedRoleName := prefixRoleName(roleName)
+	implicitRoles, err := enforcer.GetImplicitRolesForUser(prefixedRoleName, domain)
+	if err != nil || len(implicitRoles) == 0 {
+		return nil
+	}
+
+	for _, inheritedRoleName := range implicitRoles {
+		if inheritedRoleName != prefixedRoleName {
+			unprefixedRoleName := strings.TrimPrefix(inheritedRoleName, "/roles/")
+			return &RoleDefinition{
+				Name:        unprefixedRoleName,
+				DomainType:  domainType,
+				Description: a.getRoleDescription(unprefixedRoleName),
+				Permissions: a.getRolePermissions(enforcer, unprefixedRoleName, domain, domainType),
+				Readonly:    true,
+			}
+		}
+	}
+
+	return nil
+}
+
+func (a *AuthService) getRolesFromPolicies(domain string) ([]string, error) {
+	return a.getRolesFromPoliciesWithEnforcer(a.enforcer, domain)
+}
+
+func (a *AuthService) getRolesFromPoliciesWithEnforcer(enforcer casbin.IEnforcer, domain string) ([]string, error) {
+	roleSet := make(map[string]bool)
+
+	// Get all policies where the domain matches (position 1 in policy)
+	policies, err := enforcer.GetFilteredPolicy(1, domain)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get filtered policy: %w", err)
+	}
+	for _, policy := range policies {
+		if len(policy) >= 2 {
+			// policy format: [role, domain, resource, action]
+			roleName := policy[0]
+			roleSet[roleName] = true
+		}
+	}
+
+	// Also get roles from grouping policies (inheritance)
+	groupingPolicies, err := enforcer.GetFilteredGroupingPolicy(2, domain)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get filtered grouping policy: %w", err)
+	}
+	for _, policy := range groupingPolicies {
+		if len(policy) >= 3 {
+			// grouping policy format: [lower_role, higher_role, domain]
+			lowerRole := policy[0]
+			higherRole := policy[1]
+			roleSet[lowerRole] = true
+			roleSet[higherRole] = true
+		}
+	}
+
+	roles := make(map[string]bool, len(roleSet))
+	for role := range roleSet {
+		if strings.HasPrefix(role, "/roles/") {
+			roles[strings.TrimPrefix(role, "/roles/")] = true
+		}
+	}
+
+	if a.getDomainTypeFromDomain(domain) == models.DomainTypeOrganization {
+		for _, role := range models.DefaultOrganizationRoles {
+			roles[role] = true
+		}
+	}
+
+	roleList := make([]string, 0, len(roles))
+	for role := range roles {
+		roleList = append(roleList, role)
+	}
+
+	return roleList, nil
+}
+
+func (a *AuthService) getRoleDescription(roleName string) string {
+	descriptions := map[string]string{
+		models.RoleOrgOperator:   models.DescOrgOperator,
+		models.RoleOrgMaintainer: models.DescOrgMaintainer,
+		models.RoleOrgAdmin:      models.DescOrgAdmin,
+	}
+
+	if description, exists := descriptions[roleName]; exists {
+		return description
+	}
+	return fmt.Sprintf("Role: %s", roleName)
+}
+
+func contains(slice []string, item string) bool {
+	for _, s := range slice {
+		if s == item {
+			return true
+		}
+	}
+	return false
+}
+
+func (a *AuthService) getDomainTypeFromDomain(domain string) string {
+	if strings.HasPrefix(domain, "/org/") {
+		return models.DomainTypeOrganization
+	}
+
+	return ""
+}
+
+func (a *AuthService) setupDefaultOrganizationRoleMetadataInTransaction(tx *gorm.DB, orgID string) error {
+	defaultRoles := []struct {
+		name        string
+		displayName string
+		description string
+	}{
+		{
+			name:        models.RoleOrgAdmin,
+			displayName: models.DisplayNameAdmin,
+			description: models.MetaDescOrgAdmin,
+		},
+		{
+			name:        models.RoleOrgMaintainer,
+			displayName: models.DisplayNameMaintainer,
+			description: models.MetaDescOrgMaintainer,
+		},
+		{
+			name:        models.RoleOrgOperator,
+			displayName: models.DisplayNameOperator,
+			description: models.MetaDescOrgOperator,
+		},
+	}
+
+	for _, role := range defaultRoles {
+		if err := models.UpsertRoleMetadataInTransaction(tx, role.name, models.DomainTypeOrganization, orgID, role.displayName, role.description); err != nil {
+			return fmt.Errorf("failed to upsert role metadata for %s: %w", role.name, err)
+		}
+	}
+
+	return nil
+}
+
+func prefixRoleName(roleName string) string {
+	return fmt.Sprintf("/roles/%s", roleName)
+}
+
+func prefixGroupName(groupName string) string {
+	return fmt.Sprintf("/groups/%s", groupName)
+}
+
+func prefixUserID(userID string) string {
+	return fmt.Sprintf("/users/%s", userID)
+}
+
+func prefixDomain(domainType string, domainID string) string {
+	if domainType == models.DomainTypeOrganization {
+		return fmt.Sprintf("/org/%s", domainID)
+	}
+
+	return fmt.Sprintf("/%s/%s", domainType, domainID)
+}
+
+func useIfNonEmpty(a, b string) string {
+	if a != "" {
+		return a
+	}
+
+	return b
+}

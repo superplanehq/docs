@@ -1,0 +1,465 @@
+import { fireEvent, render, screen } from "@testing-library/react";
+import type React from "react";
+import { describe, expect, it, vi } from "bun:test";
+
+vi.mock("@xyflow/react", () => ({
+  Handle: ({
+    type,
+    id,
+    position,
+    className,
+    style,
+    children,
+  }: {
+    type: string;
+    id?: string;
+    position?: string;
+    className?: string;
+    style?: { pointerEvents?: string };
+    children?: React.ReactNode;
+  }) => (
+    <div
+      data-testid={`handle-${type}-${id || "default"}`}
+      data-position={position}
+      data-highlighted={className?.includes("highlighted") ? "true" : "false"}
+      data-pointer-events={style?.pointerEvents || "auto"}
+      data-class-name={className}
+    >
+      {children}
+    </div>
+  ),
+  Position: {
+    Left: "left",
+    Right: "right",
+    Top: "top",
+    Bottom: "bottom",
+  },
+}));
+
+import { Block, type BlockData } from "./Block";
+
+describe("Block fallback rendering", () => {
+  it("renders a fallback node for unknown block types instead of throwing", () => {
+    render(
+      <Block
+        data={{
+          label: "Broken Node",
+          state: "pending",
+          type: "mystery" as unknown as BlockData["type"],
+        }}
+      />,
+    );
+
+    expect(screen.getByText("Broken Node")).toBeInTheDocument();
+    expect(screen.getByText("Can't display")).toBeInTheDocument();
+  });
+
+  it("renders a fallback node when component props are missing", () => {
+    render(
+      <Block
+        data={{
+          label: "Broken Component",
+          state: "pending",
+          type: "component",
+          outputChannels: ["default"],
+        }}
+      />,
+    );
+
+    expect(screen.getByText("Broken Component")).toBeInTheDocument();
+    expect(screen.getByText("Can't display")).toBeInTheDocument();
+  });
+
+  it("renders a fallback node when trigger props are missing", () => {
+    render(
+      <Block
+        data={{
+          label: "Broken Trigger",
+          state: "pending",
+          type: "trigger",
+          outputChannels: ["default"],
+        }}
+      />,
+    );
+
+    expect(screen.getByText("Broken Trigger")).toBeInTheDocument();
+    expect(screen.getByText("Can't display")).toBeInTheDocument();
+  });
+
+  it("replaces runtime empty states with edit-mode copy", () => {
+    render(
+      <Block
+        canvasMode="edit"
+        data={{
+          label: "Draft Component",
+          state: "pending",
+          type: "component",
+          outputChannels: ["default"],
+          component: {
+            title: "Draft Component",
+            iconSlug: "box",
+            collapsed: false,
+            includeEmptyState: true,
+            emptyStateProps: {
+              title: "Waiting for the first run",
+              purpose: "runtime",
+            },
+          },
+        }}
+      />,
+    );
+
+    expect(screen.getByText("Ready to run...")).toBeInTheDocument();
+    expect(screen.queryByText("Waiting for the first run")).not.toBeInTheDocument();
+  });
+
+  it("preserves fallback empty states in edit mode", () => {
+    render(
+      <Block
+        canvasMode="edit"
+        data={{
+          label: "Broken Component",
+          state: "pending",
+          type: "component",
+          outputChannels: ["default"],
+        }}
+      />,
+    );
+
+    expect(screen.getByText("Can't display")).toBeInTheDocument();
+    expect(screen.queryByText("Ready to run...")).not.toBeInTheDocument();
+  });
+
+  it("does not highlight a right handle when the target node is already connected", () => {
+    render(
+      <Block
+        nodeId="source-node"
+        data={{
+          label: "Component",
+          state: "pending",
+          type: "component",
+          outputChannels: ["default"],
+          component: {
+            title: "Component",
+            iconSlug: "box",
+            collapsed: false,
+          },
+          _connectingFrom: {
+            nodeId: "target-node",
+            handleType: "target",
+          },
+          _allEdges: [
+            {
+              source: "source-node",
+              sourceHandle: "default",
+              target: "target-node",
+            },
+          ],
+        }}
+      />,
+    );
+
+    expect(screen.getByTestId("handle-source-default")).toHaveAttribute("data-highlighted", "false");
+  });
+
+  it("disables handle interactivity in live mode", () => {
+    render(
+      <Block
+        canvasMode="live"
+        nodeId="component-node"
+        data={{
+          label: "Component",
+          state: "pending",
+          type: "component",
+          outputChannels: ["default"],
+          component: {
+            title: "Component",
+            iconSlug: "box",
+            collapsed: false,
+          },
+          _allEdges: [
+            {
+              source: "component-node",
+              sourceHandle: "default",
+              target: "next-node",
+            },
+            {
+              source: "prev-node",
+              sourceHandle: "default",
+              target: "component-node",
+            },
+          ],
+        }}
+      />,
+    );
+
+    expect(screen.getByTestId("handle-target-default")).toHaveAttribute("data-pointer-events", "none");
+    expect(screen.getByTestId("handle-source-default")).toHaveAttribute("data-pointer-events", "none");
+  });
+
+  it("places handles top-to-bottom for vertical factory flow", () => {
+    render(
+      <Block
+        canvasMode="edit"
+        nodeId="component-node"
+        data={{
+          label: "Component",
+          state: "pending",
+          type: "component",
+          outputChannels: ["default"],
+          _flowDirection: "vertical",
+          component: {
+            title: "Component",
+            iconSlug: "box",
+            collapsed: false,
+          },
+          _allEdges: [
+            {
+              source: "component-node",
+              sourceHandle: "default",
+              target: "next-node",
+            },
+            {
+              source: "prev-node",
+              sourceHandle: "default",
+              target: "component-node",
+            },
+          ],
+        }}
+      />,
+    );
+
+    expect(screen.getByTestId("handle-target-default")).toHaveAttribute("data-position", "top");
+    expect(screen.getByTestId("handle-source-default")).toHaveAttribute("data-position", "bottom");
+  });
+
+  it("hides channel stems when factory run display ports are active", () => {
+    render(
+      <Block
+        canvasMode="live"
+        nodeId="runner"
+        data={{
+          label: "Run Claude Code",
+          state: "pending",
+          type: "component",
+          outputChannels: ["passed", "failed"],
+          _flowDirection: "vertical",
+          _factoryRunDisplaySource: true,
+          _factorySpineSource: true,
+          component: {
+            title: "Run Claude Code",
+            iconSlug: "box",
+            collapsed: false,
+          },
+          _allEdges: [
+            { source: "runner", sourceHandle: "passed", target: "loop" },
+            { source: "runner", sourceHandle: "failed", target: "loop" },
+          ],
+        }}
+      />,
+    );
+
+    expect(screen.queryByText("passed")).not.toBeInTheDocument();
+    expect(screen.queryByText("failed")).not.toBeInTheDocument();
+    expect(screen.getByTestId("handle-source-__factorySpine")).toHaveAttribute("data-position", "bottom");
+    expect(screen.queryByTestId("handle-source-passed")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("handle-source-failed")).not.toBeInTheDocument();
+  });
+
+  it("shows an append connector button for end nodes in edit mode", () => {
+    const onAppendFromNode = vi.fn();
+
+    render(
+      <Block
+        canvasMode="edit"
+        nodeId="end-node"
+        onAppendFromNode={onAppendFromNode}
+        data={{
+          label: "End node",
+          state: "pending",
+          type: "component",
+          outputChannels: ["default"],
+          component: {
+            title: "End node",
+            iconSlug: "box",
+            collapsed: false,
+          },
+          _allEdges: [{ source: "prev-node", sourceHandle: "default", target: "end-node" }],
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Add next component" }));
+
+    expect(onAppendFromNode).toHaveBeenCalledWith("end-node", "default");
+    expect(screen.getByTestId("append-connector-stem")).toBeInTheDocument();
+  });
+
+  it("highlights the append connector source handle during compatible connection drags", () => {
+    render(
+      <Block
+        canvasMode="edit"
+        nodeId="end-node"
+        data={{
+          label: "End node",
+          state: "pending",
+          type: "component",
+          outputChannels: ["default"],
+          component: {
+            title: "End node",
+            iconSlug: "box",
+            collapsed: false,
+          },
+          _connectingFrom: {
+            nodeId: "target-node",
+            handleType: "target",
+          },
+          _allEdges: [{ source: "prev-node", sourceHandle: "default", target: "end-node" }],
+        }}
+      />,
+    );
+
+    expect(screen.getByTestId("handle-source-default")).toHaveAttribute("data-highlighted", "true");
+  });
+
+  it("shows append connector buttons for unconnected output channels", () => {
+    const onAppendFromNode = vi.fn();
+
+    render(
+      <Block
+        canvasMode="edit"
+        nodeId="router-node"
+        onAppendFromNode={onAppendFromNode}
+        data={{
+          label: "Router",
+          state: "pending",
+          type: "component",
+          outputChannels: ["success", "failure"],
+          component: {
+            title: "Router",
+            iconSlug: "box",
+            collapsed: false,
+          },
+          _allEdges: [{ source: "router-node", sourceHandle: "success", target: "success-node" }],
+        }}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: "Add next component (success)" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Add next component (failure)" }));
+
+    expect(onAppendFromNode).toHaveBeenCalledWith("router-node", "failure");
+  });
+
+  it("centers the factory append plus on the vertical stem", () => {
+    render(
+      <Block
+        canvasMode="edit"
+        nodeId="finder"
+        onAppendFromNode={vi.fn()}
+        data={{
+          label: "Find Pull Request",
+          state: "pending",
+          type: "component",
+          outputChannels: ["found", "notFound"],
+          _flowDirection: "vertical",
+          component: {
+            title: "Find Pull Request",
+            iconSlug: "box",
+            collapsed: false,
+          },
+          _allEdges: [{ source: "finder", sourceHandle: "found", target: "next" }],
+        }}
+      />,
+    );
+
+    const plus = screen.getByRole("button", { name: "Add next component (notFound)" });
+
+    expect(plus.style.left).toBe("50%");
+    expect(plus.style.transform).toBe("translateX(-50%)");
+  });
+
+  it("keeps node body content visible and fades opacity during edge-hover dimming", () => {
+    const { container } = render(
+      <Block
+        canvasMode="edit"
+        data={{
+          label: "Dimmed Component",
+          state: "pending",
+          type: "component",
+          outputChannels: ["default"],
+          _hasHighlightedNodes: true,
+          _isHighlighted: false,
+          component: {
+            title: "Dimmed Component",
+            iconSlug: "box",
+            collapsed: false,
+            includeEmptyState: true,
+            emptyStateProps: {
+              title: "Waiting for the first run",
+              purpose: "runtime",
+            },
+          },
+        }}
+      />,
+    );
+
+    expect(screen.getByText("Ready to run...")).toBeInTheDocument();
+    expect(container.firstChild).toHaveClass("opacity-30");
+  });
+
+  it("blanks node body content only for runs-style participant dimming", () => {
+    const { container } = render(
+      <Block
+        canvasMode="edit"
+        data={{
+          label: "Run Context Component",
+          state: "pending",
+          type: "component",
+          outputChannels: ["default"],
+          _hasHighlightedNodes: true,
+          _isHighlighted: false,
+          _dimBodyBelowHeader: true,
+          component: {
+            title: "Run Context Component",
+            iconSlug: "box",
+            collapsed: false,
+            includeEmptyState: true,
+            emptyStateProps: {
+              title: "Waiting for the first run",
+              purpose: "runtime",
+            },
+          },
+        }}
+      />,
+    );
+
+    expect(screen.queryByText("Ready to run...")).not.toBeInTheDocument();
+    expect(container.firstChild).not.toHaveClass("opacity-30");
+  });
+
+  it("keeps note content visible during runs-style participant dimming", () => {
+    const { container } = render(
+      <Block
+        canvasMode="live"
+        data={{
+          label: "Run Context Note",
+          state: "pending",
+          type: "annotation",
+          _hasHighlightedNodes: true,
+          _isHighlighted: false,
+          _dimBodyBelowHeader: true,
+          annotation: {
+            title: "Run Context Note",
+            annotationText: "Important context for this workflow",
+            annotationColor: "yellow",
+          },
+        }}
+      />,
+    );
+
+    expect(screen.getByText("Important context for this workflow")).toBeInTheDocument();
+    expect(container.firstChild).not.toHaveClass("opacity-30");
+  });
+});

@@ -1,0 +1,595 @@
+package runagent
+
+import (
+	"encoding/json"
+	"fmt"
+	"strconv"
+	"strings"
+
+	"github.com/mitchellh/mapstructure"
+	log "github.com/sirupsen/logrus"
+	"github.com/superplanehq/superplane/pkg/configuration"
+	"github.com/superplanehq/superplane/pkg/configuration/structuredoutput"
+	"github.com/superplanehq/superplane/pkg/core"
+)
+
+type RunAgent struct{}
+
+func (a *RunAgent) Name() string { return "claude.runAgent" }
+
+func (a *RunAgent) Label() string { return "Run Managed Agent" }
+
+func (a *RunAgent) Description() string {
+	return "Runs a Claude Managed Agent in Anthropic’s managed environment and waits until the session is idle or terminated."
+}
+
+func (a *RunAgent) Documentation() string {
+	return `The **Run Managed Agent** component uses [Claude Managed Agents](https://platform.claude.com/docs/en/managed-agents/overview) to start a **session** with a configured agent and environment, sends your task as a **user message**, and waits until the **session** reaches a terminal state (idle or terminated) by polling. Log streaming is not used.
+
+## Prerequisites
+
+- A **Claude API key** on the integration.
+- An **agent** and **environment** already created in the Anthropic API (or Console). This step lists them for selection.
+
+## Configuration
+
+- **Agent** and optional **Version**: the Managed Agent to run. Pick an agent, then optionally pin a **Version** (the latest is used when left unset).
+- **Environment**: The environment the session runs in.
+- **Prompt**: The user message (task) sent to the agent.
+- **Vault IDs** (optional): For MCP tools that need vault-backed credentials.
+- **Keep Session After Run** (optional): By default the session is deleted once the run finishes. Enable this to keep it so you can read the full transcript in the Anthropic Console when debugging. It applies only to runs that finish — a cancelled run is always cleaned up. Kept sessions are never reclaimed automatically, so delete them yourself when you're done.
+- **Structured Output** (optional): A JSON Schema the agent is asked to match in its final message. Managed Agents sessions have no server-enforced equivalent to the Messages API's ` + "`output_config.format`" + ` used by Text Prompt, so this works by appending instructions to the task asking the agent to include a JSON code block matching the schema, then best-effort parsing it from the final message. Treat the result as best-effort, not a guarantee — validate before relying on it downstream.
+
+## Output
+
+Emits a finished payload with **session** status, **session id**, and the final **agent message** when available so downstream steps can branch or consume the result. For failure cases the status is still emitted when the **session** is *terminated* or the step times out.
+
+When Structured Output is configured, **parsed** carries the JSON object extracted from the final message — only when the session finished normally (idle), never on a timeout, error, or terminated session.
+
+Files the agent saves under ` + "`/mnt/session/outputs/`" + ` are emitted as **artifacts** with their content included in the payload (text files as plain text, everything else base64-encoded; files over 10MB carry metadata and a download link only). Instruct the agent in the task to save its deliverables there.`
+}
+
+func (a *RunAgent) Icon() string { return "bot" }
+
+func (a *RunAgent) Color() string { return "#C9784D" }
+
+func (a *RunAgent) ExampleOutput() map[string]any {
+	return getExampleOutput()
+}
+
+func (a *RunAgent) OutputChannels(config any) []core.OutputChannel {
+	return []core.OutputChannel{{Name: defaultChannel, Label: "Default"}}
+}
+
+func (a *RunAgent) Configuration() []configuration.Field {
+	return []configuration.Field{
+		{
+			Name:        "agent",
+			Label:       "Agent",
+			Type:        configuration.FieldTypeIntegrationResource,
+			Required:    true,
+			Placeholder: "Select an agent",
+			Description: "The Claude Managed Agent to run. Uses the latest version unless **Version** is set.",
+			TypeOptions: &configuration.TypeOptions{
+				Resource: &configuration.ResourceTypeOptions{
+					Type: "agent",
+				},
+			},
+		},
+		{
+			Name:        "version",
+			Label:       "Version",
+			Type:        configuration.FieldTypeIntegrationResource,
+			Required:    false,
+			Placeholder: "Latest",
+			Description: "Pins the session to a specific agent version. Choose **Latest** (or leave unset) to always use the agent's newest version.",
+			TypeOptions: &configuration.TypeOptions{
+				Resource: &configuration.ResourceTypeOptions{
+					Type: "agentVersion",
+					Parameters: []configuration.ParameterRef{
+						{
+							Name:      "agent",
+							ValueFrom: &configuration.ParameterValueFrom{Field: "agent"},
+						},
+					},
+				},
+			},
+		},
+		{
+			// The stored key stays "environmentId" for backward compatibility:
+			// existing nodes saved it under that name, and neither the backend nor
+			// the editor migrates unknown keys, so renaming it would drop the value
+			// on the next save. The field is still shown and selected as an
+			// Environment resource.
+			Name:        "environmentId",
+			Label:       "Environment",
+			Type:        configuration.FieldTypeIntegrationResource,
+			Required:    true,
+			Placeholder: "Select an environment",
+			Description: "The Managed Agent environment (container) the session runs in.",
+			TypeOptions: &configuration.TypeOptions{
+				Resource: &configuration.ResourceTypeOptions{
+					Type: "environment",
+				},
+			},
+		},
+		{
+			Name:        "prompt",
+			Label:       "Task",
+			Type:        configuration.FieldTypeText,
+			Required:    true,
+			Description: "User message (task) for the agent",
+		},
+		structuredoutput.ConfigField(
+			"outputSchema",
+			"Structured Output",
+			"A JSON Schema the agent is asked to match in its final message. Best-effort: Managed Agents sessions have no server-side schema enforcement, so this is prompt-guided, not guaranteed.",
+		),
+		{
+			Name:     "vaultIds",
+			Label:    "Vault IDs",
+			Type:     configuration.FieldTypeList,
+			Required: false,
+			TypeOptions: &configuration.TypeOptions{
+				List: &configuration.ListTypeOptions{
+					ItemLabel: "Vault ID",
+					ItemDefinition: &configuration.ListItemDefinition{
+						Type: configuration.FieldTypeString,
+					},
+				},
+			},
+			Description: "Optional vault IDs for MCP authentication (see Managed Agents docs)",
+		},
+		{
+			Name:        "persistSession",
+			Label:       "Keep Session After Run",
+			Type:        configuration.FieldTypeBool,
+			Required:    false,
+			Default:     false,
+			Description: "Keep the Managed Agents session after the run finishes so its transcript stays readable in the Anthropic Console. Sessions are deleted by default.",
+		},
+		{
+			Name:        "secrets",
+			Label:       "Secrets",
+			Type:        configuration.FieldTypeList,
+			Required:    false,
+			Description: "SuperPlane secrets to inject as environment variables in the agent session. Secrets are injected at the network egress layer and never exposed to the agent.",
+			TypeOptions: &configuration.TypeOptions{
+				List: &configuration.ListTypeOptions{
+					ItemLabel: "Secret",
+					ItemDefinition: &configuration.ListItemDefinition{
+						Type: configuration.FieldTypeObject,
+						Schema: []configuration.Field{
+							{
+								Name:        "envName",
+								Label:       "Environment Variable",
+								Type:        configuration.FieldTypeString,
+								Required:    true,
+								Placeholder: "GITHUB_TOKEN",
+								Description: "Name of the environment variable in the agent session",
+							},
+							{
+								Name:        "value",
+								Label:       "Secret",
+								Type:        configuration.FieldTypeSecretKey,
+								Required:    true,
+								Description: "SuperPlane secret and key to inject",
+							},
+							{
+								Name:        "allowedHosts",
+								Label:       "Allowed Hosts",
+								Type:        configuration.FieldTypeList,
+								Required:    false,
+								Description: "Restrict which domains this secret can be sent to. Leave empty for unrestricted.",
+								TypeOptions: &configuration.TypeOptions{
+									List: &configuration.ListTypeOptions{
+										ItemLabel: "Host",
+										ItemDefinition: &configuration.ListItemDefinition{
+											Type: configuration.FieldTypeString,
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+func (a *RunAgent) Setup(ctx core.SetupContext) error {
+	spec, err := decodeSpec(ctx.Configuration)
+	if err != nil {
+		return err
+	}
+	if err := validateSpec(spec); err != nil {
+		return err
+	}
+
+	if err := structuredoutput.ValidateAtSetup(spec.OutputSchema); err != nil {
+		return err
+	}
+
+	for i, s := range spec.Secrets {
+		if strings.TrimSpace(s.EnvName) == "" {
+			return fmt.Errorf("secrets[%d].envName is required", i)
+		}
+		if s.Value.Secret == "" || s.Value.Key == "" {
+			return fmt.Errorf("secrets[%d].value.secret and secrets[%d].value.key are required", i, i)
+		}
+	}
+
+	if ctx.Metadata != nil {
+		_ = ctx.Metadata.Set(RunAgentNodeMetadata{
+			StructuredOutput: strings.TrimSpace(spec.OutputSchema) != "",
+		})
+	}
+
+	return nil
+}
+
+func (a *RunAgent) Execute(ctx core.ExecutionContext) error {
+	spec, err := decodeSpec(ctx.Configuration)
+	if err != nil {
+		return err
+	}
+	if err := validateSpec(spec); err != nil {
+		return err
+	}
+
+	schema, err := structuredoutput.Parse(spec.OutputSchema)
+	if err != nil {
+		return err
+	}
+
+	client, err := NewClient(ctx.HTTP, ctx.Integration)
+	if err != nil {
+		return err
+	}
+
+	// Create a temporary vault and inject secrets as environment variables.
+	vaultIDs := append([]string{}, spec.VaultIDs...)
+	if len(spec.Secrets) > 0 {
+		vaultID, vaultErr := provisionSecretsVault(client, ctx, spec.Secrets)
+		if vaultErr != nil {
+			cleanupManagedVault(client, ctx, ctx.Logger.Warnf)
+			return fmt.Errorf("failed to provision secrets vault: %w", vaultErr)
+		}
+		vaultIDs = append(vaultIDs, vaultID)
+	}
+
+	version, err := parseAgentVersion(spec.Version)
+	if err != nil {
+		cleanupManagedVault(client, ctx, ctx.Logger.Warnf)
+		return err
+	}
+
+	aid := strings.TrimSpace(spec.Agent)
+	version = resolveAgentVersion(client, aid, version, ctx.Logger)
+	createReq := CreateManagedSessionRequest{
+		Agent:         aid,
+		AgentVersion:  version,
+		EnvironmentID: strings.TrimSpace(spec.Environment),
+		VaultIDs:      vaultIDs,
+	}
+
+	session, err := client.CreateManagedSession(createReq)
+	if err != nil {
+		cleanupManagedVault(client, ctx, ctx.Logger.Warnf)
+		return fmt.Errorf("failed to create managed agent session: %w", err)
+	}
+
+	metadata := ExecutionMetadata{}
+	mergeSessionIntoMetadata(&metadata, session)
+	if err := ctx.Metadata.Set(metadata); err != nil {
+		cleanupManagedVault(client, ctx, ctx.Logger.Warnf)
+		return fmt.Errorf("failed to set execution metadata: %w", err)
+	}
+
+	if err := ctx.ExecutionState.SetKV("managed_session_id", session.ID); err != nil {
+		cleanupManagedVault(client, ctx, ctx.Logger.Warnf)
+		return fmt.Errorf("failed to set managed_session_id: %w", err)
+	}
+
+	prompt := spec.Prompt
+	if schema != nil {
+		prompt += structuredoutput.PromptSuffix(structuredoutput.Prepare(schema, false))
+	}
+	if err := client.SendManagedSessionUserMessage(session.ID, prompt); err != nil {
+		cleanupManagedVault(client, ctx, ctx.Logger.Warnf)
+		return fmt.Errorf("failed to send user message: %w", err)
+	}
+
+	// Check if session already finished (fast tasks).
+	// Don't write terminal status to metadata yet — only after emit.
+	refreshed, err := client.GetManagedSession(session.ID)
+	if err != nil {
+		cleanupManagedVault(client, ctx, ctx.Logger.Warnf)
+		return fmt.Errorf("failed to get session: %w", err)
+	}
+
+	if refreshed != nil && isSessionTerminal(refreshed.Status) {
+		sm, err := client.GetSessionMessagesWithRetry(session.ID, finalMessageReads, finalMessageDelay)
+		switch {
+		case err != nil:
+			ctx.Logger.Warnf("Failed to fetch messages for managed session %s: %v. Scheduling poll.", session.ID, err)
+		case sm != nil && sm.Complete && sm.Err != nil:
+			ctx.Logger.Errorf("Managed session %s failed: %s", session.ID, sm.Err.Message)
+			mergeSessionIntoMetadata(&metadata, refreshed)
+			_ = ctx.Metadata.Set(metadata)
+			reclaimSession(client, session.ID, spec.PersistSession, ctx.Logger)
+			cleanupManagedVault(client, ctx, ctx.Logger.Warnf)
+			return fmt.Errorf("managed agent session failed: %s", sm.Err.Message)
+		case sm != nil && sm.Complete:
+			out := buildOutputFromSessionMessages(refreshed.Status, session.ID, sm)
+			applyStructuredOutput(&out, refreshed.Status, schema)
+			out.Artifacts = CollectSessionArtifacts(client, session.ID, sm.ExpectsArtifacts, ctx.Logger.Warnf)
+			RecordSessionUsage(ctx.Usage, ctx.Logger, refreshed)
+			if emitErr := ctx.ExecutionState.Emit(defaultChannel, payloadType, []any{out}); emitErr != nil {
+				cleanupManagedVault(client, ctx, ctx.Logger.Warnf)
+				return emitErr
+			}
+			mergeSessionIntoMetadata(&metadata, refreshed)
+			_ = ctx.Metadata.Set(metadata)
+			reclaimSession(client, session.ID, spec.PersistSession, ctx.Logger)
+			cleanupManagedVault(client, ctx, ctx.Logger.Warnf)
+			return nil
+		default:
+			ctx.Logger.Warnf("Events not complete for session %s after retries. Scheduling poll.", session.ID)
+		}
+	}
+
+	ctx.Logger.Infof("Started Managed Agent session %s. Waiting for completion (polling)...", session.ID)
+	return ctx.Requests.ScheduleActionCall("poll", map[string]any{"attempt": 1, "errors": 0}, initialPoll)
+}
+
+func (a *RunAgent) Cleanup(ctx core.SetupContext) error { return nil }
+
+// stopAndReclaim ends a run whose session may still be working: a timeout or a
+// dead poll means we stopped watching, not that the agent stopped. The interrupt
+// is what makes the delete possible — the API rejects deleting a live session —
+// and it stops the agent even when the session is kept for debugging.
+func stopAndReclaim(client *Client, sessionID string, persist bool, logger *log.Entry) {
+	if err := client.SendManagedSessionInterrupt(sessionID); err != nil {
+		logger.Warnf("Failed to interrupt managed session %s: %v", sessionID, err)
+	}
+	reclaimSession(client, sessionID, persist, logger)
+}
+
+// reclaimSession deletes the session unless the step is configured to keep it,
+// in which case the transcript stays readable in the Anthropic Console.
+func reclaimSession(client *Client, sessionID string, persist bool, logger *log.Entry) {
+	if persist {
+		logger.Infof("Keeping managed session %s: 'Keep Session After Run' is enabled", sessionID)
+		return
+	}
+	if err := client.DeleteManagedSession(sessionID); err != nil {
+		logger.Warnf("Failed to delete managed session %s: %v", sessionID, err)
+	}
+}
+
+// persistSessionFromConfig reports whether a step is configured to keep its
+// session. It defaults to deleting when the configuration cannot be decoded, and
+// says so: silently deleting a session the user asked to keep is otherwise
+// impossible to diagnose from the Console.
+func persistSessionFromConfig(config any, logger *log.Entry) bool {
+	spec, err := decodeSpec(config)
+	if err != nil {
+		logger.Warnf("Cannot read 'Keep Session After Run' from configuration (%v); reclaiming the session", err)
+		return false
+	}
+	return spec.PersistSession
+}
+
+// provisionSecretsVault creates a temporary Anthropic vault and adds
+// environment_variable credentials for each configured secret binding.
+// Returns the vault ID for session creation.
+func provisionSecretsVault(client *Client, ctx core.ExecutionContext, secrets []SecretBinding) (string, error) {
+	vaultID, err := client.CreateVault(
+		fmt.Sprintf("superplane-%s", truncateID(ctx.ID.String(), 12)),
+		map[string]string{"superplane_execution": ctx.ID.String()},
+	)
+	if err != nil {
+		return "", fmt.Errorf("create vault: %w", err)
+	}
+
+	// Store vault ID immediately so cleanup works on later errors.
+	if err := ctx.ExecutionState.SetKV("managed_vault_id", vaultID); err != nil {
+		_ = client.DeleteVault(vaultID)
+		return "", fmt.Errorf("persist vault ID: %w", err)
+	}
+
+	for _, s := range secrets {
+		value, err := ctx.Secrets.GetKey(s.Value.Secret, s.Value.Key)
+		if err != nil {
+			_ = client.DeleteVault(vaultID)
+			return "", fmt.Errorf("resolve secret %s/%s: %w", s.Value.Secret, s.Value.Key, err)
+		}
+
+		if err := client.CreateEnvVarCredential(vaultID, s.EnvName, s.EnvName, string(value), s.AllowedHosts); err != nil {
+			_ = client.DeleteVault(vaultID)
+			return "", fmt.Errorf("create credential for %s: %w", s.EnvName, err)
+		}
+		ctx.Logger.Infof("Injected secret as env var: %s", s.EnvName)
+	}
+
+	return vaultID, nil
+}
+
+// cleanupManagedVault deletes the temporary vault created for this execution.
+func cleanupManagedVault(client *Client, ctx core.ExecutionContext, logWarn func(string, ...any)) {
+	vaultID, err := ctx.ExecutionState.GetKV("managed_vault_id")
+	if err != nil || vaultID == "" {
+		return
+	}
+	if err := client.DeleteVault(vaultID); err != nil && logWarn != nil {
+		logWarn("Failed to delete managed vault %s: %v", vaultID, err)
+	}
+}
+
+// cleanupManagedVaultFromHook is the ActionHookContext variant.
+func cleanupManagedVaultFromHook(client *Client, ctx core.ActionHookContext, logWarn func(string, ...any)) {
+	vaultID, err := ctx.ExecutionState.GetKV("managed_vault_id")
+	if err != nil || vaultID == "" {
+		return
+	}
+	if err := client.DeleteVault(vaultID); err != nil && logWarn != nil {
+		logWarn("Failed to delete managed vault %s: %v", vaultID, err)
+	}
+}
+
+func truncateID(id string, maxLen int) string {
+	if len(id) <= maxLen {
+		return id
+	}
+	return id[:maxLen]
+}
+
+func decodeSpec(config any) (Spec, error) {
+	config = normalizeLegacyConfig(config)
+
+	var spec Spec
+	if err := mapstructure.Decode(config, &spec); err != nil {
+		return spec, fmt.Errorf("failed to decode configuration: %w", err)
+	}
+	if raw, ok := config.(map[string]any); ok {
+		if v, ok := raw["vaultIds"]; ok {
+			spec.VaultIDs = decodeStringList(v)
+		}
+	}
+	return spec, nil
+}
+
+// normalizeLegacyConfig migrates configuration written by earlier versions of
+// this component so already-saved nodes keep working without being re-saved:
+// the agent version was stored as a number before it became the resource-value
+// string, which mapstructure would otherwise refuse to decode into Spec.Version.
+//
+// The input map is never mutated: a shallow copy is made only when a migration
+// actually applies, and non-map inputs pass through untouched.
+func normalizeLegacyConfig(config any) any {
+	raw, ok := config.(map[string]any)
+	if !ok {
+		return config
+	}
+
+	out := raw
+	copied := false
+	set := func(key string, value any) {
+		if !copied {
+			dup := make(map[string]any, len(raw)+1)
+			for k, v := range raw {
+				dup[k] = v
+			}
+			out = dup
+			copied = true
+		}
+		out[key] = value
+	}
+
+	// The version was stored as a number before it became the resource-value
+	// string, which mapstructure would otherwise refuse to decode into a string.
+	if v, ok := raw["version"]; ok {
+		if _, isStr := v.(string); !isStr {
+			if s := legacyVersionToString(v); s != "" {
+				set("version", s)
+			}
+		}
+	}
+
+	return out
+}
+
+// legacyVersionToString renders a version stored as a JSON number as the string
+// the resource field now uses. Returns "" for values it cannot interpret.
+func legacyVersionToString(v any) string {
+	switch n := v.(type) {
+	case float64:
+		return strconv.Itoa(int(n))
+	case float32:
+		return strconv.Itoa(int(n))
+	case int:
+		return strconv.Itoa(n)
+	case int64:
+		return strconv.FormatInt(n, 10)
+	case json.Number:
+		return n.String()
+	default:
+		return ""
+	}
+}
+
+func decodeStringList(v any) []string {
+	switch x := v.(type) {
+	case nil:
+		return nil
+	case []string:
+		return x
+	case []any:
+		out := make([]string, 0, len(x))
+		for _, e := range x {
+			if s, ok := e.(string); ok {
+				out = append(out, s)
+			}
+		}
+		return out
+	default:
+		return nil
+	}
+}
+
+func validateSpec(spec Spec) error {
+	if strings.TrimSpace(spec.Agent) == "" {
+		return fmt.Errorf("agent is required")
+	}
+	if strings.TrimSpace(spec.Environment) == "" {
+		return fmt.Errorf("environment is required")
+	}
+	if strings.TrimSpace(spec.Prompt) == "" {
+		return fmt.Errorf("prompt is required")
+	}
+	if _, err := parseAgentVersion(spec.Version); err != nil {
+		return err
+	}
+	return nil
+}
+
+// parseAgentVersion converts the raw version resource value into an agent
+// version number. An empty value or the explicit "latest" sentinel both mean
+// "use the latest version" and yield a nil pointer, so the field can always be
+// returned to its unset state by picking the Latest option.
+func parseAgentVersion(raw string) (*int, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || strings.EqualFold(raw, latestVersionValue) {
+		return nil, nil
+	}
+	v, err := strconv.Atoi(raw)
+	if err != nil {
+		return nil, fmt.Errorf("invalid agent version %q: must be a number", raw)
+	}
+	return &v, nil
+}
+
+// resolveAgentVersion drops a pinned version that the agent no longer has, so a
+// stale pin — e.g. one left in the config after switching to an agent without
+// that version — falls back to the latest version instead of running or failing
+// with the wrong one. Validation is best-effort: if the versions cannot be
+// listed, the configured pin is kept.
+func resolveAgentVersion(client *Client, agentID string, version *int, logger *log.Entry) *int {
+	if version == nil {
+		return nil
+	}
+	versions, err := client.ListAgentVersionNumbers(agentID)
+	if err != nil {
+		logger.Warnf("Could not verify versions for agent %s (%v); using version %d as configured", agentID, err, *version)
+		return version
+	}
+	for _, v := range versions {
+		if v == *version {
+			return version
+		}
+	}
+	logger.Warnf("Agent %s has no version %d (stale pin, likely after switching agents); using the latest version instead", agentID, *version)
+	return nil
+}

@@ -1,0 +1,1463 @@
+package authentication
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"math/big"
+	"net/http"
+	"net/url"
+	"os"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
+
+	jwtLib "github.com/golang-jwt/jwt/v4"
+	"github.com/gorilla/mux"
+	"github.com/markbates/goth"
+	"github.com/markbates/goth/gothic"
+	"github.com/markbates/goth/providers/github"
+	"github.com/markbates/goth/providers/google"
+	log "github.com/sirupsen/logrus"
+	"github.com/superplanehq/superplane/pkg/authorization"
+	"github.com/superplanehq/superplane/pkg/crypto"
+	"github.com/superplanehq/superplane/pkg/database"
+	"github.com/superplanehq/superplane/pkg/githubapp"
+	"github.com/superplanehq/superplane/pkg/grpc/actions/messages"
+	"github.com/superplanehq/superplane/pkg/jwt"
+	"github.com/superplanehq/superplane/pkg/models"
+	"github.com/superplanehq/superplane/pkg/utils"
+	"gorm.io/gorm"
+)
+
+const SignupDisabledError = "signup is currently disabled"
+
+var errGitHubSignInNotConfigured = errors.New("sign-in with GitHub is not configured: create the GitHub App again")
+
+const (
+	magicCodeLength            = 6
+	magicCodeTTL               = 10 * time.Minute
+	magicCodeRateLimit         = 5
+	magicCodeRateWindow        = 10 * time.Minute
+	magicCodeMaxVerifyAttempts = 3
+	authSignupStatePrefix      = "signup:"
+	authSignupResultParam      = "auth_signup_result"
+	authErrorParam             = "auth_error"
+	authErrorSignupDisabled    = "signup_disabled"
+	authProviderParam          = "provider"
+	jsonContentType            = "application/json"
+)
+
+type Handler struct {
+	jwtSigner            *jwt.Signer
+	authService          authorization.Authorization
+	encryptor            crypto.Encryptor
+	isDev                bool
+	templateDir          string
+	blockSignup          bool
+	passwordLoginEnabled bool
+	magicCodeEnabled     bool
+}
+
+type ProviderConfig struct {
+	Key         string
+	Secret      string
+	CallbackURL string
+}
+
+func NewHandler(jwtSigner *jwt.Signer, encryptor crypto.Encryptor, authService authorization.Authorization, appEnv string, templateDir string, blockSignup bool, passwordLoginEnabled bool, magicCodeEnabled bool) *Handler {
+	return &Handler{
+		jwtSigner:            jwtSigner,
+		encryptor:            encryptor,
+		authService:          authService,
+		isDev:                appEnv == "development",
+		templateDir:          templateDir,
+		blockSignup:          blockSignup,
+		passwordLoginEnabled: passwordLoginEnabled,
+		magicCodeEnabled:     magicCodeEnabled,
+	}
+}
+
+// PasswordLoginEnabled reports whether email/password authentication is
+// currently enabled for this installation. Used by handlers outside this
+// package (e.g. the change-password endpoint) that should refuse work
+// when the feature is disabled.
+func (a *Handler) PasswordLoginEnabled() bool {
+	return a.passwordLoginEnabled
+}
+
+func (a *Handler) InitializeProviders(providers map[string]ProviderConfig) {
+	var gothProviders []goth.Provider
+
+	for providerName, config := range providers {
+		if config.Key == "" || config.Secret == "" {
+			log.Warnf("%s OAuth not configured - missing key/secret", providerName)
+			continue
+		}
+
+		switch providerName {
+		case models.ProviderGitHub:
+			gothProviders = append(gothProviders, github.New(config.Key, config.Secret, config.CallbackURL, "user:email"))
+			log.Infof("GitHub OAuth provider initialized")
+		case models.ProviderBitbucket:
+			gothProviders = append(gothProviders, newBitbucketProvider(config.Key, config.Secret, config.CallbackURL))
+			log.Infof("Bitbucket OAuth provider initialized")
+		case models.ProviderGoogle:
+			gothProviders = append(gothProviders, google.New(config.Key, config.Secret, config.CallbackURL, "email", "profile"))
+			log.Infof("Google OAuth provider initialized")
+		default:
+			log.Warnf("Unknown provider: %s", providerName)
+		}
+	}
+
+	if len(gothProviders) > 0 {
+		goth.UseProviders(gothProviders...)
+	} else {
+		log.Warn("No OAuth providers configured")
+	}
+}
+
+func (a *Handler) RegisterRoutes(router *mux.Router) {
+	router.HandleFunc("/logout", a.handleLogout).Methods("GET")
+	router.HandleFunc("/auth/config", a.handleAuthConfig).Methods("GET")
+	if a.passwordLoginEnabled {
+		router.HandleFunc("/login", a.handlePasswordLogin).Methods("POST")
+		router.HandleFunc("/signup", a.handlePasswordSignup).Methods("POST")
+	}
+	if a.magicCodeEnabled {
+		router.HandleFunc("/auth/magic-code/request", a.handleMagicCodeRequest).Methods("POST")
+		router.HandleFunc("/auth/magic-code/verify", a.handleMagicCodeVerify).Methods("POST")
+		router.HandleFunc("/auth/magic-code/verify", a.handleMagicLinkRedirect).Methods("GET")
+	}
+
+	//
+	// If we are running the application locally,
+	// we provide handlers that auto-autenticate to
+	// avoid having to authenticate with GitHub every time.
+	//
+	if a.isDev {
+		log.Info("Registering development authentication routes")
+		router.HandleFunc("/auth/{provider}/callback", a.handleAuthCallback).Methods("GET")
+		router.HandleFunc("/auth/{provider}", a.handleDevelopmentAuth).Methods("GET")
+		return
+	}
+
+	router.HandleFunc("/auth/{provider}/callback", a.handleAuthCallback).Methods("GET")
+	router.HandleFunc("/auth/{provider}", a.handleAuth).Methods("GET")
+}
+
+func (a *Handler) handleAuth(w http.ResponseWriter, r *http.Request) {
+	if rejectBitbucketSignIn(w, r) {
+		return
+	}
+	if !isConnectIntent(r) {
+		gothUser, err := gothic.CompleteUserAuth(w, r)
+		if err == nil {
+			a.finishProviderAuth(w, r, gothUser)
+			return
+		}
+	}
+
+	authState, err := a.authStateForRequest(w, r)
+	if err != nil {
+		return
+	}
+	if authState != "" {
+		r2 := new(http.Request)
+		*r2 = *r
+		r2.URL = new(url.URL)
+		*r2.URL = *r.URL
+		q := r2.URL.Query()
+		q.Set("state", authState)
+		r2.URL.RawQuery = q.Encode()
+		r = r2
+	}
+
+	a.beginProviderAuth(w, r)
+}
+
+func (a *Handler) beginProviderAuth(w http.ResponseWriter, r *http.Request) {
+	if mux.Vars(r)["provider"] == models.ProviderGitHub {
+		if err := a.ensureGitHubOAuth(r.Context()); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
+	if !requestsGitHubAccountPicker(r) {
+		gothic.BeginAuthHandler(w, r)
+		return
+	}
+
+	authURL, err := gothic.GetAuthURL(w, r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	http.Redirect(w, r, withGitHubAccountPicker(authURL), http.StatusTemporaryRedirect)
+}
+
+// Cloud registers GitHub at startup from GITHUB_CLIENT_ID and
+// GITHUB_CLIENT_SECRET. A self-hosted installation does not store a login
+// client, so those variables are the only way Sign in with GitHub starts.
+func (a *Handler) ensureGitHubOAuth(ctx context.Context) error {
+	if strings.TrimSpace(os.Getenv("GITHUB_CLIENT_ID")) != "" && strings.TrimSpace(os.Getenv("GITHUB_CLIENT_SECRET")) != "" {
+		return nil
+	}
+	if a.encryptor == nil {
+		return errGitHubSignInNotConfigured
+	}
+	cfg, err := githubapp.Resolve(ctx, database.DB(ctx), a.encryptor)
+	if err != nil {
+		return err
+	}
+	if cfg.ClientID == "" || cfg.ClientSecret == "" {
+		if _, err := goth.GetProvider(models.ProviderGitHub); err == nil {
+			return nil
+		}
+		return errGitHubSignInNotConfigured
+	}
+	goth.UseProviders(github.New(cfg.ClientID, cfg.ClientSecret, githubOAuthCallbackURL(), "user:email"))
+	return nil
+}
+
+func githubOAuthCallbackURL() string {
+	baseURL := strings.TrimSpace(os.Getenv("BASE_URL"))
+	if baseURL == "" {
+		port := os.Getenv("PORT")
+		if port == "" {
+			port = "8000"
+		}
+		baseURL = "http://localhost:" + port
+	}
+	return githubapp.OAuthCallbackURL(baseURL)
+}
+
+// GitHub otherwise authorizes the active browser account, so a user with
+// several signed-in GitHub accounts cannot choose which one to connect.
+func requestsGitHubAccountPicker(r *http.Request) bool {
+	return mux.Vars(r)["provider"] == models.ProviderGitHub && isConnectIntent(r)
+}
+
+func withGitHubAccountPicker(authURL string) string {
+	parsed, err := url.Parse(authURL)
+	if err != nil {
+		return authURL
+	}
+
+	query := parsed.Query()
+	query.Set("prompt", "select_account")
+	parsed.RawQuery = query.Encode()
+	return parsed.String()
+}
+
+func useRealProviderAuthInDevelopment(r *http.Request) bool {
+	if !isConnectIntent(r) {
+		return false
+	}
+	provider := mux.Vars(r)["provider"]
+	return provider == models.ProviderGitHub || provider == models.ProviderBitbucket
+}
+
+func (a *Handler) handleDevelopmentAuth(w http.ResponseWriter, r *http.Request) {
+	if useRealProviderAuthInDevelopment(r) {
+		a.handleAuth(w, r)
+		return
+	}
+
+	a.handleDevAuth(w, r)
+}
+
+func (a *Handler) handleDevAuth(w http.ResponseWriter, r *http.Request) {
+	if !a.isDev {
+		http.Error(w, "Not available in production", http.StatusForbidden)
+		return
+	}
+
+	vars := mux.Vars(r)
+	provider := vars["provider"]
+	providerUserID := "dev-user-123"
+	if provider == models.ProviderGitHub {
+		providerUserID = "123456789"
+	}
+	mockUser := goth.User{
+		UserID:      providerUserID,
+		Email:       "dev@superplane.local",
+		Name:        "Dev User",
+		NickName:    "devuser",
+		Provider:    provider,
+		AvatarURL:   "https://github.com/github.png",
+		AccessToken: "dev-token-" + provider,
+	}
+
+	if isConnectIntent(r) {
+		a.finishAccountConnection(w, r, mockUser)
+		return
+	}
+
+	if isLinkIntent(r) {
+		state, err := a.parseLinkState(linkStateFromRequest(r))
+		if err != nil {
+			account, sessionErr := a.sessionAccountFromCookie(r)
+			if sessionErr != nil {
+				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				return
+			}
+			signed, signErr := a.signLinkState(account.ID.String(), provider, getRedirectURL(r))
+			if signErr != nil {
+				http.Error(w, "Internal server error", http.StatusInternalServerError)
+				return
+			}
+			state, err = a.parseLinkState(signed)
+			if err != nil {
+				http.Error(w, "Internal server error", http.StatusInternalServerError)
+				return
+			}
+		}
+		a.completeProviderLink(w, r, mockUser, state)
+		return
+	}
+
+	a.completeProviderAuth(w, r, mockUser)
+}
+
+func rejectBitbucketSignIn(w http.ResponseWriter, r *http.Request) bool {
+	if mux.Vars(r)["provider"] != models.ProviderBitbucket || isConnectIntent(r) {
+		return false
+	}
+	http.Error(w, "Bitbucket does not support sign-in", http.StatusBadRequest)
+	return true
+}
+
+func (a *Handler) finishProviderAuth(w http.ResponseWriter, r *http.Request, gothUser goth.User) {
+	if isConnectIntent(r) {
+		a.finishAccountConnection(w, r, gothUser)
+		return
+	}
+
+	if !isLinkIntent(r) {
+		a.completeProviderAuth(w, r, gothUser)
+		return
+	}
+
+	account, err := a.sessionAccountFromCookie(r)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	signed, err := a.signLinkState(account.ID.String(), mux.Vars(r)["provider"], getRedirectURL(r))
+	if err != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	state, err := a.parseLinkState(signed)
+	if err != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	a.completeProviderLink(w, r, gothUser, state)
+}
+
+func (a *Handler) handleAuthCallback(w http.ResponseWriter, r *http.Request) {
+	// Login starts on one pod and the callback can land on another. Load the
+	// saved GitHub client before gothic reads it, the same way login does.
+	if mux.Vars(r)["provider"] == models.ProviderGitHub {
+		if err := a.ensureGitHubOAuth(r.Context()); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
+
+	gothUser, err := gothic.CompleteUserAuth(w, r)
+	if err != nil {
+		log.WithError(err).Warn("provider authentication failed")
+		if a.isDev {
+			http.Error(w, "Authentication failed: "+err.Error(), http.StatusUnauthorized)
+			return
+		}
+		http.Error(w, "Authentication failed", http.StatusUnauthorized)
+		return
+	}
+
+	a.completeProviderAuth(w, r, gothUser)
+}
+
+func (a *Handler) completeProviderAuth(w http.ResponseWriter, r *http.Request, gothUser goth.User) {
+	rawState := linkStateFromRequest(r)
+	if strings.HasPrefix(rawState, authConnectStatePrefix) {
+		state, err := a.parseConnectState(rawState)
+		if err != nil {
+			http.Error(w, "Failed to link account", http.StatusBadRequest)
+			return
+		}
+		a.completeAccountConnection(w, r, gothUser, state)
+		return
+	}
+
+	if strings.HasPrefix(rawState, authLinkStatePrefix) {
+		state, err := a.parseLinkState(rawState)
+		if err != nil {
+			http.Error(w, "Failed to connect sign-in method", http.StatusBadRequest)
+			return
+		}
+		a.completeProviderLink(w, r, gothUser, state)
+		return
+	}
+
+	if strings.EqualFold(gothUser.Provider, models.ProviderBitbucket) {
+		http.Error(w, "Bitbucket does not support sign-in", http.StatusBadRequest)
+		return
+	}
+
+	account, wasCreated, err := a.findOrCreateAccountForProvider(gothUser, a.canCreateAccountFromRequest(r))
+	if err != nil {
+		a.handleProviderAuthError(w, r, gothUser, err)
+		return
+	}
+
+	err = updateAccountProviders(a.encryptor, account, gothUser)
+	if err != nil {
+		log.Errorf("Error updating account providers for %s: %v", gothUser.Email, err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	if err := saveConnectedProviderIdentity(database.DB(r.Context()), account, gothUser); err != nil {
+		log.Errorf("Error saving connected identity for %s: %v", gothUser.Email, err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	a.handleSuccessfulAuth(w, r, account, wasCreated)
+}
+
+func (a *Handler) handleProviderAuthError(w http.ResponseWriter, r *http.Request, gothUser goth.User, err error) {
+	if errors.Is(err, models.ErrAccountBlocked) {
+		redirectAccountBlocked(w, r)
+		return
+	}
+
+	if errors.Is(err, errSignupDisabled) {
+		http.Redirect(w, r, getSignupDisabledRedirectURL(r), http.StatusSeeOther)
+		return
+	}
+
+	if errorStatusForAccountError(err) == http.StatusForbidden {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+
+	log.Errorf("Error finding/creating account for %s: %v", gothUser.Email, err)
+	http.Error(w, "Internal server error", http.StatusInternalServerError)
+}
+
+func (a *Handler) handleSuccessfulAuth(w http.ResponseWriter, r *http.Request, account *models.Account, wasCreated bool) {
+	if account.IsBlocked() {
+		redirectAccountBlocked(w, r)
+		return
+	}
+
+	if err := IssueAccountSession(w, r, a.jwtSigner, account.ID.String()); err != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	redirectURL := a.getPostAuthRedirectURL(r, wasCreated)
+	http.Redirect(w, r, redirectURL, http.StatusTemporaryRedirect)
+}
+
+func (a *Handler) handleLogout(w http.ResponseWriter, r *http.Request) {
+	gothic.Logout(w, r)
+
+	ClearAccountCookie(w, r)
+
+	http.Redirect(w, r, getPostLogoutRedirectURL(r), http.StatusTemporaryRedirect)
+}
+
+func getPostLogoutRedirectURL(r *http.Request) string {
+	redirectURL := getRedirectURL(r)
+	if redirectURL == "/" {
+		return "/login"
+	}
+
+	return "/login?redirect=" + url.QueryEscape(redirectURL)
+}
+
+func (a *Handler) handleAuthConfig(w http.ResponseWriter, r *http.Request) {
+	// The login page lists only providers already registered in this process.
+	// Load the saved self-hosted client first, so a restart does not hide GitHub.
+	if err := a.ensureGitHubOAuth(r.Context()); err != nil && !errors.Is(err, errGitHubSignInNotConfigured) {
+		log.Errorf("failed to load GitHub sign-in: %v", err)
+	}
+
+	providers := goth.GetProviders()
+	providerNames := make([]string, 0, len(providers))
+	for name := range providers {
+		providerNames = append(providerNames, name)
+	}
+	sort.Strings(providerNames)
+
+	response := struct {
+		Providers                   []string `json:"providers"`
+		PasswordLoginEnabled        bool     `json:"passwordLoginEnabled"`
+		SignupEnabled               bool     `json:"signupEnabled"`
+		SignupsBlockedByEnvironment bool     `json:"signupsBlockedByEnvironment"`
+		MagicCodeEnabled            bool     `json:"magicCodeEnabled"`
+	}{
+		Providers:                   providerNames,
+		PasswordLoginEnabled:        a.passwordLoginEnabled,
+		SignupEnabled:               a.SignupsEnabled(),
+		SignupsBlockedByEnvironment: a.SignupsBlockedByEnvironment(),
+		MagicCodeEnabled:            a.magicCodeEnabled,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Errorf("Error encoding auth config: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+	}
+}
+
+func (a *Handler) handlePasswordLogin(w http.ResponseWriter, r *http.Request) {
+	if !a.passwordLoginEnabled {
+		http.Error(w, "Password login is not enabled", http.StatusForbidden)
+		return
+	}
+
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Invalid form data", http.StatusBadRequest)
+		return
+	}
+
+	email := r.FormValue("email")
+	password := r.FormValue("password")
+
+	if email == "" || password == "" {
+		http.Error(w, "Email and password are required", http.StatusBadRequest)
+		return
+	}
+
+	// Find account by email
+	account, err := models.FindAccountByEmail(email)
+	if err != nil {
+		log.Warnf("Login attempt with invalid email: %s", email)
+		http.Error(w, "Invalid email or password", http.StatusUnauthorized)
+		return
+	}
+
+	// Find password auth for this account
+	passwordAuth, err := models.FindAccountPasswordAuthByAccountID(account.ID)
+	if err != nil {
+		log.Warnf("Login attempt for account without password auth: %s", email)
+		http.Error(w, "Invalid email or password", http.StatusUnauthorized)
+		return
+	}
+
+	// Verify password
+	if !crypto.VerifyPassword(passwordAuth.PasswordHash, password) {
+		log.Warnf("Invalid password attempt for account: %s", email)
+		http.Error(w, "Invalid email or password", http.StatusUnauthorized)
+		return
+	}
+
+	if account.IsBlocked() {
+		http.Error(w, models.AccountBlockedMessage, http.StatusForbidden)
+		return
+	}
+
+	if err := IssueAccountSession(w, r, a.jwtSigner, account.ID.String()); err != nil {
+		log.Errorf("Failed to generate token for password login: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// Redirect
+	redirectURL := getRedirectURL(r)
+	// Use StatusSeeOther (303) instead of StatusTemporaryRedirect (307) for POST requests
+	// This ensures the browser uses GET for the redirect, not POST
+	http.Redirect(w, r, redirectURL, http.StatusSeeOther)
+}
+
+func (a *Handler) handlePasswordSignup(w http.ResponseWriter, r *http.Request) {
+	if !a.passwordLoginEnabled {
+		http.Error(w, "Password login is not enabled", http.StatusForbidden)
+		return
+	}
+
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Invalid form data", http.StatusBadRequest)
+		return
+	}
+
+	name := r.FormValue("name")
+	email := r.FormValue("email")
+	password := r.FormValue("password")
+	inviteToken := r.FormValue("invite_token")
+
+	if name == "" || email == "" || password == "" {
+		http.Error(w, "Name, email, and password are required", http.StatusBadRequest)
+		return
+	}
+
+	if !a.SignupsEnabled() && inviteToken == "" {
+		http.Error(w, SignupDisabledError, http.StatusForbidden)
+		return
+	}
+
+	if inviteToken != "" {
+		inviteLink, err := models.FindInviteLinkByToken(database.DB(r.Context()), inviteToken)
+		if err != nil || !inviteLink.Enabled {
+			http.Error(w, "invite link not found or disabled", http.StatusForbidden)
+			return
+		}
+	}
+
+	if _, err := models.FindAccountByEmail(email); err == nil {
+		http.Error(w, "Account already exists", http.StatusConflict)
+		return
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	tx := database.Conn().Begin()
+	if tx.Error != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	account, err := models.CreateAccountInTransaction(tx, name, email)
+	if err != nil {
+		tx.Rollback()
+		http.Error(w, "Failed to create account", http.StatusInternalServerError)
+		return
+	}
+
+	passwordHash, err := crypto.HashPassword(password)
+	if err != nil {
+		tx.Rollback()
+		http.Error(w, "Failed to create account", http.StatusInternalServerError)
+		return
+	}
+
+	_, err = models.CreateAccountPasswordAuthInTransaction(tx, account.ID, passwordHash)
+	if err != nil {
+		tx.Rollback()
+		http.Error(w, "Failed to create account", http.StatusInternalServerError)
+		return
+	}
+
+	if err := tx.Commit().Error; err != nil {
+		http.Error(w, "Failed to create account", http.StatusInternalServerError)
+		return
+	}
+
+	if err := IssueAccountSession(w, r, a.jwtSigner, account.ID.String()); err != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	redirectURL := a.getPostAuthRedirectURL(r, true)
+	http.Redirect(w, r, redirectURL, http.StatusSeeOther)
+}
+
+func (a *Handler) handleMagicCodeRequest(w http.ResponseWriter, r *http.Request) {
+	if !a.magicCodeEnabled {
+		http.Error(w, "Magic code login is not enabled", http.StatusForbidden)
+		return
+	}
+
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Invalid form data", http.StatusBadRequest)
+		return
+	}
+
+	email := strings.TrimSpace(r.FormValue("email"))
+	if email == "" {
+		http.Error(w, "Email is required", http.StatusBadRequest)
+		return
+	}
+
+	email = utils.NormalizeEmail(email)
+
+	successResponse := func() {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{
+			"message": "If an account exists with this email, a sign-in code has been sent.",
+		})
+	}
+
+	account, err := models.FindAccountByEmail(email)
+	if err == nil && account.IsBlocked() {
+		successResponse()
+		return
+	}
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		log.Errorf("Failed to look up account before issuing magic code for %s: %v", email, err)
+		successResponse()
+		return
+	}
+
+	if err := a.checkSignupPolicy(email, r); err != nil {
+		if errors.Is(err, models.ErrAccountBlocked) {
+			successResponse()
+			return
+		}
+		if errors.Is(err, errSignupDisabled) {
+			writeAuthErrorJSON(w, authErrorSignupDisabled)
+			return
+		}
+		successResponse()
+		return
+	}
+
+	count, err := models.CountRecentMagicCodes(email, time.Now().Add(-magicCodeRateWindow))
+	if err != nil {
+		log.Errorf("Failed to count recent magic codes for %s: %v", email, err)
+		successResponse()
+		return
+	}
+
+	if count >= magicCodeRateLimit {
+		log.Warnf("Magic code rate limit reached for %s", email)
+		successResponse()
+		return
+	}
+
+	code, err := generateMagicCode()
+	if err != nil {
+		log.Errorf("Failed to generate magic code: %v", err)
+		successResponse()
+		return
+	}
+
+	codeHash := crypto.HashToken(code)
+	expiresAt := time.Now().Add(magicCodeTTL)
+
+	_, err = models.CreateAccountMagicCode(email, codeHash, expiresAt)
+	if err != nil {
+		log.Errorf("Failed to store magic code for %s: %v", email, err)
+		successResponse()
+		return
+	}
+
+	magicLinkToken, err := a.generateMagicLinkToken(email, code)
+	if err != nil {
+		log.Errorf("Failed to generate magic link token for %s: %v", email, err)
+		successResponse()
+		return
+	}
+
+	redirectURL := strings.TrimSpace(r.FormValue("redirect"))
+	msg := messages.NewMagicCodeRequestedMessage(email, code, magicLinkToken, redirectURL, isSignupIntentFromRequest(r))
+	if err := msg.Publish(); err != nil {
+		log.Errorf("Failed to publish magic code email request for %s: %v", email, err)
+	}
+
+	successResponse()
+}
+
+func (a *Handler) handleMagicCodeVerify(w http.ResponseWriter, r *http.Request) {
+	if !a.magicCodeEnabled {
+		http.Error(w, "Magic code login is not enabled", http.StatusForbidden)
+		return
+	}
+
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Invalid form data", http.StatusBadRequest)
+		return
+	}
+
+	email, code, err := a.parseMagicCodeInput(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// 1. Validate the code exists without consuming it. This ensures that
+	//    invalid-code requests always return 401 regardless of account
+	//    existence, preventing email enumeration via differing status codes.
+	magicCode, err := a.findValidCode(email, code)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			http.Error(w, "Invalid or expired code", http.StatusUnauthorized)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// 2. Check signup policy without creating any records. Only reachable
+	//    with a valid code, so a 403 does not leak account existence.
+	if err := a.checkSignupPolicy(email, r); err != nil {
+		if errors.Is(err, errSignupDisabled) {
+			writeAuthErrorJSON(w, authErrorSignupDisabled)
+			return
+		}
+		http.Error(w, err.Error(), errorStatusForAccountError(err))
+		return
+	}
+
+	// 3. Atomically consume the code.
+	if err := a.consumeCode(magicCode, email); err != nil {
+		http.Error(w, err.Error(), errorStatusForCodeError(err))
+		return
+	}
+
+	// 4. Find or create the account (policy already verified above).
+	account, wasCreated, err := a.findOrCreateAccountForMagicCode(email, r)
+	if err != nil {
+		http.Error(w, err.Error(), errorStatusForAccountError(err))
+		return
+	}
+
+	a.issueSessionAndRedirect(w, r, account, wasCreated)
+}
+
+func (a *Handler) parseMagicCodeInput(r *http.Request) (string, string, error) {
+	var email, code string
+
+	if magicLinkToken := strings.TrimSpace(r.FormValue("token")); magicLinkToken != "" {
+		var parseErr error
+		email, code, parseErr = a.parseMagicLinkToken(magicLinkToken)
+		if parseErr != nil {
+			log.Warnf("Invalid magic link token: %v", parseErr)
+			return "", "", fmt.Errorf("Invalid or expired link")
+		}
+	} else {
+		email = strings.TrimSpace(r.FormValue("email"))
+		code = strings.TrimSpace(r.FormValue("code"))
+	}
+
+	email = utils.NormalizeEmail(email)
+	code = stripNonDigits(code)
+
+	if email == "" || code == "" {
+		return "", "", fmt.Errorf("Email and code are required")
+	}
+
+	return email, code, nil
+}
+
+var errCodeUsed = fmt.Errorf("Invalid or expired code")
+var errDBError = fmt.Errorf("Internal server error")
+
+// findValidCode looks up a valid, unconsumed magic code without marking it
+// as used. On failure it increments the per-code attempt counter.
+func (a *Handler) findValidCode(email, code string) (*models.AccountMagicCode, error) {
+	codeHash := crypto.HashToken(code)
+
+	magicCode, err := models.FindValidAccountMagicCode(email, codeHash, magicCodeMaxVerifyAttempts)
+	if err != nil {
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			log.Errorf("Database error during magic code lookup for %s: %v", email, err)
+			return nil, errDBError
+		}
+
+		log.Warnf("Invalid magic code attempt for %s", email)
+		_, incrErr := models.IncrementAndMaybeInvalidateCodes(email, magicCodeMaxVerifyAttempts)
+		if incrErr != nil {
+			log.Errorf("Failed to process verify attempt for %s: %v", email, incrErr)
+		}
+
+		return nil, gorm.ErrRecordNotFound
+	}
+
+	return magicCode, nil
+}
+
+// consumeCode atomically marks a previously-found code as used.
+func (a *Handler) consumeCode(magicCode *models.AccountMagicCode, email string) error {
+	marked, err := magicCode.MarkUsed()
+	if err != nil {
+		log.Errorf("Failed to mark magic code as used for %s: %v", email, err)
+		return errDBError
+	}
+	if !marked {
+		log.Warnf("Magic code already used (concurrent request) for %s", email)
+		return errCodeUsed
+	}
+
+	return nil
+}
+
+func errorStatusForCodeError(err error) int {
+	if err == errDBError {
+		return http.StatusInternalServerError
+	}
+	return http.StatusUnauthorized
+}
+
+var errSignupDisabled = fmt.Errorf(SignupDisabledError)
+var errInviteLinkInvalid = fmt.Errorf("invite link not found or disabled")
+var errAccountError = fmt.Errorf("Internal server error")
+
+// checkSignupPolicy verifies account access and whether a new-user signup
+// would be allowed without creating records or consuming a magic code.
+func (a *Handler) checkSignupPolicy(email string, r *http.Request) error {
+	account, err := models.FindAccountByEmail(email)
+	if err == nil {
+		if account.IsBlocked() {
+			return models.ErrAccountBlocked
+		}
+		return nil
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		log.Errorf("Error finding account for %s: %v", email, err)
+		return errAccountError
+	}
+
+	if allowSignupFromInvite(r) {
+		return nil
+	}
+
+	if !a.SignupsEnabled() {
+		return errSignupDisabled
+	}
+
+	return nil
+}
+
+// findOrCreateAccountForMagicCode returns the existing account or creates a
+// new one. Signup policy must already be verified by checkSignupPolicy.
+func (a *Handler) findOrCreateAccountForMagicCode(email string, r *http.Request) (*models.Account, bool, error) {
+	account, err := models.FindAccountByEmail(email)
+	if err == nil {
+		return account, false, nil
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		log.Errorf("Error finding account for %s: %v", email, err)
+		return nil, false, errAccountError
+	}
+
+	name := strings.TrimSpace(r.FormValue("name"))
+	if name == "" {
+		name = strings.Split(email, "@")[0]
+	}
+
+	account, err = models.CreateAccount(name, email)
+	if err != nil {
+		account, err = models.FindAccountByEmail(email)
+		if err != nil {
+			log.Errorf("Failed to create or find account for %s: %v", email, err)
+			return nil, false, errAccountError
+		}
+		return account, false, nil
+	}
+
+	return account, true, nil
+}
+
+func errorStatusForAccountError(err error) int {
+	switch err {
+	case errSignupDisabled, errInviteLinkInvalid, models.ErrAccountBlocked:
+		return http.StatusForbidden
+	default:
+		return http.StatusInternalServerError
+	}
+}
+
+func (a *Handler) issueSessionAndRedirect(w http.ResponseWriter, r *http.Request, account *models.Account, wasCreated bool) {
+	if account.IsBlocked() {
+		if strings.Contains(r.Header.Get("Accept"), jsonContentType) {
+			http.Error(w, models.AccountBlockedMessage, http.StatusForbidden)
+			return
+		}
+		redirectAccountBlocked(w, r)
+		return
+	}
+
+	if err := IssueAccountSession(w, r, a.jwtSigner, account.ID.String()); err != nil {
+		log.Errorf("Failed to generate token for magic code login: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	redirectURL := a.getPostAuthRedirectURL(r, wasCreated)
+	writePostAuthRedirect(w, r, redirectURL)
+}
+
+func redirectAccountBlocked(w http.ResponseWriter, r *http.Request) {
+	http.Redirect(w, r, "/login?auth_error=account_blocked", http.StatusSeeOther)
+}
+
+func writePostAuthRedirect(w http.ResponseWriter, r *http.Request, redirectURL string) {
+	if strings.Contains(r.Header.Get("Accept"), jsonContentType) {
+		w.Header().Set("Content-Type", jsonContentType)
+		if err := json.NewEncoder(w).Encode(map[string]string{"redirectUrl": redirectURL}); err != nil {
+			log.Errorf("Error encoding auth redirect response: %v", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+		}
+
+		return
+	}
+
+	http.Redirect(w, r, redirectURL, http.StatusSeeOther)
+}
+
+func (a *Handler) getPostAuthRedirectURL(r *http.Request, wasCreated bool) string {
+	redirectURL := getRedirectURL(r)
+	if !wasCreated {
+		if isSignupIntentFromRequest(r) {
+			return addAuthSignupResult(redirectURL, "existing")
+		}
+
+		return redirectURL
+	}
+
+	if !a.magicCodeEnabled {
+		return addAuthSignupResult(redirectURL, "created")
+	}
+
+	if redirectURL == "/" {
+		return addAuthSignupResult("/welcome", "created")
+	}
+
+	welcomeURL := fmt.Sprintf("/welcome?redirect=%s", url.QueryEscape(redirectURL))
+	return addAuthSignupResult(welcomeURL, "created")
+}
+
+func addAuthSignupResult(redirectURL string, result string) string {
+	parsedURL, err := url.Parse(redirectURL)
+	if err != nil {
+		return redirectURL
+	}
+
+	params := parsedURL.Query()
+	params.Set(authSignupResultParam, result)
+	parsedURL.RawQuery = params.Encode()
+	return parsedURL.String()
+}
+
+func getSignupDisabledRedirectURL(r *http.Request) string {
+	params := url.Values{}
+	params.Set(authErrorParam, authErrorSignupDisabled)
+
+	provider := mux.Vars(r)["provider"]
+	if provider != "" {
+		params.Set(authProviderParam, provider)
+	}
+
+	redirectURL := getRedirectURL(r)
+	if redirectURL != "/" {
+		params.Set("redirect", redirectURL)
+	}
+
+	return fmt.Sprintf("/login?%s", params.Encode())
+}
+
+func generateMagicCode() (string, error) {
+	max := new(big.Int).Exp(big.NewInt(10), big.NewInt(magicCodeLength), nil)
+	n, err := rand.Int(rand.Reader, max)
+	if err != nil {
+		return "", err
+	}
+
+	return fmt.Sprintf("%0*d", magicCodeLength, n), nil
+}
+
+func (a *Handler) handleMagicLinkRedirect(w http.ResponseWriter, r *http.Request) {
+	token := r.URL.Query().Get("token")
+	if token == "" {
+		http.Error(w, "Missing token", http.StatusBadRequest)
+		return
+	}
+
+	authPath := "/login"
+	if isSignupIntentFromRequest(r) {
+		authPath = "/signup"
+	}
+
+	redirectURL := fmt.Sprintf("%s?magic_link_token=%s", authPath, url.QueryEscape(token))
+
+	// Preserve the redirect parameter so invite context survives the
+	// magic-link round-trip through email.
+	if redirect := r.URL.Query().Get("redirect"); redirect != "" {
+		redirectURL += "&redirect=" + url.QueryEscape(redirect)
+	}
+	if isSignupIntentFromRequest(r) {
+		redirectURL += "&signup=true"
+	}
+
+	http.Redirect(w, r, redirectURL, http.StatusTemporaryRedirect)
+}
+
+func stripNonDigits(s string) string {
+	var result strings.Builder
+	for _, r := range s {
+		if r >= '0' && r <= '9' {
+			result.WriteRune(r)
+		}
+	}
+	return result.String()
+}
+
+func (a *Handler) generateMagicLinkToken(email, code string) (string, error) {
+	now := time.Now()
+	token := jwtLib.NewWithClaims(jwtLib.SigningMethodHS256, jwtLib.MapClaims{
+		"email": email,
+		"code":  code,
+		"iat":   now.Unix(),
+		"exp":   now.Add(magicCodeTTL).Unix(),
+		"type":  "magic_link",
+	})
+
+	return token.SignedString([]byte(a.jwtSigner.Secret))
+}
+
+func (a *Handler) parseMagicLinkToken(tokenString string) (email string, code string, err error) {
+	claims, err := a.jwtSigner.ValidateAndGetClaims(tokenString)
+	if err != nil {
+		return "", "", err
+	}
+
+	tokenType, _ := claims["type"].(string)
+	if tokenType != "magic_link" {
+		return "", "", fmt.Errorf("invalid token type")
+	}
+
+	email, _ = claims["email"].(string)
+	code, _ = claims["code"].(string)
+	if email == "" || code == "" {
+		return "", "", fmt.Errorf("missing claims")
+	}
+
+	return email, code, nil
+}
+
+func (a *Handler) FindOrCreateAccountForProvider(gothUser goth.User) (*models.Account, error) {
+	account, _, err := a.findOrCreateAccountForProvider(gothUser, a.SignupsEnabled())
+	return account, err
+}
+
+func (a *Handler) findOrCreateAccountForProvider(gothUser goth.User, allowSignup bool) (*models.Account, bool, error) {
+	account, err := models.FindAccountByProvider(database.Conn(), gothUser.Provider, gothUser.UserID)
+
+	if err == nil {
+		if account.IsBlocked() {
+			return nil, false, models.ErrAccountBlocked
+		}
+
+		if account.Email != utils.NormalizeEmail(gothUser.Email) {
+			log.Infof("Updating email for account %s from %s to %s", account.ID, account.Email, gothUser.Email)
+			err = account.UpdateEmailForProvider(gothUser.Email, gothUser.Provider, gothUser.UserID)
+			if err != nil {
+				log.Errorf("Failed to update account email: %v", err)
+				return nil, false, fmt.Errorf("failed to update account email: %w", err)
+			}
+		}
+		return account, false, nil
+	}
+
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, false, err
+	}
+
+	account, err = models.FindAccountByEmail(gothUser.Email)
+	if err == nil {
+		if account.IsBlocked() {
+			return nil, false, models.ErrAccountBlocked
+		}
+		return account, false, nil
+	}
+
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, false, err
+	}
+
+	if !allowSignup {
+		log.Warnf("Signup blocked for email: %s", gothUser.Email)
+		return nil, false, errSignupDisabled
+	}
+
+	account, err = models.CreateAccount(gothUser.Name, gothUser.Email)
+	if err != nil {
+		return nil, false, err
+	}
+
+	return account, true, nil
+}
+
+func (a *Handler) canCreateAccountFromRequest(r *http.Request) bool {
+	if allowSignupFromInvite(r) {
+		return true
+	}
+
+	return a.SignupsEnabled()
+}
+
+func (a *Handler) SignupsEnabled() bool {
+	if a.blockSignup {
+		return false
+	}
+
+	metadata, err := models.GetInstallationMetadata(database.Conn())
+	return signupsEnabledFromMetadata(metadata, err)
+}
+
+func signupsEnabledFromMetadata(metadata *models.InstallationMetadata, err error) bool {
+	if err != nil {
+		log.Errorf("Error loading installation metadata for signup policy: %v", err)
+		return true
+	}
+
+	return metadata.SignupsEnabled
+}
+
+func (a *Handler) SignupsBlockedByEnvironment() bool {
+	return a.blockSignup
+}
+
+func writeAuthErrorJSON(w http.ResponseWriter, authError string) {
+	w.Header().Set("Content-Type", jsonContentType)
+	w.WriteHeader(http.StatusForbidden)
+	if err := json.NewEncoder(w).Encode(map[string]string{"error": authError}); err != nil {
+		log.Errorf("Error encoding authentication error response: %v", err)
+	}
+}
+
+func inviteRedirectPath(r *http.Request) string {
+	formRedirect := strings.TrimSpace(r.FormValue("redirect"))
+	if isValidRedirectURL(formRedirect) {
+		return formRedirect
+	}
+
+	return getRedirectURL(r)
+}
+
+func allowSignupFromInvite(r *http.Request) bool {
+	redirectURL := inviteRedirectPath(r)
+	if !strings.HasPrefix(redirectURL, "/invite/") {
+		return false
+	}
+
+	parsedURL, err := url.Parse(redirectURL)
+	if err != nil {
+		return false
+	}
+
+	inviteToken := strings.TrimPrefix(parsedURL.Path, "/invite/")
+	if inviteToken == "" || strings.Contains(inviteToken, "/") {
+		return false
+	}
+
+	inviteLink, err := models.FindInviteLinkByToken(database.DB(r.Context()), inviteToken)
+	if err != nil || !inviteLink.Enabled {
+		return false
+	}
+
+	return true
+}
+
+func isSignupIntentFromRequest(r *http.Request) bool {
+	signupValue := strings.ToLower(strings.TrimSpace(r.FormValue("signup")))
+	if signupValue == "true" || signupValue == "1" || signupValue == "yes" {
+		return true
+	}
+
+	return strings.HasPrefix(r.URL.Query().Get("state"), authSignupStatePrefix)
+}
+
+func (a *Handler) authStateForRequest(w http.ResponseWriter, r *http.Request) (string, error) {
+	if isConnectIntent(r) {
+		provider := mux.Vars(r)["provider"]
+		if !isConnectableProvider(provider) {
+			http.Error(w, "Provider does not support linked accounts", http.StatusBadRequest)
+			return "", errors.New("provider does not support linked accounts")
+		}
+
+		account, err := a.sessionAccountFromCookie(r)
+		if err != nil {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return "", err
+		}
+
+		state, err := a.signConnectState(account.ID.String(), provider, getRedirectURL(r))
+		if err != nil {
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return "", err
+		}
+		return state, nil
+	}
+
+	if isLinkIntent(r) {
+		account, err := a.sessionAccountFromCookie(r)
+		if err != nil {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return "", err
+		}
+
+		provider := mux.Vars(r)["provider"]
+		state, err := a.signLinkState(account.ID.String(), provider, getRedirectURL(r))
+		if err != nil {
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return "", err
+		}
+		return state, nil
+	}
+
+	return getAuthState(r), nil
+}
+
+func getAuthState(r *http.Request) string {
+	redirectURL := getRedirectURL(r)
+	if isSignupIntentFromRequest(r) {
+		return authSignupStatePrefix + url.QueryEscape(redirectURL)
+	}
+
+	if redirectURL == "/" {
+		return ""
+	}
+
+	return redirectURL
+}
+
+func updateAccountProviders(encryptor crypto.Encryptor, account *models.Account, gothUser goth.User) error {
+	accessToken, err := encryptor.Encrypt(context.Background(), []byte(gothUser.AccessToken), []byte(gothUser.Email))
+	if err != nil {
+		return err
+	}
+
+	accountProvider, err := account.FindAccountProviderByID(gothUser.Provider, gothUser.UserID)
+
+	//
+	// If we already have an account provider for this provider and provider ID, we just update it.
+	//
+	if err == nil {
+		accountProvider.AccessToken = base64.StdEncoding.EncodeToString(accessToken)
+		accountProvider.Username = gothUser.NickName
+		accountProvider.Email = utils.NormalizeEmail(gothUser.Email)
+		accountProvider.Name = gothUser.Name
+		accountProvider.AvatarURL = gothUser.AvatarURL
+		accountProvider.RefreshToken = gothUser.RefreshToken
+		if !gothUser.ExpiresAt.IsZero() {
+			accountProvider.TokenExpiresAt = &gothUser.ExpiresAt
+		}
+
+		return database.Conn().Save(accountProvider).Error
+	}
+
+	//
+	// Otherwise, we create a new account provider.
+	//
+	accountProvider = &models.AccountProvider{
+		AccountID:      account.ID,
+		Provider:       gothUser.Provider,
+		ProviderID:     gothUser.UserID,
+		Username:       gothUser.NickName,
+		Email:          utils.NormalizeEmail(gothUser.Email),
+		Name:           gothUser.Name,
+		AvatarURL:      gothUser.AvatarURL,
+		AccessToken:    base64.StdEncoding.EncodeToString(accessToken),
+		RefreshToken:   gothUser.RefreshToken,
+		TokenExpiresAt: &gothUser.ExpiresAt,
+	}
+
+	return database.Conn().Create(accountProvider).Error
+}
+
+func saveConnectedProviderIdentity(tx *gorm.DB, account *models.Account, gothUser goth.User) error {
+	if !strings.EqualFold(gothUser.Provider, models.ProviderGitHub) {
+		return nil
+	}
+
+	username := strings.TrimSpace(gothUser.NickName)
+	if username == "" {
+		return errors.New("GitHub returned no username")
+	}
+	providerID := strings.TrimSpace(gothUser.UserID)
+	numericID, err := strconv.ParseInt(providerID, 10, 64)
+	if err != nil || numericID <= 0 {
+		return errors.New("GitHub returned an invalid numeric user id")
+	}
+
+	linked := models.NewAccountLinkedAccount(
+		account.ID,
+		models.ProviderGitHub,
+		providerID,
+		username,
+		gothUser.Name,
+		gothUser.AvatarURL,
+	)
+	return models.RefreshAccountLinkedAccount(tx, linked)
+}
+
+func getRedirectURL(r *http.Request) string {
+	redirectParam := r.URL.Query().Get("redirect")
+
+	if redirectParam == "" {
+		redirectParam = r.URL.Query().Get("state")
+	}
+
+	if redirectParam == "" {
+		return "/"
+	}
+
+	if strings.HasPrefix(redirectParam, authSignupStatePrefix) {
+		redirectParam = strings.TrimPrefix(redirectParam, authSignupStatePrefix)
+		if redirectParam == "" {
+			return "/"
+		}
+	}
+
+	if strings.HasPrefix(redirectParam, authLinkStatePrefix) {
+		return "/"
+	}
+
+	if strings.HasPrefix(redirectParam, authConnectStatePrefix) {
+		return "/"
+	}
+
+	decodedURL, err := url.QueryUnescape(redirectParam)
+	if err == nil && isValidRedirectURL(decodedURL) {
+		return decodedURL
+	}
+
+	return "/"
+}
+
+// Validates that the redirect URL is a valid internal URL.
+// It rejects external URLs and URLs with multiple slashes.
+func isValidRedirectURL(redirectURL string) bool {
+	if redirectURL == "" || redirectURL[0] != '/' {
+		return false
+	}
+
+	if len(redirectURL) > 1 && redirectURL[1] == '/' {
+		return false
+	}
+
+	return true
+}
+
+func ClearAccountCookie(w http.ResponseWriter, r *http.Request) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     "account_token",
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   r.TLS != nil,
+		SameSite: http.SameSiteLaxMode,
+	})
+}
+
+// SetAccountCookie writes the account_token cookie with the same flags
+// used by every login path. Centralized so callers (login, signup, magic
+// code, change-password reissue) cannot drift on cookie attributes.
+func SetAccountCookie(w http.ResponseWriter, r *http.Request, token string, ttl time.Duration) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     "account_token",
+		Value:    token,
+		Path:     "/",
+		MaxAge:   int(ttl.Seconds()),
+		HttpOnly: true,
+		Secure:   r.TLS != nil,
+		SameSite: http.SameSiteLaxMode,
+	})
+}

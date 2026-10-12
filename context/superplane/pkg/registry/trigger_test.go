@@ -1,0 +1,163 @@
+package registry
+
+import (
+	"testing"
+
+	log "github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/superplanehq/superplane/pkg/configuration"
+	"github.com/superplanehq/superplane/pkg/core"
+)
+
+// panickingTrigger is a trigger that panics in all panicable methods
+type panickingTrigger struct {
+	name string
+}
+
+func (p *panickingTrigger) Name() string                         { return p.name }
+func (p *panickingTrigger) Label() string                        { return "Panicking Trigger" }
+func (p *panickingTrigger) Description() string                  { return "description" }
+func (p *panickingTrigger) Documentation() string                { return "" }
+func (p *panickingTrigger) Icon() string                         { return "icon" }
+func (p *panickingTrigger) Color() string                        { return "blue" }
+func (p *panickingTrigger) ExampleData() map[string]any          { return nil }
+func (p *panickingTrigger) Configuration() []configuration.Field { return nil }
+func (p *panickingTrigger) Hooks() []core.Hook                   { return nil }
+func (p *panickingTrigger) Setup(ctx core.TriggerContext) error  { panic("setup panic") }
+func (p *panickingTrigger) HandleWebhook(ctx core.WebhookRequestContext) (int, *core.WebhookResponseBody, error) {
+	panic("handle webhook panic")
+}
+func (p *panickingTrigger) HandleHook(ctx core.TriggerHookContext) (map[string]any, error) {
+	panic("handle hook panic")
+}
+func (p *panickingTrigger) Cleanup(ctx core.TriggerContext) error { panic("cleanup panic") }
+
+type panickingAppTrigger struct {
+	panickingTrigger
+}
+
+func (p *panickingAppTrigger) OnAppMessage(ctx core.AppMessageContext) error {
+	panic("on app message panic")
+}
+
+type noopAppTrigger struct {
+	name string
+}
+
+func (n *noopAppTrigger) Name() string                         { return n.name }
+func (n *noopAppTrigger) Label() string                        { return "Noop App Trigger" }
+func (n *noopAppTrigger) Description() string                  { return "description" }
+func (n *noopAppTrigger) Documentation() string                { return "" }
+func (n *noopAppTrigger) Icon() string                         { return "icon" }
+func (n *noopAppTrigger) Color() string                        { return "blue" }
+func (n *noopAppTrigger) ExampleData() map[string]any          { return nil }
+func (n *noopAppTrigger) Configuration() []configuration.Field { return nil }
+func (n *noopAppTrigger) Hooks() []core.Hook                   { return nil }
+func (n *noopAppTrigger) Setup(ctx core.TriggerContext) error  { return nil }
+func (n *noopAppTrigger) HandleWebhook(ctx core.WebhookRequestContext) (int, *core.WebhookResponseBody, error) {
+	return 200, nil, nil
+}
+func (n *noopAppTrigger) HandleHook(ctx core.TriggerHookContext) (map[string]any, error) {
+	return nil, nil
+}
+func (n *noopAppTrigger) Cleanup(ctx core.TriggerContext) error { return nil }
+func (n *noopAppTrigger) OnAppMessage(ctx core.AppMessageContext) error {
+	return nil
+}
+
+func TestPanicableTrigger_Setup_CatchesPanic(t *testing.T) {
+	trig := &panickingTrigger{name: "panicking-trigger"}
+	panicable := NewPanicableTrigger(trig)
+	ctx := core.TriggerContext{
+		Logger: log.NewEntry(log.StandardLogger()),
+	}
+
+	err := panicable.Setup(ctx)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "panicking-trigger panicked in Setup()")
+	assert.Contains(t, err.Error(), "setup panic")
+}
+
+func TestPanicableTrigger_HandleWebhook_CatchesPanic(t *testing.T) {
+	trig := &panickingTrigger{name: "panicking-trigger"}
+	panicable := NewPanicableTrigger(trig)
+	ctx := core.WebhookRequestContext{}
+
+	status, _, err := panicable.HandleWebhook(ctx)
+
+	require.Error(t, err)
+	assert.Equal(t, 500, status)
+	assert.Contains(t, err.Error(), "panicking-trigger panicked in HandleWebhook()")
+	assert.Contains(t, err.Error(), "handle webhook panic")
+}
+
+func TestPanicableTrigger_HandleHook_CatchesPanic(t *testing.T) {
+	trig := &panickingTrigger{name: "panicking-trigger"}
+	panicable := NewPanicableTrigger(trig)
+	ctx := core.TriggerHookContext{
+		Name:   "test-hook",
+		Logger: log.NewEntry(log.StandardLogger()),
+	}
+
+	_, err := panicable.HandleHook(ctx)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "panicking-trigger panicked in HandleHook(test-hook)")
+	assert.Contains(t, err.Error(), "handle hook panic")
+}
+
+func TestPanicableTrigger_Cleanup_CatchesPanic(t *testing.T) {
+	trig := &panickingTrigger{name: "panicking-trigger"}
+	panicable := NewPanicableTrigger(trig)
+	ctx := core.TriggerContext{
+		Logger: log.NewEntry(log.StandardLogger()),
+	}
+
+	err := panicable.Cleanup(ctx)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "panicking-trigger panicked in Cleanup()")
+	assert.Contains(t, err.Error(), "cleanup panic")
+}
+
+func TestPanicableTrigger_OnAppMessage_CatchesPanic(t *testing.T) {
+	trig := &panickingAppTrigger{panickingTrigger{name: "panicking-app-trigger"}}
+	panicable := NewPanicableTrigger(trig).(*PanicableTrigger)
+	ctx := core.AppMessageContext{
+		Logger: log.NewEntry(log.StandardLogger()),
+	}
+
+	err := panicable.OnAppMessage(ctx)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "panicking-app-trigger panicked in OnAppMessage()")
+	assert.Contains(t, err.Error(), "on app message panic")
+}
+
+func TestPanicableTrigger_OnAppMessage_RejectsNonAppTrigger(t *testing.T) {
+	trig := &panickingTrigger{name: "regular-trigger"}
+	panicable := NewPanicableTrigger(trig).(*PanicableTrigger)
+	ctx := core.AppMessageContext{
+		Logger: log.NewEntry(log.StandardLogger()),
+	}
+
+	err := panicable.OnAppMessage(ctx)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "regular-trigger is not an app trigger")
+}
+
+func TestPanicableTrigger_OnAppMessage_DelegatesToUnderlyingTrigger(t *testing.T) {
+	trig := &noopAppTrigger{name: "noop-app-trigger"}
+	panicable := NewPanicableTrigger(trig).(*PanicableTrigger)
+	ctx := core.AppMessageContext{
+		Logger: log.NewEntry(log.StandardLogger()),
+	}
+
+	err := panicable.OnAppMessage(ctx)
+
+	require.NoError(t, err)
+}

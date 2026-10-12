@@ -1,0 +1,124 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+IFS=$'\n\t'
+
+# Source spinner functions
+source /app/spinner.sh
+
+# ===========================================================================
+# Setting up data directory structure
+# ===========================================================================
+
+# Ensure /app/data exists and has proper permissions for persistent storage
+mkdir -p /app/data/postgres /app/data/rabbitmq/mnesia /app/data/rabbitmq/logs
+chown -R postgres:postgres /app/data/postgres || true
+
+# ===========================================================================
+# Generating and loading environment variables
+# ===========================================================================
+
+# Generate or load all environment variables
+/app/gen-superplane-env.sh /app/data/superplane.env
+
+# Source the environment file
+set -a
+source /app/data/superplane.env
+set +a
+
+# ===========================================================================
+# Starting embedded services
+# ===========================================================================
+
+start_spinner "Starting services"
+
+if [ ! -s "${PGDATA}/PG_VERSION" ]; then
+  mkdir -p "${PGDATA}"
+  chown -R postgres:postgres "${PGDATA}" || true
+
+  su - postgres -c "initdb -D '${PGDATA}' -E UTF8 --auth=trust" >/dev/null 2>&1
+fi
+
+su - postgres -c "pg_ctl -D '${PGDATA}' -o '-p ${DB_PORT}' -w start" >/dev/null 2>&1
+
+RABBITMQ_LOG_BASE=${RABBITMQ_LOG_BASE:-/app/data/rabbitmq/logs}
+RABBITMQ_MNESIA_BASE=${RABBITMQ_MNESIA_BASE:-/app/data/rabbitmq/mnesia}
+
+mkdir -p "${RABBITMQ_LOG_BASE}" "${RABBITMQ_MNESIA_BASE}"
+
+rabbitmq-server -detached
+for i in {1..30}; do
+  if rabbitmq-diagnostics -q ping >/dev/null 2>&1; then
+    break
+  fi
+  sleep 1
+done
+
+stop_spinner
+
+# ===========================================================================
+# Running DB migrations
+# ===========================================================================
+
+start_spinner "Running database migrations"
+
+if [ -z "${DB_PASSWORD:-}" ]; then echo "DB username not set" && exit 1; fi
+if [ -z "${DB_HOST:-}" ]; then echo "DB host not set" && exit 1; fi
+if [ -z "${DB_PORT:-}" ]; then echo "DB port not set" && exit 1; fi
+if [ -z "${DB_USERNAME:-}" ]; then echo "DB username not set" && exit 1; fi
+if [ -z "${DB_NAME:-}" ]; then echo "DB name not set" && exit 1; fi
+if [ -z "${APPLICATION_NAME:-}" ]; then echo "Application name not set" && exit 1; fi
+
+if [ "${POSTGRES_DB_SSL}" = "true" ]; then
+  export PGSSLMODE=require
+else
+  export PGSSLMODE=disable
+fi
+
+PGPASSWORD="${DB_PASSWORD}" createdb -h "${DB_HOST}" -p "${DB_PORT}" -U "${DB_USERNAME}" "${DB_NAME}" >/dev/null 2>&1 || true
+
+DB_URL="postgres://${DB_USERNAME}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}?sslmode=${PGSSLMODE}"
+migrate -source file:///app/db/migrations -database "${DB_URL}" up >/dev/null 2>&1
+
+stop_spinner
+
+# ===========================================================================
+# Starting localtunnel
+# ===========================================================================
+
+if [ "${LOCALTUNNEL_ENABLED}" = "1" ]; then
+  start_spinner "Setting up a public webhook tunnel"
+  
+  # Start localtunnel with the persisted subdomain
+  npx -y localtunnel --port 3000 --subdomain "${LOCALTUNNEL_SUBDOMAIN}" > /tmp/localtunnel.log 2>&1 &
+  LOCALTUNNEL_PID=$!
+  
+  # Wait for the tunnel to be ready
+  for i in {1..60}; do
+    if [ -f /tmp/localtunnel.log ]; then
+      URL=$(grep -Eo 'https://[a-zA-Z0-9.-]+\.loca\.lt' /tmp/localtunnel.log | head -n 1 || true)
+      if [ -n "${URL}" ]; then
+        WEBHOOKS_BASE_URL="${URL}"
+        export WEBHOOKS_BASE_URL
+        # Update the env file with the new WEBHOOKS_BASE_URL
+        sed -i "s|^export WEBHOOKS_BASE_URL=.*|export WEBHOOKS_BASE_URL=\"${WEBHOOKS_BASE_URL}\"|" /app/data/superplane.env || \
+          echo "export WEBHOOKS_BASE_URL=\"${WEBHOOKS_BASE_URL}\"" >> /app/data/superplane.env
+        stop_spinner "Incoming webhooks will be received via: ${URL}"
+        break
+      fi
+    fi
+    sleep 1
+  done
+  
+  # If we didn't get a URL, kill the process
+  if [ -z "${URL:-}" ]; then
+    kill $LOCALTUNNEL_PID >/dev/null 2>&1 || true
+    stop_spinner
+    echo "Warning: Failed to create localtunnel URL" >&2
+  fi
+fi
+
+echo ""
+echo "  Visit: ${BASE_URL}"
+
+exec /app/build/superplane >/dev/null 2>&1

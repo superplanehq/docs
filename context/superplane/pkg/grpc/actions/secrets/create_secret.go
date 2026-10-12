@@ -1,0 +1,134 @@
+package secrets
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+
+	"github.com/google/uuid"
+	log "github.com/sirupsen/logrus"
+	"github.com/superplanehq/superplane/pkg/authentication"
+	"github.com/superplanehq/superplane/pkg/crypto"
+	"github.com/superplanehq/superplane/pkg/grpc/errors"
+	"github.com/superplanehq/superplane/pkg/models"
+	pb "github.com/superplanehq/superplane/pkg/protos/secrets"
+	"github.com/superplanehq/superplane/pkg/secrets"
+)
+
+func CreateSecret(ctx context.Context, encryptor crypto.Encryptor, domainType string, domainID string, spec *pb.Secret) (*pb.CreateSecretResponse, error) {
+	userID, userIsSet := authentication.GetUserIdFromMetadata(ctx)
+	if !userIsSet {
+		return nil, grpcerrors.Unauthenticated(nil, "user not authenticated")
+	}
+
+	if spec == nil {
+		return nil, grpcerrors.InvalidArgument(nil, "missing secret")
+	}
+
+	if spec.Metadata == nil || spec.Metadata.Name == "" {
+		return nil, grpcerrors.InvalidArgument(nil, "empty secret name")
+	}
+
+	if spec.Spec == nil {
+		return nil, grpcerrors.InvalidArgument(nil, "missing secret spec")
+	}
+
+	provider := protoToSecretProvider(spec.Spec.Provider)
+	if provider == "" {
+		return nil, grpcerrors.InvalidArgument(nil, "invalid provider")
+	}
+
+	data, err := prepareSecretData(ctx, encryptor, spec)
+	if err != nil {
+		return nil, grpcerrors.InvalidArgument(err, "invalid secret configuration")
+	}
+
+	secret, err := models.CreateSecret(spec.Metadata.Name, provider, userID, domainType, uuid.MustParse(domainID), data)
+	if err != nil {
+		if errors.Is(err, models.ErrNameAlreadyUsed) {
+			return nil, grpcerrors.InvalidArgument(err, "name already used")
+		}
+
+		log.Errorf("failed to create secret %s: %v", spec.Metadata.Name, err)
+		return nil, grpcerrors.Internal(err, "failed to create secret")
+	}
+
+	s, err := serializeSecret(ctx, encryptor, *secret)
+	if err != nil {
+		return nil, err
+	}
+
+	return &pb.CreateSecretResponse{Secret: s}, nil
+}
+
+func protoToSecretProvider(provider pb.Secret_Provider) string {
+	switch provider {
+	case pb.Secret_PROVIDER_LOCAL:
+		return secrets.ProviderLocal
+	default:
+		return ""
+	}
+}
+
+func secretProviderToProto(provider string) pb.Secret_Provider {
+	switch provider {
+	case secrets.ProviderLocal:
+		return pb.Secret_PROVIDER_LOCAL
+	default:
+		return pb.Secret_PROVIDER_UNKNOWN
+	}
+}
+
+func prepareSecretData(ctx context.Context, encryptor crypto.Encryptor, secret *pb.Secret) ([]byte, error) {
+	if secret.Spec == nil {
+		return nil, fmt.Errorf("missing secret spec")
+	}
+	switch secret.Spec.Provider {
+	case pb.Secret_PROVIDER_LOCAL:
+		if secret.Spec.Local == nil || secret.Spec.Local.Data == nil {
+			return nil, fmt.Errorf("missing data")
+		}
+
+		data, err := json.Marshal(secret.Spec.Local.Data)
+		if err != nil {
+			return nil, err
+		}
+
+		encrypted, err := encryptor.Encrypt(ctx, data, []byte(secret.Metadata.Name))
+		if err != nil {
+			return nil, err
+		}
+
+		return encrypted, nil
+
+	default:
+		return nil, fmt.Errorf("provider not supported")
+	}
+}
+
+// decryptSecretData decrypts a secret's stored data and returns the key-value map.
+func decryptSecretData(ctx context.Context, encryptor crypto.Encryptor, secret models.Secret) (map[string]string, error) {
+	data, err := encryptor.Decrypt(ctx, secret.Data, []byte(secret.Name))
+	if err != nil {
+		return nil, err
+	}
+	var values map[string]string
+	if len(data) == 0 {
+		return make(map[string]string), nil
+	}
+	err = json.Unmarshal(data, &values)
+	if err != nil {
+		return nil, err
+	}
+	return values, nil
+}
+
+// encryptSecretData marshals the key-value map and encrypts it for storage.
+func encryptSecretData(ctx context.Context, encryptor crypto.Encryptor, secretName string, data map[string]string) ([]byte, error) {
+	raw, err := json.Marshal(data)
+	if err != nil {
+		return nil, err
+	}
+	return encryptor.Encrypt(ctx, raw, []byte(secretName))
+}

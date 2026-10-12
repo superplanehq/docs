@@ -1,0 +1,282 @@
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { StrictMode, type ReactNode } from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "bun:test";
+
+const { init, identify, capture, reset, setOnce } = vi.hoisted(() => ({
+  init: vi.fn(),
+  identify: vi.fn(),
+  capture: vi.fn(),
+  reset: vi.fn(),
+  setOnce: vi.fn(),
+}));
+
+vi.mock("posthog-js", () => ({
+  default: { init, identify, capture, reset, people: { set_once: setOnce } },
+}));
+
+vi.mock("react-router", () => ({
+  Link: ({ children, to }: { children: ReactNode; to: string }) => <a href={to}>{children}</a>,
+  useNavigate: () => vi.fn(),
+  useLocation: () => ({ pathname: "/", search: "", hash: "", state: null, key: "default" }),
+}));
+
+vi.mock("@/hooks/useOrganizationData", () => ({
+  useOrganization: () => ({ data: { metadata: { name: "Acme Corp" } } }),
+}));
+
+vi.mock("@/hooks/useAccountOrganizations", () => ({
+  useAccountOrganizations: () => ({ data: [], refetch: vi.fn() }),
+}));
+
+vi.mock("@/hooks/useExperimentalFeature", () => ({
+  useExperimentalFeature: () => ({
+    has: () => false,
+    enabledExperimentalFeatures: [],
+    isLoading: false,
+  }),
+}));
+
+vi.mock("@/contexts/usePermissions", () => ({
+  usePermissions: () => ({ canAct: () => true, isLoading: false }),
+}));
+
+import { AccountProvider } from "@/contexts/AccountProvider";
+import { ThemeProvider } from "@/contexts/ThemeProvider";
+import { OrganizationMenuButton } from "@/components/OrganizationMenuButton";
+import { confirmSignupAnalyticsPreference, savePendingSignupAnalyticsPreference } from "@/lib/signupAnalytics";
+import { initPostHog } from "@/posthog";
+
+const mockAccount = {
+  id: "user-123",
+  name: "John Doe",
+  email: "john@example.com",
+  installation_admin: false,
+};
+
+const stubFetch = (data: object, status = 200) => {
+  const mock = vi.fn().mockResolvedValue({
+    status,
+    headers: { get: () => null },
+    json: () => Promise.resolve(data),
+  });
+  vi.stubGlobal("fetch", mock);
+  return mock;
+};
+
+describe("posthog init", () => {
+  beforeEach(() => {
+    init.mockClear();
+    setOnce.mockClear();
+    localStorage.clear();
+    document.cookie = "superplane_initial_utm=; Max-Age=0; Path=/";
+  });
+
+  afterEach(() => {
+    delete (window as Window & { SUPERPLANE_POSTHOG_KEY?: string }).SUPERPLANE_POSTHOG_KEY;
+    localStorage.clear();
+    document.cookie = "superplane_initial_utm=; Max-Age=0; Path=/";
+    window.history.replaceState({}, "", "/");
+  });
+
+  it("calls init when SUPERPLANE_POSTHOG_KEY is set", () => {
+    (window as Window & { SUPERPLANE_POSTHOG_KEY?: string }).SUPERPLANE_POSTHOG_KEY = "test-key";
+    expect(initPostHog()).toBe(true);
+    expect(init).toHaveBeenCalledWith(
+      "test-key",
+      expect.objectContaining({ autocapture: false, capture_pageview: false, person_profiles: "always" }),
+    );
+  });
+
+  it("does not call init when SUPERPLANE_POSTHOG_KEY is not set", () => {
+    delete (window as Window & { SUPERPLANE_POSTHOG_KEY?: string }).SUPERPLANE_POSTHOG_KEY;
+    expect(initPostHog()).toBe(false);
+    expect(init).not.toHaveBeenCalled();
+  });
+
+  it("sets initial UTM person properties when PostHog initializes", () => {
+    (window as Window & { SUPERPLANE_POSTHOG_KEY?: string }).SUPERPLANE_POSTHOG_KEY = "test-key";
+    window.history.replaceState({}, "", "/signup?utm_source=youtube&utm_campaign=erictech_beta");
+
+    expect(initPostHog()).toBe(true);
+
+    expect(setOnce).toHaveBeenCalledWith({
+      $initial_utm_source: "youtube",
+      $initial_utm_campaign: "erictech_beta",
+    });
+  });
+});
+
+describe("account identification", () => {
+  beforeEach(() => {
+    identify.mockClear();
+    capture.mockClear();
+    localStorage.clear();
+    document.cookie = "superplane_initial_utm=; Max-Age=0; Path=/";
+    stubFetch(mockAccount);
+  });
+
+  afterEach(() => {
+    localStorage.clear();
+    document.cookie = "superplane_initial_utm=; Max-Age=0; Path=/";
+    window.history.replaceState({}, "", "/");
+    delete (window as Window & { SUPERPLANE_POSTHOG_KEY?: string }).SUPERPLANE_POSTHOG_KEY;
+    vi.unstubAllGlobals();
+  });
+
+  it("calls identify with account data when account loads", async () => {
+    render(
+      <AccountProvider>
+        <div />
+      </AccountProvider>,
+    );
+    await waitFor(() => {
+      expect(identify).toHaveBeenCalledWith("user-123", {
+        email: "john@example.com",
+        name: "John Doe",
+        installation_admin: false,
+      });
+    });
+  });
+
+  it("does not call identify when impersonation is active", async () => {
+    const fetchMock = stubFetch({ ...mockAccount, impersonation: { active: true } });
+    render(
+      <AccountProvider>
+        <div />
+      </AccountProvider>,
+    );
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expect(identify).not.toHaveBeenCalled();
+  });
+
+  it("captures signup product update preference on account load", async () => {
+    confirmSignupAnalyticsPreference({
+      email: mockAccount.email,
+      productUpdatesOptIn: false,
+    });
+
+    render(
+      <AccountProvider>
+        <div />
+      </AccountProvider>,
+    );
+
+    await waitFor(() => {
+      expect(identify).toHaveBeenCalledWith("user-123", {
+        email: "john@example.com",
+        name: "John Doe",
+        installation_admin: false,
+        product_updates_opt_in: false,
+      });
+    });
+
+    expect(capture).toHaveBeenCalledWith("auth:signup", {
+      product_updates_opt_in: false,
+      $set: {
+        product_updates_opt_in: false,
+      },
+    });
+  });
+
+  it("captures unconfirmed signup preference when redirect marks account as created", async () => {
+    window.history.replaceState({}, "", "/org-123?auth_signup_result=created");
+    savePendingSignupAnalyticsPreference({
+      productUpdatesOptIn: true,
+    });
+
+    render(
+      <AccountProvider>
+        <div />
+      </AccountProvider>,
+    );
+
+    await waitFor(() => {
+      expect(capture).toHaveBeenCalledWith("auth:signup", {
+        product_updates_opt_in: true,
+        $set: {
+          product_updates_opt_in: true,
+        },
+      });
+    });
+    expect(window.location.search).toBe("");
+  });
+
+  it("captures implicit signup without marketing properties", async () => {
+    window.history.replaceState({}, "", "/org-123?auth_signup_result=created&view=list");
+
+    render(
+      <StrictMode>
+        <AccountProvider>
+          <div />
+        </AccountProvider>
+      </StrictMode>,
+    );
+
+    await waitFor(() => {
+      expect(capture).toHaveBeenCalledWith("auth:signup");
+    });
+    expect(identify).toHaveBeenCalledWith("user-123", {
+      email: "john@example.com",
+      name: "John Doe",
+      installation_admin: false,
+    });
+    expect(capture).toHaveBeenCalledTimes(1);
+    expect(window.location.search).toBe("?view=list");
+  });
+
+  it("clears unconfirmed signup preference when redirect marks account as existing", async () => {
+    window.history.replaceState({}, "", "/org-123?auth_signup_result=existing");
+    savePendingSignupAnalyticsPreference({
+      productUpdatesOptIn: true,
+    });
+
+    render(
+      <AccountProvider>
+        <div />
+      </AccountProvider>,
+    );
+
+    await waitFor(() => {
+      expect(identify).toHaveBeenCalledWith("user-123", {
+        email: "john@example.com",
+        name: "John Doe",
+        installation_admin: false,
+      });
+    });
+
+    expect(capture).not.toHaveBeenCalledWith("auth:signup", expect.anything());
+    expect(window.location.search).toBe("");
+  });
+});
+
+describe("logout", () => {
+  beforeEach(() => {
+    reset.mockClear();
+    stubFetch(mockAccount);
+    Object.defineProperty(window, "location", {
+      value: { href: "" },
+      writable: true,
+      configurable: true,
+    });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("calls reset when Sign Out is clicked", async () => {
+    const user = userEvent.setup();
+    render(
+      <ThemeProvider>
+        <AccountProvider>
+          <OrganizationMenuButton organizationId="org-123" />
+        </AccountProvider>
+      </ThemeProvider>,
+    );
+
+    await user.click(screen.getByLabelText("Open organization menu"));
+    await user.click(screen.getByText("Sign Out"));
+    expect(reset).toHaveBeenCalledOnce();
+  });
+});

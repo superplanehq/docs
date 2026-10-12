@@ -1,0 +1,43 @@
+package runner
+
+import (
+	"github.com/sirupsen/logrus"
+	"github.com/superplanehq/superplane/pkg/core"
+)
+
+// Shared symbols for runner subpackages (e.g. runner/claude).
+
+const (
+	MachineTypeFieldName              = configurationFieldMachineType
+	HookPoll                          = hookActionPoll
+	MaxExecutionTimeoutSecondsRequest = maxExecutionTimeoutSecondsRequest
+)
+
+func IntPtr(v int) *int { return intPtr(v) }
+
+func AfterRunnerTaskCreated(
+	ctx core.ExecutionContext,
+	taskID, backend string,
+) error {
+	return afterRunnerTaskCreated(ctx, taskID, backend)
+}
+
+func PollBrokerTask(ctx core.ActionHookContext, finishedEventType string) error {
+	return pollBrokerTask(ctx, finishedEventType)
+}
+
+func HandleBrokerWebhook(ctx core.WebhookRequestContext, finishedEventType string) (int, *core.WebhookResponseBody, error) {
+	return handleBrokerWebhook(ctx, finishedEventType)
+}
+
+func CancelBrokerTask(ctx core.ExecutionContext, finishedEventType string) error {
+	return cancelBrokerTask(ctx, finishedEventType)
+}
+
+func RevokeOpenRouterChildKey(httpCtx core.HTTPContext, state core.ExecutionStateContext, hosted core.HostedLLMContext, logger *logrus.Entry) {
+	_ = revokeOpenRouterChildKey(httpCtx, state, hosted, logger)
+}
+
+func ProcessBrokerTaskStatus(state core.ExecutionStateContext, task *Task, finishedEventType, organizationID string) error {
+	return processBrokerTaskStatus(state, task, finishedEventType, organizationID, nil, nil, nil)
+}

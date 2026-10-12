@@ -1,0 +1,232 @@
+import type {
+  ComponentBaseContext,
+  ComponentBaseMapper,
+  EventStateRegistry,
+  ExecutionDetailsContext,
+  ExecutionInfo,
+  NodeInfo,
+  OutputPayload,
+  StateFunction,
+  SubtitleContext,
+} from "../types";
+import type {
+  ComponentBaseProps,
+  ComponentBaseSpec,
+  EventSection,
+  EventState,
+  EventStateMap,
+} from "@/ui/componentBase";
+import { DEFAULT_EVENT_STATE_MAP } from "@/ui/componentBase/eventState";
+import { getBackgroundColorClass, getColorClass } from "@/lib/colors";
+import type React from "react";
+import type { MetadataItem } from "@/ui/metadataList";
+import HarnessIcon from "@/assets/icons/integrations/harness.svg";
+import { renderTimeAgo } from "@/components/TimeAgo";
+import { getTriggerRenderer } from "../mapperLookup";
+
+type RunPipelineSource = {
+  executionId?: string;
+  pipelineIdentifier?: string;
+  status?: string;
+  planExecutionUrl?: string;
+  startedAt?: string;
+  endedAt?: string;
+};
+
+type RunPipelinePayload = RunPipelineSource & {
+  data?: RunPipelineSource;
+};
+
+export const RUN_PIPELINE_STATE_MAP: EventStateMap = {
+  ...DEFAULT_EVENT_STATE_MAP,
+  running: {
+    icon: "loader-circle",
+    textColor: "text-gray-800",
+    backgroundColor: "bg-blue-100",
+    badgeColor: "bg-blue-500",
+  },
+  success: {
+    icon: "circle-check",
+    textColor: "text-gray-800",
+    backgroundColor: "bg-green-100",
+    badgeColor: "bg-emerald-500",
+  },
+  failed: {
+    icon: "circle-x",
+    textColor: "text-gray-800",
+    backgroundColor: "bg-red-100",
+    badgeColor: "bg-red-400",
+  },
+};
+
+export const runPipelineStateFunction: StateFunction = (execution: ExecutionInfo): EventState => {
+  if (!execution) return "neutral";
+
+  if (
+    execution.resultMessage &&
+    (execution.resultReason === "RESULT_REASON_ERROR" ||
+      (execution.result === "RESULT_FAILED" && execution.resultReason !== "RESULT_REASON_ERROR_RESOLVED"))
+  ) {
+    return "error";
+  }
+
+  if (execution.result === "RESULT_CANCELLED") {
+    return "cancelled";
+  }
+
+  if (execution.state === "STATE_PENDING" || execution.state === "STATE_STARTED") {
+    return "running";
+  }
+
+  const outputs = execution.outputs as { success?: OutputPayload[]; failed?: OutputPayload[] } | undefined;
+  if (outputs?.failed && outputs.failed.length > 0) {
+    return "failed";
+  }
+  if (outputs?.success && outputs.success.length > 0) {
+    return "success";
+  }
+
+  return "neutral";
+};
+
+export const RUN_PIPELINE_STATE_REGISTRY: EventStateRegistry = {
+  stateMap: RUN_PIPELINE_STATE_MAP,
+  getState: runPipelineStateFunction,
+};
+
+export const runPipelineMapper: ComponentBaseMapper = {
+  props(context: ComponentBaseContext): ComponentBaseProps {
+    const lastExecution = context.lastExecutions.length > 0 ? context.lastExecutions[0] : null;
+
+    return {
+      title:
+        context.node.name ||
+        context.componentDefinition.label ||
+        context.componentDefinition.name ||
+        "Unnamed component",
+      iconSrc: HarnessIcon,
+      iconSlug: context.componentDefinition.icon || "workflow",
+      iconColor: getColorClass(context.componentDefinition?.color || "gray"),
+      collapsed: context.node.isCollapsed,
+      collapsedBackground: getBackgroundColorClass("white"),
+      eventSections: lastExecution ? runPipelineEventSections(context.nodes, lastExecution) : undefined,
+      includeEmptyState: !lastExecution,
+      metadata: runPipelineMetadataList(context.node),
+      specs: runPipelineSpecs(context.node),
+      eventStateMap: RUN_PIPELINE_STATE_MAP,
+    };
+  },
+  subtitle(context: SubtitleContext): string | React.ReactNode {
+    const timestamp = context.execution.updatedAt || context.execution.createdAt;
+    return timestamp ? renderTimeAgo(new Date(timestamp)) : "";
+  },
+  getExecutionDetails(context: ExecutionDetailsContext): Record<string, unknown> {
+    const details: Record<string, unknown> = {};
+    const outputs = context.execution.outputs as
+      | { success?: OutputPayload[]; failed?: OutputPayload[]; default?: OutputPayload[] }
+      | undefined;
+
+    const payload =
+      (outputs?.success?.[0]?.data as RunPipelinePayload | undefined) ||
+      (outputs?.failed?.[0]?.data as RunPipelinePayload | undefined) ||
+      (outputs?.default?.[0]?.data as RunPipelinePayload | undefined);
+
+    const payloadData =
+      payload && typeof payload === "object" && payload.data && typeof payload.data === "object"
+        ? payload.data
+        : payload;
+
+    const metadataFallback =
+      (!payloadData || typeof payloadData !== "object") && context.execution.metadata
+        ? (context.execution.metadata as RunPipelineSource)
+        : undefined;
+
+    const sourceData =
+      payloadData && typeof payloadData === "object"
+        ? payloadData
+        : metadataFallback && typeof metadataFallback === "object"
+          ? metadataFallback
+          : undefined;
+
+    if (!sourceData || typeof sourceData !== "object") {
+      return details;
+    }
+
+    const addDetail = (key: string, value?: string) => {
+      if (value) details[key] = value;
+    };
+
+    addDetail("Execution ID", sourceData.executionId);
+    addDetail("Pipeline", sourceData.pipelineIdentifier);
+    addDetail("Status", sourceData.status);
+    addDetail("Plan URL", sourceData.planExecutionUrl);
+    addDetail("Started At", sourceData.startedAt);
+    addDetail("Ended At", sourceData.endedAt);
+
+    return details;
+  },
+};
+
+function runPipelineMetadataList(node: NodeInfo): MetadataItem[] {
+  const metadata: MetadataItem[] = [];
+  const configuration = node.configuration as { pipelineIdentifier?: string; ref?: string };
+
+  if (configuration?.pipelineIdentifier) {
+    metadata.push({ icon: "workflow", label: configuration.pipelineIdentifier });
+  }
+
+  if (configuration?.ref) {
+    metadata.push({ icon: "git-branch", label: configuration.ref });
+  }
+
+  return metadata;
+}
+
+function runPipelineSpecs(node: NodeInfo): ComponentBaseSpec[] {
+  const specs: ComponentBaseSpec[] = [];
+  const configuration = node.configuration as { inputSetReferences?: string[] };
+
+  const inputSetReferences = configuration?.inputSetReferences;
+  if (inputSetReferences && inputSetReferences.length > 0) {
+    specs.push({
+      title: "input set",
+      tooltipTitle: "input set references",
+      iconSlug: "list",
+      values: inputSetReferences.map((inputSetReference) => ({
+        badges: [
+          {
+            label: inputSetReference,
+            bgColor: "bg-orange-100",
+            textColor: "text-orange-900",
+          },
+        ],
+      })),
+    });
+  }
+
+  return specs;
+}
+
+function runPipelineEventSections(nodes: NodeInfo[], execution: ExecutionInfo): EventSection[] | undefined {
+  if (!execution) {
+    return undefined;
+  }
+
+  const rootTriggerNode = nodes.find((node) => node.id === execution.rootEvent?.nodeId);
+  const rootTriggerRenderer = getTriggerRenderer(rootTriggerNode?.componentName || "");
+  const { title } = rootTriggerRenderer.getTitleAndSubtitle({ event: execution.rootEvent });
+
+  const subtitleTimestamp = execution.updatedAt || execution.createdAt;
+  const eventSubtitle = subtitleTimestamp ? renderTimeAgo(new Date(subtitleTimestamp)) : "";
+  const eventID = execution.rootEvent?.id || execution.id || "execution";
+
+  return [
+    {
+      receivedAt: execution.createdAt ? new Date(execution.createdAt) : new Date(),
+      eventTitle: title,
+      eventSubtitle,
+      eventState: runPipelineStateFunction(execution),
+      eventId: eventID,
+    },
+  ];
+}

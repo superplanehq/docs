@@ -1,0 +1,197 @@
+import { useCallback, useRef, useState } from "react";
+import { useNavigate, useParams } from "react-router";
+import { useQueryClient } from "@tanstack/react-query";
+import { writeCanvasAgentSidebarOpen } from "@/components/CanvasToolSidebar/useCanvasToolSidebarState";
+import { writeCanvasRunsSidebarOpen } from "@/components/CanvasRunsSidebar/useCanvasRunsSidebarState";
+import { usePermissions } from "@/contexts/usePermissions";
+import { canvasKeys, useCreateCanvas } from "@/hooks/useCanvasData";
+import { factoryAppsKey } from "@/hooks/useFactoryData";
+import { setAgentSuggestions } from "@/lib/agentSuggestionsContext";
+import { appPath } from "@/lib/appPaths";
+import { getApiErrorMessage } from "@/lib/errors";
+import { showErrorToast } from "@/lib/toast";
+
+import {
+  ensureFactoryCanvas,
+  invokeFactoryRun,
+  materializeAndCommitFactoryTemplate,
+  type FactoryCanvasHandle,
+} from "./installFactoryCanvas";
+import { getFactoryDefinition, type FactoryAgentRewrite, type FactoryDefinition } from "./factories";
+import type { IntegrationSelections } from "./homeIntegrationStatus";
+
+export interface InstallFactoryInput {
+  /** Bundled template id. Defaults to the Software Factory template. */
+  factoryId?: string;
+  /** When set, create the canvas owned by this workspace factory. */
+  workspaceFactoryId?: string;
+  /** Resume materialization onto this canvas instead of creating a new one. */
+  existingCanvasId?: string;
+  /** Called as soon as the canvas exists, before template materialization starts. */
+  onCanvasReady?: (canvas: FactoryCanvasHandle) => void | Promise<void>;
+  integrations: IntegrationSelections;
+  installParams: Record<string, string>;
+  startingTaskPrompt: string;
+  /**
+   * When false, skip navigation and canvas sidebar preference writes.
+   * Defaults to true for legacy home install.
+   */
+  navigateOnComplete?: boolean;
+  /**
+   * When false, never invoke the starting-task run.
+   * Defaults to true when `startingTaskPrompt` is non-empty.
+   */
+  startInitialRun?: boolean;
+  /**
+   * When set, rewrite bundled Claude Code runner nodes to this component,
+   * credential source, and model. Used by workspace setup for hosted credit
+   * and non-Anthropic providers.
+   */
+  agentRewrite?: FactoryAgentRewrite;
+  /** Workspace Git host. Empty means GitHub. */
+  vcsProvider?: string;
+}
+
+export type InstallFactoryResult = FactoryCanvasHandle;
+
+interface UseInstallFactoryOptions {
+  organizationId?: string;
+}
+
+async function prepareFactoryCanvas(
+  canvas: FactoryCanvasHandle,
+  onCanvasReady?: (canvas: FactoryCanvasHandle) => void | Promise<void>,
+): Promise<FactoryCanvasHandle> {
+  await onCanvasReady?.(canvas);
+  return canvas;
+}
+
+async function finishFactoryInstall(args: {
+  organizationId: string;
+  workspaceFactoryId?: string;
+  canvasId: string;
+  definition: FactoryDefinition;
+  startingTaskPrompt: string;
+  startInitialRun: boolean;
+  navigateOnComplete: boolean;
+  queryClient: ReturnType<typeof useQueryClient>;
+  navigate: (path: string) => void;
+}) {
+  if (args.workspaceFactoryId) {
+    await args.queryClient.invalidateQueries({
+      queryKey: factoryAppsKey(args.organizationId, args.workspaceFactoryId),
+    });
+  }
+
+  const shouldTriggerRun = args.startInitialRun && args.startingTaskPrompt.length > 0;
+  if (shouldTriggerRun) {
+    await invokeFactoryRun(args.organizationId, args.canvasId, args.definition, args.startingTaskPrompt);
+    args.queryClient.invalidateQueries({ queryKey: canvasKeys.infiniteRuns(args.canvasId) });
+  }
+
+  if (args.definition.agentSuggestions?.length) {
+    setAgentSuggestions(args.canvasId, args.definition.agentSuggestions);
+  }
+
+  args.queryClient.invalidateQueries({ queryKey: canvasKeys.list(args.organizationId) });
+
+  if (!args.navigateOnComplete) {
+    return;
+  }
+
+  writeCanvasAgentSidebarOpen(args.canvasId, false);
+  writeCanvasRunsSidebarOpen(args.canvasId, shouldTriggerRun);
+  localStorage.setItem("canvasSidebarOpen", "false");
+  args.navigate(appPath(args.organizationId, args.canvasId, shouldTriggerRun ? "?view=console" : ""));
+}
+
+export function useInstallFactory({ organizationId: organizationIdOverride }: UseInstallFactoryOptions = {}) {
+  const { organizationId: routeOrganizationId } = useParams<{ organizationId: string }>();
+  const organizationId = organizationIdOverride ?? routeOrganizationId;
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const { canAct } = usePermissions();
+  const createCanvasMutation = useCreateCanvas(organizationId || "");
+  const { mutateAsync: createCanvas } = createCanvasMutation;
+  const [isInstalling, setIsInstalling] = useState(false);
+  const isInstallingRef = useRef(false);
+  // Reuse a canvas created on a failed attempt so retry does not spawn duplicates.
+  const pendingCanvasRef = useRef<FactoryCanvasHandle | null>(null);
+
+  const canCreateCanvases = canAct("canvases", "create");
+  const canUpdateCanvases = canAct("canvases", "update");
+
+  const installFactory = useCallback(
+    async (input: InstallFactoryInput): Promise<InstallFactoryResult | undefined> => {
+      if (!organizationId || isInstallingRef.current) return;
+      const reusingCanvas = Boolean(input.existingCanvasId);
+      if (!reusingCanvas && !canCreateCanvases) {
+        showErrorToast("You don't have permission to create canvases.");
+        return;
+      }
+      if (reusingCanvas && !canUpdateCanvases) {
+        showErrorToast("You don't have permission to update canvases.");
+        return;
+      }
+
+      const definition = getFactoryDefinition(input.factoryId, input.vcsProvider);
+      const navigateOnComplete = input.navigateOnComplete !== false;
+      const startInitialRun = input.startInitialRun !== false;
+      isInstallingRef.current = true;
+      setIsInstalling(true);
+
+      try {
+        const { canvasId, canvasName } = await ensureFactoryCanvas({
+          pending: pendingCanvasRef.current,
+          organizationId,
+          queryClient,
+          definition,
+          workspaceFactoryId: input.workspaceFactoryId,
+          existingCanvasId: input.existingCanvasId,
+          createCanvas,
+        });
+        pendingCanvasRef.current = await prepareFactoryCanvas({ canvasId, canvasName }, input.onCanvasReady);
+
+        await materializeAndCommitFactoryTemplate({
+          organizationId,
+          workspaceFactoryId: input.workspaceFactoryId,
+          canvasId,
+          canvasName,
+          definition,
+          installParams: input.installParams,
+          integrations: input.integrations,
+          agentRewrite: input.agentRewrite,
+        });
+
+        // Drop the empty canvas cached by create — page load must see the committed template.
+        queryClient.removeQueries({ queryKey: canvasKeys.detail(organizationId, canvasId) });
+
+        await finishFactoryInstall({
+          organizationId,
+          workspaceFactoryId: input.workspaceFactoryId,
+          canvasId,
+          definition,
+          startingTaskPrompt: input.startingTaskPrompt.trim(),
+          startInitialRun,
+          navigateOnComplete,
+          queryClient,
+          navigate,
+        });
+        pendingCanvasRef.current = null;
+        return { canvasId, canvasName };
+      } catch (error) {
+        showErrorToast(getApiErrorMessage(error, "Failed to install factory"));
+        throw error;
+      } finally {
+        isInstallingRef.current = false;
+        setIsInstalling(false);
+      }
+    },
+    [canCreateCanvases, canUpdateCanvases, createCanvas, navigate, organizationId, queryClient],
+  );
+
+  return {
+    installFactory,
+    isInstalling,
+  };
+}

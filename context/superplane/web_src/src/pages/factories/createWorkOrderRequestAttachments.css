@@ -1,0 +1,89 @@
+.create-work-order-request-attachments {
+  --resize-dur: 300ms;
+  --resize-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --resize-closed-w: 3.5rem;
+  --resize-closed-h: 3.5rem;
+  --resize-open-w: min(86vw, 56rem);
+  --resize-open-h: min(80vh, 42rem);
+}
+
+.create-work-order-request-attachments.t-resize-portal,
+.create-work-order-request-attachments .t-resize-backdrop {
+  pointer-events: auto;
+}
+
+.create-work-order-request-attachments .t-resize-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 10, 10, 0.42);
+}
+
+.create-work-order-request-attachments .t-resize {
+  position: relative;
+  width: var(--resize-closed-w);
+  height: var(--resize-closed-h);
+  overflow: visible;
+  border-radius: 0.75rem;
+  background: #eeeeef;
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.06),
+    0 2px 6px rgba(0, 0, 0, 0.05),
+    0 4px 42px rgba(0, 0, 0, 0.06);
+  transition:
+    width var(--resize-dur) var(--resize-ease),
+    height var(--resize-dur) var(--resize-ease),
+    border-radius var(--resize-dur) var(--resize-ease);
+  will-change: width, height;
+}
+
+.create-work-order-request-attachments .t-resize.is-open {
+  width: var(--resize-open-w);
+  height: var(--resize-open-h);
+  border-radius: 1rem;
+}
+
+.create-work-order-request-attachments .t-resize-img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+.create-work-order-request-attachments .t-resize-img[controls] {
+  pointer-events: auto;
+}
+
+.create-work-order-request-attachments .t-resize-actions {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.create-work-order-request-attachments .t-resize-action {
+  display: flex;
+  width: 1.75rem;
+  height: 1.75rem;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(24, 24, 27, 0.78);
+  color: #fff;
+  cursor: pointer;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .create-work-order-request-attachments .t-resize {
+    transition: none;
+  }
+}

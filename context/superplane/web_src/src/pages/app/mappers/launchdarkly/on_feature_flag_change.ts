@@ -1,0 +1,137 @@
+import type React from "react";
+import { getBackgroundColorClass } from "@/lib/colors";
+import type { TriggerEventContext, TriggerRenderer, TriggerRendererContext } from "../types";
+import type { TriggerProps } from "@/ui/trigger";
+import type { Predicate } from "../eventDisplay";
+import { formatPredicate, buildSubtitle } from "../eventDisplay";
+import launchdarklyIcon from "@/assets/icons/integrations/launchdarkly.svg";
+
+const eventLabels: Record<string, string> = {
+  flag: "Feature flag change",
+};
+
+function formatEventLabel(event: string): string {
+  return eventLabels[event] ?? event;
+}
+
+const actionLabels: Record<string, string> = {
+  updateOn: "Turned on / off",
+  updateTargets: "Targeting changed",
+  updateRules: "Rules changed",
+  updateFallthrough: "Default rule changed",
+  updateOffVariation: "Off variation changed",
+  createFlag: "Flag created",
+  deleteFlag: "Flag deleted",
+};
+
+function formatActionLabel(action: string): string {
+  return actionLabels[action] ?? action;
+}
+
+interface OnFeatureFlagChangeConfiguration {
+  projectKey?: string;
+  environments?: string[];
+  flags?: Predicate[];
+  actions?: string[];
+}
+
+interface OnFeatureFlagChangeEventData {
+  kind?: string;
+  name?: string;
+  title?: string;
+  titleVerb?: string;
+  projectKey?: string;
+  environmentKey?: string;
+  flagKey?: string;
+}
+
+function featureFlagUrl(eventData: OnFeatureFlagChangeEventData | undefined): string | undefined {
+  if (eventData?.projectKey && eventData?.flagKey) {
+    return `https://app.launchdarkly.com/projects/${eventData.projectKey}/flags/${eventData.flagKey}`;
+  }
+  return undefined;
+}
+
+function getEventTitleAndSubtitle(
+  eventData: OnFeatureFlagChangeEventData | undefined,
+  createdAt?: string,
+): { title: string; subtitle: string | React.ReactNode } {
+  const title = eventData?.name || eventData?.flagKey || "Feature Flag";
+  const verb = eventData?.titleVerb;
+  const kind = eventData?.kind ? formatEventLabel(eventData.kind) : "";
+  const contentParts = [verb || kind].filter(Boolean).join(" · ");
+  const subtitle = buildSubtitle(contentParts, createdAt);
+  return { title, subtitle };
+}
+
+export const onFeatureFlagChangeTriggerRenderer: TriggerRenderer = {
+  getTitleAndSubtitle: (context: TriggerEventContext) => {
+    const eventData = context.event?.data as OnFeatureFlagChangeEventData;
+    return getEventTitleAndSubtitle(eventData, context.event?.createdAt);
+  },
+
+  getRootEventValues: (context: TriggerEventContext): Record<string, string> => {
+    const eventData = context.event?.data as OnFeatureFlagChangeEventData;
+    const details: Record<string, string> = {};
+    if (eventData?.projectKey) details["Project"] = eventData.projectKey;
+    if (eventData?.environmentKey) details["Environment"] = eventData.environmentKey;
+    if (eventData?.flagKey) details["Flag Key"] = eventData.flagKey;
+    if (eventData?.name) details["Flag Name"] = eventData.name;
+    if (eventData?.titleVerb) details["Action"] = eventData.titleVerb;
+    const url = featureFlagUrl(eventData);
+    if (url) {
+      details["URL"] = url;
+    }
+    return details;
+  },
+
+  getTriggerProps: (context: TriggerRendererContext) => {
+    const { node, definition, lastEvent } = context;
+    const configuration = node.configuration as OnFeatureFlagChangeConfiguration;
+    const metadataItems: { icon: string; label: string }[] = [];
+
+    if (configuration?.projectKey) {
+      metadataItems.push({ icon: "folder", label: configuration.projectKey });
+    }
+
+    if (configuration?.environments?.length) {
+      metadataItems.push({
+        icon: "globe",
+        label: configuration.environments.join(", "),
+      });
+    }
+
+    if (configuration?.flags?.length) {
+      metadataItems.push({
+        icon: "flag",
+        label: configuration.flags.map(formatPredicate).join(", "),
+      });
+    }
+
+    if (configuration?.actions?.length) {
+      const formattedActions = configuration.actions.map(formatActionLabel).join(", ");
+      metadataItems.push({ icon: "funnel", label: "Actions: " + formattedActions });
+    }
+
+    const props: TriggerProps = {
+      title: node.name!,
+      iconSrc: launchdarklyIcon,
+      collapsedBackground: getBackgroundColorClass(definition.color),
+      metadata: metadataItems,
+    };
+
+    if (lastEvent) {
+      const eventData = lastEvent.data as OnFeatureFlagChangeEventData;
+      const { title, subtitle } = getEventTitleAndSubtitle(eventData, lastEvent.createdAt);
+      props.lastEventData = {
+        title,
+        subtitle,
+        receivedAt: new Date(lastEvent.createdAt),
+        state: "triggered",
+        eventId: lastEvent.id,
+      };
+    }
+
+    return props;
+  },
+};

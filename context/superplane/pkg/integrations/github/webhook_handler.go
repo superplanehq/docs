@@ -1,0 +1,140 @@
+package github
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/google/go-github/v84/github"
+	"github.com/mitchellh/mapstructure"
+	"github.com/superplanehq/superplane/pkg/core"
+	"github.com/superplanehq/superplane/pkg/integrations/github/common"
+)
+
+type Webhook struct {
+	ID          int64  `json:"id"`
+	WebhookName string `json:"name"`
+}
+
+type GitHubWebhookHandler struct{}
+
+func (h *GitHubWebhookHandler) CompareConfig(a, b any) (bool, error) {
+	configA := common.WebhookConfiguration{}
+	configB := common.WebhookConfiguration{}
+
+	err := mapstructure.Decode(a, &configA)
+	if err != nil {
+		return false, err
+	}
+
+	err = mapstructure.Decode(b, &configB)
+	if err != nil {
+		return false, err
+	}
+
+	if configA.Repository != configB.Repository {
+		return false, nil
+	}
+
+	// Compare event types - normalize to slices for comparison
+	eventsA := configA.EventTypes
+	if len(eventsA) == 0 && configA.EventType != "" {
+		eventsA = []string{configA.EventType}
+	}
+
+	eventsB := configB.EventTypes
+	if len(eventsB) == 0 && configB.EventType != "" {
+		eventsB = []string{configB.EventType}
+	}
+
+	if len(eventsA) != len(eventsB) {
+		return false, nil
+	}
+
+	// Create a map to compare events regardless of order
+	eventMap := make(map[string]bool)
+	for _, e := range eventsA {
+		eventMap[e] = true
+	}
+	for _, e := range eventsB {
+		if !eventMap[e] {
+			return false, nil
+		}
+	}
+
+	return true, nil
+}
+
+func (h *GitHubWebhookHandler) Merge(current, requested any) (any, bool, error) {
+	return current, false, nil
+}
+
+func (h *GitHubWebhookHandler) Setup(ctx core.WebhookHandlerContext) (any, error) {
+	config := common.WebhookConfiguration{}
+	err := mapstructure.Decode(ctx.Webhook.GetConfiguration(), &config)
+	if err != nil {
+		return nil, err
+	}
+
+	secret, err := ctx.Webhook.GetSecret()
+	if err != nil {
+		return nil, fmt.Errorf("error getting webhook secret: %v", err)
+	}
+
+	// Use EventTypes if set, otherwise fall back to single EventType
+	events := config.EventTypes
+	if len(events) == 0 && config.EventType != "" {
+		events = []string{config.EventType}
+	}
+
+	hook := &github.Hook{
+		Active: github.Ptr(true),
+		Events: events,
+		Config: &github.HookConfig{
+			URL:         github.Ptr(ctx.Webhook.GetURL()),
+			Secret:      github.Ptr(string(secret)),
+			ContentType: github.Ptr("json"),
+		},
+	}
+
+	client, err := common.NewClient(ctx.Integration, ctx.HTTP)
+	if err != nil {
+		return nil, err
+	}
+
+	newHook, _, err := client.CreateHook(context.Background(), config.Repository, hook)
+	if err != nil {
+		return nil, fmt.Errorf("error creating webhook: %v", err)
+	}
+
+	return &Webhook{ID: newHook.GetID(), WebhookName: *newHook.Name}, nil
+}
+
+func (h *GitHubWebhookHandler) Cleanup(ctx core.WebhookHandlerContext) error {
+	client, err := common.NewClient(ctx.Integration, ctx.HTTP)
+	if err != nil {
+		return err
+	}
+
+	webhook := Webhook{}
+	err = mapstructure.Decode(ctx.Webhook.GetMetadata(), &webhook)
+	if err != nil {
+		return err
+	}
+
+	configuration := common.WebhookConfiguration{}
+	err = mapstructure.Decode(ctx.Webhook.GetConfiguration(), &configuration)
+	if err != nil {
+		return err
+	}
+
+	_, err = client.DeleteHook(context.Background(), configuration.Repository, webhook.ID)
+	if err != nil {
+		if common.IsNotFoundError(err) {
+			return nil
+		}
+
+		return fmt.Errorf("error deleting webhook: %v", err)
+	}
+
+	return nil
+}

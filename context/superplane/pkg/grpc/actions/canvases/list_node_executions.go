@@ -1,0 +1,447 @@
+package canvases
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"sync"
+	"time"
+
+	"github.com/google/uuid"
+	grpcerrors "github.com/superplanehq/superplane/pkg/grpc/errors"
+	"github.com/superplanehq/superplane/pkg/models"
+	pb "github.com/superplanehq/superplane/pkg/protos/canvases"
+	"google.golang.org/protobuf/types/known/structpb"
+	"google.golang.org/protobuf/types/known/timestamppb"
+	"gorm.io/gorm"
+)
+
+const (
+	DefaultLimit = 10
+	MaxLimit     = 25
+)
+
+func ListNodeExecutions(ctx context.Context, db *gorm.DB, canvas *models.Canvas, nodeID string, pbStates []pb.CanvasNodeExecution_State, pbResults []pb.CanvasNodeExecution_Result, limit uint32, before *timestamppb.Timestamp) (*pb.ListNodeExecutionsResponse, error) {
+	_, err := models.FindCanvasNode(db, canvas.ID, nodeID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, grpcerrors.NotFound(err, "canvas node not found")
+		}
+
+		return nil, err
+	}
+
+	states, err := validateExecutionStates(pbStates)
+	if err != nil {
+		return nil, grpcerrors.InvalidArgument(err, "invalid list node executions request")
+	}
+
+	results, err := validateExecutionResults(pbResults)
+	if err != nil {
+		return nil, grpcerrors.InvalidArgument(err, "invalid request")
+	}
+
+	limit = getLimit(limit)
+	beforeTime := getBefore(before)
+
+	//
+	// List and count executions
+	//
+	executions, err := models.ListNodeExecutions(db, canvas.ID, nodeID, states, results, int(limit), beforeTime)
+	if err != nil {
+		return nil, err
+	}
+
+	totalCount, err := models.CountNodeExecutions(db, canvas.ID, nodeID, states, results)
+	if err != nil {
+		return nil, err
+	}
+
+	resources, err := LoadNodeExecutionResources(db, executions)
+	if err != nil {
+		return nil, err
+	}
+
+	serialized, err := SerializeNodeExecutions(executions, resources)
+	if err != nil {
+		return nil, err
+	}
+
+	return &pb.ListNodeExecutionsResponse{
+		Executions:    serialized,
+		TotalCount:    uint32(totalCount),
+		HasNextPage:   hasNextPage(len(executions), int(limit), totalCount),
+		LastTimestamp: getLastExecutionTimestamp(executions),
+	}, nil
+}
+
+type NodeExecutionResources struct {
+	rootEventsByID            map[string]models.CanvasEvent
+	outputEventsByExecutionID map[string][]models.CanvasEvent
+	cancelledByUsersByID      map[uuid.UUID]models.User
+}
+
+func LoadNodeExecutionResources(db *gorm.DB, executions []models.CanvasNodeExecution) (*NodeExecutionResources, error) {
+	var rootEvents, outputEvents []models.CanvasEvent
+	var rootEventsErr, outputEventsErr error
+	var cancelledByUsers []models.User
+	var cancelledByUsersErr error
+	var wg sync.WaitGroup
+
+	wg.Add(3)
+
+	go func() {
+		defer wg.Done()
+		rootEvents, rootEventsErr = models.FindCanvasEvents(db, rootEventIDs(executions))
+	}()
+
+	go func() {
+		defer wg.Done()
+		outputEvents, outputEventsErr = models.FindCanvasEventsForExecutions(db, executionIDs(executions))
+	}()
+
+	go func() {
+		defer wg.Done()
+		cancelledByUsers, cancelledByUsersErr = models.FindMaybeDeletedUsersByIDs(db, cancelledByIDs(executions))
+	}()
+
+	wg.Wait()
+
+	if rootEventsErr != nil {
+		return nil, fmt.Errorf("error finding root events: %w", rootEventsErr)
+	}
+	if outputEventsErr != nil {
+		return nil, fmt.Errorf("error finding output events: %w", outputEventsErr)
+	}
+	if cancelledByUsersErr != nil {
+		return nil, fmt.Errorf("error finding cancelled-by users: %w", cancelledByUsersErr)
+	}
+
+	cancelledByUsersByID := make(map[uuid.UUID]models.User, len(cancelledByUsers))
+	for _, user := range cancelledByUsers {
+		cancelledByUsersByID[user.ID] = user
+	}
+
+	rootEventsByID := make(map[string]models.CanvasEvent, len(rootEvents))
+	for _, rootEvent := range rootEvents {
+		rootEventsByID[rootEvent.ID.String()] = rootEvent
+	}
+
+	outputEventsByExecutionID := make(map[string][]models.CanvasEvent, len(outputEvents))
+	for _, outputEvent := range outputEvents {
+		if _, ok := outputEventsByExecutionID[outputEvent.ExecutionID.String()]; !ok {
+			outputEventsByExecutionID[outputEvent.ExecutionID.String()] = []models.CanvasEvent{outputEvent}
+		} else {
+			outputEventsByExecutionID[outputEvent.ExecutionID.String()] = append(outputEventsByExecutionID[outputEvent.ExecutionID.String()], outputEvent)
+		}
+	}
+
+	return &NodeExecutionResources{
+		rootEventsByID:            rootEventsByID,
+		outputEventsByExecutionID: outputEventsByExecutionID,
+		cancelledByUsersByID:      cancelledByUsersByID,
+	}, nil
+}
+
+func SerializeNodeExecutions(executions []models.CanvasNodeExecution, resources *NodeExecutionResources) ([]*pb.CanvasNodeExecution, error) {
+	result := make([]*pb.CanvasNodeExecution, 0, len(executions))
+	for _, execution := range executions {
+		rootEvent, err := getRootEventForExecution(execution, resources.rootEventsByID)
+		if err != nil {
+			return nil, err
+		}
+
+		outputs, err := getOutputsForExecution(execution, resources.outputEventsByExecutionID)
+		if err != nil {
+			return nil, err
+		}
+
+		metadataMap := execution.Metadata.Data()
+		metadata, err := newStructpbStruct(metadataMap)
+		if err != nil {
+			return nil, err
+		}
+
+		configuration, err := newStructpbStruct(execution.Configuration.Data())
+		if err != nil {
+			return nil, err
+		}
+
+		result = append(result, &pb.CanvasNodeExecution{
+			Id:                  execution.ID.String(),
+			CanvasId:            execution.WorkflowID.String(),
+			NodeId:              execution.NodeID,
+			PreviousExecutionId: execution.GetPreviousExecutionID(),
+			State:               NodeExecutionStateToProto(execution.State),
+			Result:              NodeExecutionResultToProto(execution.Result),
+			ResultReason:        NodeExecutionResultReasonToProto(execution.ResultReason),
+			ResultMessage:       execution.ResultMessage,
+			CreatedAt:           timestamppb.New(*execution.CreatedAt),
+			UpdatedAt:           timestamppb.New(*execution.UpdatedAt),
+			Metadata:            metadata,
+			Configuration:       configuration,
+			Outputs:             outputs,
+			RootEvent:           rootEvent,
+			CancelledBy:         cancelledByRef(execution.CancelledBy, resources.cancelledByUsersByID),
+			RunId:               uuidStringOrEmpty(execution.RunID),
+			CancelledAt:         optionalTimestamp(execution.CancelledAt),
+		})
+	}
+
+	return result, nil
+}
+
+func validateExecutionStates(in []pb.CanvasNodeExecution_State) ([]string, error) {
+	if len(in) == 0 {
+		return []string{}, nil
+	}
+
+	states := []string{}
+	for _, s := range in {
+		state, err := ProtoToNodeExecutionState(s)
+		if err != nil {
+			return nil, err
+		}
+		states = append(states, state)
+	}
+
+	return states, nil
+}
+
+func validateExecutionResults(in []pb.CanvasNodeExecution_Result) ([]string, error) {
+	if len(in) == 0 {
+		return []string{}, nil
+	}
+
+	results := []string{}
+	for _, r := range in {
+		result, err := ProtoToNodeExecutionResult(r)
+		if err != nil {
+			return nil, err
+		}
+		results = append(results, result)
+	}
+
+	return results, nil
+}
+
+func ProtoToNodeExecutionState(state pb.CanvasNodeExecution_State) (string, error) {
+	switch state {
+	case pb.CanvasNodeExecution_STATE_PENDING:
+		return models.CanvasNodeExecutionStatePending, nil
+	case pb.CanvasNodeExecution_STATE_STARTED:
+		return models.CanvasNodeExecutionStateStarted, nil
+	case pb.CanvasNodeExecution_STATE_CANCELLING:
+		return models.CanvasNodeExecutionStateCancelling, nil
+	case pb.CanvasNodeExecution_STATE_FINISHED:
+		return models.CanvasNodeExecutionStateFinished, nil
+	default:
+		return "", grpcerrors.InvalidArgument(nil, "invalid execution state")
+	}
+}
+
+func ProtoToNodeExecutionResult(result pb.CanvasNodeExecution_Result) (string, error) {
+	switch result {
+	case pb.CanvasNodeExecution_RESULT_PASSED:
+		return models.CanvasNodeExecutionResultPassed, nil
+	case pb.CanvasNodeExecution_RESULT_FAILED:
+		return models.CanvasNodeExecutionResultFailed, nil
+	default:
+		return "", grpcerrors.InvalidArgument(nil, "invalid execution result")
+	}
+}
+
+func NodeExecutionStateToProto(state string) pb.CanvasNodeExecution_State {
+	switch state {
+	case models.CanvasNodeExecutionStatePending:
+		return pb.CanvasNodeExecution_STATE_PENDING
+	case models.CanvasNodeExecutionStateStarted:
+		return pb.CanvasNodeExecution_STATE_STARTED
+	case models.CanvasNodeExecutionStateCancelling:
+		return pb.CanvasNodeExecution_STATE_CANCELLING
+	case models.CanvasNodeExecutionStateFinished:
+		return pb.CanvasNodeExecution_STATE_FINISHED
+	default:
+		return pb.CanvasNodeExecution_STATE_UNKNOWN
+	}
+}
+
+func NodeExecutionResultToProto(result string) pb.CanvasNodeExecution_Result {
+	switch result {
+	case models.CanvasNodeExecutionResultPassed:
+		return pb.CanvasNodeExecution_RESULT_PASSED
+	case models.CanvasNodeExecutionResultFailed:
+		return pb.CanvasNodeExecution_RESULT_FAILED
+	case models.CanvasNodeExecutionResultCancelled:
+		return pb.CanvasNodeExecution_RESULT_CANCELLED
+	default:
+		return pb.CanvasNodeExecution_RESULT_UNKNOWN
+	}
+}
+
+func NodeExecutionResultReasonToProto(reason string) pb.CanvasNodeExecution_ResultReason {
+	switch reason {
+	case models.CanvasNodeExecutionResultReasonOk:
+		return pb.CanvasNodeExecution_RESULT_REASON_OK
+	case models.CanvasNodeExecutionResultReasonError:
+		return pb.CanvasNodeExecution_RESULT_REASON_ERROR
+	case models.CanvasNodeExecutionResultReasonErrorResolved:
+		return pb.CanvasNodeExecution_RESULT_REASON_ERROR_RESOLVED
+	default:
+		return pb.CanvasNodeExecution_RESULT_REASON_OK
+	}
+}
+
+func getLastExecutionTimestamp(executions []models.CanvasNodeExecution) *timestamppb.Timestamp {
+	if len(executions) > 0 {
+		return timestamppb.New(*executions[len(executions)-1].CreatedAt)
+	}
+	return nil
+}
+
+func getLimit(limit uint32) uint32 {
+	if limit <= 0 {
+		return DefaultLimit
+	}
+
+	if limit > MaxLimit {
+		return MaxLimit
+	}
+
+	return limit
+}
+
+func getBefore(before *timestamppb.Timestamp) *time.Time {
+	if before == nil {
+		return nil
+	}
+	t := before.AsTime()
+	return &t
+}
+
+func hasNextPage(numResults, limit int, totalCount int64) bool {
+	return int64(numResults) >= int64(limit) && int64(numResults) < totalCount
+}
+
+func executionIDs(executions []models.CanvasNodeExecution) []string {
+	ids := make([]string, len(executions))
+	for i, execution := range executions {
+		ids[i] = execution.ID.String()
+	}
+	return ids
+}
+
+func cancelledByIDs(executions []models.CanvasNodeExecution) []uuid.UUID {
+	idsMap := make(map[uuid.UUID]struct{})
+	for _, execution := range executions {
+		if execution.CancelledBy == nil {
+			continue
+		}
+		idsMap[*execution.CancelledBy] = struct{}{}
+	}
+
+	ids := make([]uuid.UUID, 0, len(idsMap))
+	for id := range idsMap {
+		ids = append(ids, id)
+	}
+
+	return ids
+}
+
+func rootEventIDs(executions []models.CanvasNodeExecution) []string {
+	ids := make([]string, len(executions))
+	for i, execution := range executions {
+		ids[i] = execution.RootEventID.String()
+	}
+
+	return ids
+}
+
+func cancelledByRef(id *uuid.UUID, users map[uuid.UUID]models.User) *pb.UserRef {
+	if id == nil {
+		return nil
+	}
+
+	user, ok := users[*id]
+	name := ""
+	if ok {
+		name = user.Name
+	}
+
+	return &pb.UserRef{Id: id.String(), Name: name}
+}
+
+func getRootEventForExecution(execution models.CanvasNodeExecution, rootEvents map[string]models.CanvasEvent) (*pb.CanvasEvent, error) {
+	rootEvent, ok := rootEvents[execution.RootEventID.String()]
+	if !ok {
+		return nil, fmt.Errorf("root event not found for execution %s", execution.ID.String())
+	}
+
+	data, ok := rootEvent.Data.Data().(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("event data is not a map[string]any")
+	}
+
+	s, err := newStructpbStruct(data)
+	if err != nil {
+		return nil, err
+	}
+
+	return &pb.CanvasEvent{
+		Id:         rootEvent.ID.String(),
+		CanvasId:   rootEvent.WorkflowID.String(),
+		NodeId:     rootEvent.NodeID,
+		Channel:    rootEvent.Channel,
+		CustomName: valueOrEmpty(rootEvent.CustomName),
+		Data:       s,
+		CreatedAt:  timestamppb.New(*rootEvent.CreatedAt),
+		Root:       rootEvent.ExecutionID == nil,
+		RunId:      uuidStringOrEmpty(rootEvent.RunID),
+	}, nil
+}
+
+func getOutputsForExecution(execution models.CanvasNodeExecution, events map[string][]models.CanvasEvent) (*structpb.Struct, error) {
+	outputEvents, ok := events[execution.ID.String()]
+
+	//
+	// If no output events are found, return an empty struct,
+	// since some executions may not have outputs.
+	//
+	if !ok {
+		data, err := newStructpbStruct(map[string]any{})
+		if err != nil {
+			return nil, err
+		}
+
+		return data, nil
+	}
+
+	outputMap := map[string][]any{}
+	for _, event := range outputEvents {
+		if _, ok := outputMap[event.Channel]; !ok {
+			outputMap[event.Channel] = []any{event.Data.Data()}
+		} else {
+			outputMap[event.Channel] = append(outputMap[event.Channel], event.Data.Data())
+		}
+	}
+
+	outputs := make(map[string]any, len(outputMap))
+	for k, v := range outputMap {
+		outputs[k] = v
+	}
+
+	data, err := newStructpbStruct(outputs)
+	if err != nil {
+		return nil, err
+	}
+
+	return data, nil
+}
+
+func optionalTimestamp(value *time.Time) *timestamppb.Timestamp {
+	if value == nil {
+		return nil
+	}
+
+	return timestamppb.New(*value)
+}

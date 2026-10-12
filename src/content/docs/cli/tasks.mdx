@@ -1,0 +1,129 @@
+---
+title: Tasks
+description: Lists tasks subcommands and flags.
+---
+
+Use `superplane tasks` to list, inspect, create, assign, and dispatch tasks, and to manage artifacts on a task. `task` is an alias for `tasks`. `artifact` is an alias for `artifacts`.
+
+`--workspace` is a workspace key or UUID. When you omit it, the command uses the active workspace from `superplane workspace active`. `--output` / `-o` accepts `text`, `json`, or `yaml`. Text is the default.
+
+## List tasks
+
+`superplane tasks list` lists tasks in a workspace. The default is open tasks, and the list shows the first 100 matches. `--all` fetches every matching page. `--state all` includes draft, open, and closed tasks.
+
+- `--workspace`: workspace key or UUID. Optional.
+- `--user`: user UUID or email. Returns tasks that user created or is assigned to.
+- `--state`: repeatable. Accepts `open`, `draft`, `closed`, or tokens such as `STATE_OPEN`. Defaults to open when omitted. Pass `all` to include every state.
+- `--result`: repeatable. Accepts `completed`, `rejected`, `failed`, or tokens such as `RESULT_FAILED`.
+- `--unassigned`: only show tasks with no assignees.
+- `--all`: show every matching task.
+
+List open tasks in a workspace:
+
+```sh
+superplane tasks list --workspace super --state open
+```
+
+## Describe a task
+
+`superplane tasks describe` shows a task's title, assignees, description, comments, and event timeline. `--task` is required. `--workspace` is optional.
+
+- `--task`: task number, key, or UUID, such as `1823` or `SUPER-1823`. Required.
+- `--workspace`: workspace key or UUID. Optional.
+
+Describe one task:
+
+```sh
+superplane tasks describe --workspace super --task 1823
+```
+
+## Create a task
+
+`superplane tasks create` creates a task in draft state. `--title` is required. `--description` and `-f` / `--file` are mutually exclusive. You can omit both. `--file -` reads the description from stdin. `--assignee` is repeatable and accepts a UUID or email. When you omit it, the task is assigned to the current user. `--workspace` is optional.
+
+- `--title`: task title. Required.
+- `--description`: task description, inline. Mutually exclusive with `--file`.
+- `-f`, `--file`: read the description from a file, or from stdin when the value is `-`. Mutually exclusive with `--description`.
+- `--assignee`: assignee user UUID or email. Repeatable. Defaults to the current user when omitted.
+- `--workspace`: workspace key or UUID. Optional.
+
+Create a task from a description file and set assignees:
+
+```sh
+superplane tasks create \
+  --title "Ship the feature" \
+  -f ./description.md \
+  --assignee alice@example.com \
+  --assignee bob@example.com
+```
+
+## Dispatch a task
+
+`superplane tasks dispatch` starts execution on a workspace line. `--task` and `--line` are required. `--line` is the line name. A draft task moves to open on the first dispatch. `--workspace` is optional.
+
+- `--task`: task number, key, or UUID, such as `1823` or `SUPER-1823`. Required.
+- `--line`: workspace line name. Required.
+- `--workspace`: workspace key or UUID. Optional.
+
+Dispatch a task to a line:
+
+```sh
+superplane tasks dispatch --workspace super --task 1823 --line build
+```
+
+## Assign a task
+
+`superplane tasks assign` replaces the full assignee list. It does not append. `--task` is required. At least one `--assignee` is required. `--workspace` is optional.
+
+- `--task`: task number, key, or UUID, such as `1823` or `SUPER-1823`. Required.
+- `--assignee`: assignee user UUID or email. Repeatable. At least one is required. Replaces the full assignee list.
+- `--workspace`: workspace key or UUID. Optional.
+
+Replace the assignees on a task:
+
+```sh
+superplane tasks assign \
+  --workspace super \
+  --task 1823 \
+  --assignee alice@example.com \
+  --assignee bob@example.com
+```
+
+## List artifacts
+
+`superplane tasks artifacts list` lists artifacts on a task. `--task` is required. `--workspace` is optional. `superplane tasks artifact list` is the same command.
+
+- `--task`: task number, key, or UUID, such as `1823` or `SUPER-1823`. Required.
+- `--workspace`: workspace key or UUID. Optional.
+
+List artifacts on a task:
+
+```sh
+superplane tasks artifacts list --workspace super --task 1823
+```
+
+## Add an artifact
+
+`superplane tasks artifacts add` attaches one artifact. `--task` and `--type` are required. `--type` is `markdown`, `branch`, or `link`. `--workspace` is optional. `superplane tasks artifact add` is the same command.
+
+- `--task`: task number, key, or UUID. Required.
+- `--type`: `markdown`, `branch`, or `link`. Required.
+- `--workspace`: workspace key or UUID. Optional.
+- `--body`: markdown body, inline. Markdown only. Mutually exclusive with `--file`.
+- `-f`, `--file`: read the markdown body from a file, or from stdin when the value is `-`. Markdown only. Mutually exclusive with `--body`.
+- `--title`: optional for `markdown` and `link`.
+- `--name`: branch name. Required for `branch`.
+- `--url`: optional for `branch`. Required for `link`.
+
+Markdown requires `--body` or `-f` / `--file`, not both. Branch requires `--name`. Link requires `--url`.
+
+Attach a markdown artifact from a file:
+
+```sh
+superplane tasks artifacts add \
+  --workspace super \
+  --task 1823 \
+  --type markdown \
+  --title "PLAN.md" \
+  -f ./PLAN.md
+```

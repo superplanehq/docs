@@ -114,4 +114,9 @@ export const sidebar = [
       { label: "Product & Integration updates", slug: "release-notes/product-updates" },
     ],
   },
+  {
+    label: "CLI",
+    collapsed: true,
+    items: [{ label: "Tasks", slug: "cli/tasks" }],
+  },
 ];

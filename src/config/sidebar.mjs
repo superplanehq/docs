@@ -92,6 +92,7 @@ export const sidebar = [
       },
       { label: "Contributing", slug: "open-source/contributing" },
       { label: "Community", slug: "open-source/community" },
+      { label: "CLI staging", slug: "open-source/cli-staging" },
     ],
   },
   {

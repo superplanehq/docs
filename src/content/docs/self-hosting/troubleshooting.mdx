@@ -1,0 +1,30 @@
+---
+title: Troubleshoot a self-hosted installation
+description: Fix quota, DNS, certificate, and runner errors on a self-hosted SuperPlane installation.
+---
+
+Use this page when [Install SuperPlane](/self-hosting/install) stops. Match the error text, then apply the fix.
+
+```bash
+kubectl logs -n superplane deploy/fleet-manager-fleet-manager --tail=20
+```
+
+| Symptom | Provider | Fix |
+| --- | --- | --- |
+| `SkuNotAvailable` or `NotAvailableForSubscription` | Azure | Change the region or `runner_zones`. See the region table in the install guide. |
+| `QuotaExceeded` | Azure | Request quota for DDSv4 or Dpdsv6, or lower maximum capacity. A new subscription often has 4 regional vCPUs, which fits one node and one runner. |
+| On-Demand vCPU limit reached | AWS | Request more Standard vCPU quota (quota code `L-1216C47A`), or lower maximum capacity. |
+| arm64 runner fails Trusted Launch | Azure | Set `vmSize` to `Standard_D2pds_v6`. Do not use a `v5` size. Run Helm again. |
+| Values file contains `<AZURE_ZONE>` | Azure | Set `zones` to `terraform output -raw runner_zones`, then run Helm again. |
+| `ParameterOutOfRange: The value of the 'Version' should be in: []` | Azure | Set `create_postgresql_flexible_server = false` and apply again. |
+| AMI not found, or the wizard disables a fleet | AWS | Stay in `us-east-1`. Run the image command in the install guide and set both AMI IDs to the newest match. Apply again and reload the wizard. |
+| Runner image not found | Azure | Use `eastus` or `westus3` for both architectures. |
+| Pods stay `Pending` | Google Cloud | Set `machine_type` to `e2-standard-2` or larger and apply again. That change replaces the cluster. |
+| The page loads, then scripts fail | Google Cloud | Clear `superplane_image_tag` so the chart selects its image. A plain commit SHA is blocked on your domain. Apply again and hard-refresh. |
+| `ZONE_RESOURCE_POOL_EXHAUSTED` | Google Cloud | Add zones in `runner_zones` and apply again. |
+| Certificate stays pending | AWS, Azure, Google Cloud | Update the CNAME (AWS) or A record (Azure and Google Cloud). On Google Cloud, `dig +short your_domain @8.8.8.8` must print the static IP. |
+| No runner machine appears | AWS, Azure | Run `helm list -n superplane`. Raise `maxCapacity` when every machine is busy. |
+| `fleet not found` (404) once in the log | AWS, Azure, Google Cloud | Ignore that line when later lines show reconciliation. |
+| `terraform destroy` stops on the load balancer | AWS | Follow the [EKS README](https://github.com/superplanehq/superplane/blob/main/release/terraform/eks/README.md#if-traefik-or-the-internet-gateway-does-not-delete). Do not delete the Terraform state. |
+
+A first task with warm capacity `0` waits while the machine boots. That wait is the cold start, not a failed install.

@@ -81,7 +81,17 @@ export const sidebar = [
     ],
   },
   {
-    label: "6. Open Source",
+    label: "6. Self-hosting",
+    collapsed: true,
+    items: [
+      { label: "Overview", slug: "self-hosting/overview" },
+      { label: "Install on your cloud", slug: "self-hosting/install" },
+      { label: "Troubleshooting", slug: "self-hosting/troubleshooting" },
+      { label: "Upgrade and uninstall", slug: "self-hosting/upgrade-and-uninstall" },
+    ],
+  },
+  {
+    label: "7. Open Source",
     collapsed: true,
     items: [
       { label: "Why SuperPlane is open source", slug: "open-source/why-open-source" },
@@ -95,7 +105,7 @@ export const sidebar = [
     ],
   },
   {
-    label: "7. Support and Help",
+    label: "8. Support and Help",
     collapsed: true,
     items: [
       {
@@ -107,7 +117,7 @@ export const sidebar = [
     ],
   },
   {
-    label: "8. Release Notes",
+    label: "9. Release Notes",
     collapsed: true,
     items: [
       { label: "Latest release", slug: "release-notes/latest" },

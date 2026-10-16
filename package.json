@@ -3,11 +3,12 @@
   "type": "module",
   "version": "0.0.1",
   "scripts": {
+    "predev": "node scripts/resolve-superplane-chart.mjs",
     "dev": "astro dev",
     "start": "astro dev",
     "check:text-only": "node scripts/check-text-only.mjs",
     "generate:llms": "node scripts/generate-llms.mjs",
-    "prebuild": "npm run check:text-only && npm run generate:llms",
+    "prebuild": "node scripts/resolve-superplane-chart.mjs && npm run check:text-only && npm run generate:llms",
     "build": "astro build",
     "preview": "astro preview",
     "astro": "astro"

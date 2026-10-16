@@ -1,0 +1,46 @@
+---
+title: Self-host SuperPlane
+description: What a self-hosted SuperPlane installation includes on AWS, Azure, and Google Cloud.
+---
+
+import { LinkCard, CardGrid } from "@astrojs/starlight/components";
+
+Run SuperPlane in your own cloud account. [Install SuperPlane](/self-hosting/install) is the procedure. Terraform creates the cluster and the application. You then create the owner account and install Fleet Manager from the browser.
+
+```mermaid
+flowchart LR
+  tf[Terraform] --> cluster["Kubernetes cluster (EKS, AKS, or GKE)"]
+  tf --> data["Managed Postgres and object storage"]
+  tf --> app["SuperPlane Helm release"]
+  app --> setup["Owner setup at /setup"]
+  setup --> fm["Fleet Manager Helm release"]
+  fm --> vms["Runner VMs from public images"]
+```
+
+Terraform creates the cluster and the application. Owner setup installs Fleet Manager, which starts the runner virtual machines.
+
+The browser steps are the same on each cloud. Three things differ:
+
+- **AWS.** DNS is a CNAME to the load balancer, after Terraform. Runner images are public AMIs in `us-east-1`.
+- **Azure.** DNS is an A record to the load balancer, after Terraform. Runner images are in the SuperPlane community gallery.
+- **Google Cloud.** Create the static IP and the A record before Terraform. Public runner images are not published yet, so skip Fleet Manager until they are.
+
+The cloud account pays for the cluster, the database, the load balancer, and any runner machines that stay running.
+
+<CardGrid>
+  <LinkCard
+    title="Install SuperPlane"
+    href="/self-hosting/install"
+    description="Clone the Terraform stack, apply it, create the owner account, and install Fleet Manager."
+  />
+  <LinkCard
+    title="Troubleshooting"
+    href="/self-hosting/troubleshooting"
+    description="Quota, DNS, certificate, and runner errors."
+  />
+  <LinkCard
+    title="Upgrade and uninstall"
+    href="/self-hosting/upgrade-and-uninstall"
+    description="Move to a newer chart, or remove the installation."
+  />
+</CardGrid>

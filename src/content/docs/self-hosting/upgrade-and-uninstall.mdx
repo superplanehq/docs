@@ -1,0 +1,114 @@
+---
+title: Upgrade or uninstall
+description: Upgrade the SuperPlane chart and Fleet Manager, or remove a self-hosted installation.
+---
+
+import { Aside, Tabs, TabItem } from "@astrojs/starlight/components";
+
+Run Terraform from the same directory and cloud account you used to [install](/self-hosting/install).
+
+## Upgrade
+
+1. Pull the Terraform stack. Set `superplane_chart_version` to `@@SUPERPLANE_CHART_VERSION@@`. Leave `superplane_image_tag` empty. The chart version has no `v` prefix.
+2. Set the new runner image IDs from the release notes. On Google Cloud, leave the runner image variables empty until images are published.
+3. Apply, then run the Fleet Manager Helm command from **Fleet setup** again:
+
+```bash
+terraform plan -out tfplan
+terraform apply tfplan
+```
+
+4. Confirm the installation:
+
+```bash
+kubectl get pods -n superplane
+kubectl get certificate -n superplane
+```
+
+To change how many runner machines stay up, edit `warmCapacity` and `maxCapacity` in `fleet-manager-values.yaml` and run that same Helm command. Each AWS or Azure machine uses 2 vCPUs. The Google Cloud default machine type uses 4.
+
+## Uninstall
+
+Export anything you need first. This deletes the cluster, the database, and file storage.
+
+<Aside type="danger" title="Uninstall deletes the installation">
+Disable every fleet and wait until tasks finish and warm capacity is 0. Terminate runner machines that are still running. They are not in the Terraform state, and the cloud account keeps billing them.
+</Aside>
+
+<Tabs syncKey="cloud">
+  <TabItem label="AWS">
+
+```bash
+export AWS_REGION=us-east-1
+FLEET_MANAGER_ID=$(helm get values fleet-manager -n superplane --all --output json | jq -er '.manager.id')
+RUNNER_INSTANCE_PROFILE_ARN=$(aws iam get-instance-profile \
+  --instance-profile-name "$(terraform output -raw runner_instance_profile_name)" \
+  --query 'InstanceProfile.Arn' --output text)
+helm uninstall fleet-manager -n superplane
+```
+
+Set `AWS_REGION` from `region` in `terraform.tfvars`. Terminate any instances that are still running:
+
+```bash
+aws ec2 describe-instances --region "$AWS_REGION" \
+  --filters "Name=tag:superplane_fleet_manager_id,Values=${FLEET_MANAGER_ID}" \
+    "Name=iam-instance-profile.arn,Values=${RUNNER_INSTANCE_PROFILE_ARN}" \
+    "Name=instance-state-name,Values=pending,running,stopping,stopped" \
+  --query 'Reservations[].Instances[].InstanceId' --output text
+```
+
+Turn off RDS deletion protection, apply that change, and empty the S3 bucket from `terraform output -raw blob_storage_bucket`:
+
+```hcl
+rds_deletion_protection = false
+```
+
+```bash
+terraform plan -target=aws_db_instance.superplane -out tfplan
+terraform apply tfplan
+```
+
+  </TabItem>
+  <TabItem label="Azure">
+
+```bash
+helm uninstall fleet-manager -n superplane
+az vm list -g "$(terraform output -raw runner_resource_group)" -d -o table
+```
+
+Delete any `sprunner-` virtual machines that remain.
+
+  </TabItem>
+  <TabItem label="Google Cloud">
+
+```bash
+helm uninstall fleet-manager -n superplane
+```
+
+Turn off deletion protection, then destroy. Terraform does not delete the static IP.
+
+```hcl
+gke_deletion_protection   = false
+sql_deletion_protection   = false
+blob_bucket_force_destroy = true
+```
+
+```bash
+terraform plan -out tfplan
+terraform apply tfplan
+terraform plan -destroy -out tfplan
+terraform apply tfplan
+gcloud compute addresses delete superplane-ip --global
+```
+
+  </TabItem>
+</Tabs>
+
+On AWS and Azure, destroy after the steps in the tab:
+
+```bash
+terraform plan -destroy -out tfplan
+terraform apply tfplan
+```
+
+`terraform apply tfplan` deletes resources because the plan is a destroy plan. If the AWS destroy stops on the load balancer, use the [EKS README](https://github.com/superplanehq/superplane/blob/main/release/terraform/eks/README.md#destroy). Do not delete the Terraform state while a destroy is incomplete.

@@ -258,7 +258,13 @@ kubectl get svc -n traefik traefik \
   -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
 ```
 
-Create a CNAME from your domain to that hostname.
+Create a CNAME for the host in `domain_name`. For `superplane.example.com`, the name is `superplane`. Point it at the hostname above.
+
+```bash
+dig +short superplane.example.com CNAME @8.8.8.8
+```
+
+The command must print the load balancer hostname.
 
   </TabItem>
   <TabItem label="Azure">
@@ -268,7 +274,13 @@ kubectl get svc -n ingress-nginx ingress-nginx-controller \
   -o jsonpath='{.status.loadBalancer.ingress[0].ip}'
 ```
 
-Create an A record from your domain to that IP.
+Create an A record for the host in `domain_name`. For `superplane.example.com`, the name is `superplane`. Point it at that IP.
+
+```bash
+dig +short superplane.example.com @8.8.8.8
+```
+
+The command must print that IP.
 
   </TabItem>
   <TabItem label="Google Cloud">

@@ -23,7 +23,7 @@ kubectl logs -n superplane deploy/fleet-manager-fleet-manager --tail=20
 | Pods stay `Pending` | Google Cloud | Set `machine_type` to `e2-standard-2` or larger and apply again. That change replaces the cluster. |
 | The page loads, then scripts fail | Google Cloud | Clear `superplane_image_tag` so the chart selects its image. A plain commit SHA is blocked on your domain. Apply again and hard-refresh. |
 | `ZONE_RESOURCE_POOL_EXHAUSTED` | Google Cloud | Add zones in `runner_zones` and apply again. |
-| Certificate stays pending | AWS, Azure, Google Cloud | Update the CNAME (AWS) or A record (Azure and Google Cloud). On Google Cloud, `dig +short your_domain @8.8.8.8` must print the static IP. |
+| Certificate stays pending | AWS, Azure, Google Cloud | The DNS name must be the host in `domain_name`. On AWS, `dig +short your_domain CNAME @8.8.8.8` must print the load balancer hostname. On Azure and Google Cloud, `dig +short your_domain @8.8.8.8` must print the address. |
 | No runner machine appears | AWS, Azure | Run `helm list -n superplane`. Raise `maxCapacity` when every machine is busy. |
 | `fleet not found` (404) once in the log | AWS, Azure, Google Cloud | Ignore that line when later lines show reconciliation. |
 | `terraform destroy` stops on the load balancer | AWS | Follow the [EKS README](https://github.com/superplanehq/superplane/blob/main/release/terraform/eks/README.md#if-traefik-or-the-internet-gateway-does-not-delete). Do not delete the Terraform state. |

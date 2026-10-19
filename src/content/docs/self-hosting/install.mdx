@@ -89,6 +89,20 @@ done
 
 Stay in `eastus` with `runner_zones = ["1"]` unless you need another region. `eastus` and `westus3` have both architectures. In `eastus`, arm64 is not offered in zone 2.
 
+List the public runner images. Copy the newest id for each architecture into `terraform.tfvars`. Run the command in `eastus` or `westus3`.
+
+```bash
+for arch in amd64 arm64; do
+  echo "$arch"
+  az sig image-version list-community \
+    --location eastus \
+    --public-gallery-name Superplane-ba852f02-dd01-43eb-b8c4-67a57fdd8af8 \
+    --gallery-image-definition "superplane-runner-${arch}" \
+    --query "[].{version:name,id:uniqueId}" \
+    -o table
+done
+```
+
 | Region | amd64 (`Standard_D2ds_v4`) | arm64 (`Standard_D2pds_v6`) |
 | --- | --- | --- |
 | eastus | zones 1, 2, 3 | zones 1, 3 |
@@ -164,10 +178,12 @@ domain_name              = "superplane.example.com"
 letsencrypt_email        = "you@example.com"
 location                 = "eastus"
 runner_zones             = ["1"]
+runner_image_amd64       = "latest_amd64_image_id"
+runner_image_arm64       = "latest_arm64_image_id"
 superplane_chart_version = "@@SUPERPLANE_CHART_VERSION@@"
 ```
 
-Leave `superplane_image_tag`, `runner_image_amd64`, `runner_image_arm64`, and `helm_chart_path` empty. The chart version has no `v` prefix. An empty image tag selects the image for that chart.
+Use the image ids from the list command. Leave `superplane_image_tag` and `helm_chart_path` empty. The chart version has no `v` prefix. An empty image tag selects the image for that chart.
 
   </TabItem>
   <TabItem label="Google Cloud">

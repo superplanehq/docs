@@ -366,7 +366,7 @@ SuperPlane creates an organization named Demo for this account.
      <img src="https://docs-assets.superplane.com/images/self-hosting/fleet-provider.webp" alt="Choose a cloud provider" />
    </figure>
 
-3. On **Configure the default fleet**, keep `e1-large-amd64`. **Warm capacity** `0` starts a machine when a task arrives. **Maximum capacity** `1` is one machine. Each AWS or Azure machine uses 2 vCPUs. Select **Generate install command**.
+3. On **Configure the default fleet**, keep `e1-large-amd64`. The default **Warm capacity** is `1`. The default **Maximum capacity** is `10`. Change either value when you need a different number of machines. Each AWS or Azure machine uses 2 vCPUs. Select **Generate install command**.
 
    <figure class="sp-media-figure not-content">
      <img src="https://docs-assets.superplane.com/images/self-hosting/fleet-configure.webp" alt="Configure the default fleet" />
@@ -411,6 +411,6 @@ Skip Fleet Manager until a runner image is published. The wizard disables a flee
 
 ## 9. Next
 
-Start a task on the default fleet. With warm capacity at `0`, the first task waits while the machine boots. The [quickstart](/get-started/quickstart) connects a repository. Use your installation URL.
+Start a task on the default fleet. With the default capacity, one machine is ready and the fleet can run 10 machines. The [quickstart](/get-started/quickstart) connects a repository. Use your installation URL.
 
 When something fails, use [Troubleshooting](/self-hosting/troubleshooting). To move to a newer chart or remove the stack, use [Upgrade and uninstall](/self-hosting/upgrade-and-uninstall).

@@ -294,20 +294,20 @@ SuperPlane creates an organization named Demo for this account.
 1. On **Create the owner account**, enter the name, email, and password. The password needs 8 or more characters, one number, and one capital letter. Select **Continue**.
 
    <figure class="sp-media-figure not-content">
-     <img src="/images/self-hosting/owner-account.webp" alt="Create the owner account form" />
+     <img src="https://docs-assets.superplane.com/images/self-hosting/owner-account.webp" alt="Create the owner account form" />
      <figcaption>Create the owner account. This screen is the same on every cloud.</figcaption>
    </figure>
 
 2. On **Choose an edition**, select **Continue with Community**. Select **Enterprise** only when you have a license file or a license key.
 
    <figure class="sp-media-figure not-content">
-     <img src="/images/self-hosting/edition.webp" alt="Choose an edition with Community selected" />
+     <img src="https://docs-assets.superplane.com/images/self-hosting/edition.webp" alt="Choose an edition with Community selected" />
    </figure>
 
 3. On **Send email from this installation**, select **Skip for now**.
 
    <figure class="sp-media-figure not-content">
-     <img src="/images/self-hosting/smtp.webp" alt="SMTP form with Skip for now" />
+     <img src="https://docs-assets.superplane.com/images/self-hosting/smtp.webp" alt="SMTP form with Skip for now" />
    </figure>
 
 </Steps>
@@ -321,32 +321,32 @@ On Google Cloud, select **Skip for now**. Come back when the public runner image
 1. On **Set up runner fleets**, select **Set up fleets**.
 
    <figure class="sp-media-figure not-content">
-     <img src="/images/self-hosting/fleet-intro.webp" alt="Set up runner fleets" />
+     <img src="https://docs-assets.superplane.com/images/self-hosting/fleet-intro.webp" alt="Set up runner fleets" />
    </figure>
 
 2. On **Choose a cloud provider**, select the provider Terraform loaded, then select **Continue**.
 
    <figure class="sp-media-figure not-content">
-     <img src="/images/self-hosting/fleet-provider.webp" alt="Choose a cloud provider" />
+     <img src="https://docs-assets.superplane.com/images/self-hosting/fleet-provider.webp" alt="Choose a cloud provider" />
    </figure>
 
 3. On **Configure the default fleet**, keep `e1-large-amd64`. **Warm capacity** `0` starts a machine when a task arrives. **Maximum capacity** `1` is one machine. Each AWS or Azure machine uses 2 vCPUs. Select **Generate install command**.
 
    <figure class="sp-media-figure not-content">
-     <img src="/images/self-hosting/fleet-configure.webp" alt="Configure the default fleet" />
+     <img src="https://docs-assets.superplane.com/images/self-hosting/fleet-configure.webp" alt="Configure the default fleet" />
      <figcaption>The machine type list follows the provider. Capacity is the same on every cloud.</figcaption>
    </figure>
 
 4. On **Create the chart values**, copy the command and run it. It writes `fleet-manager-values.yaml`. Select **Continue**.
 
    <figure class="sp-media-figure not-content">
-     <img src="/images/self-hosting/fleet-values.webp" alt="Create the chart values" />
+     <img src="https://docs-assets.superplane.com/images/self-hosting/fleet-values.webp" alt="Create the chart values" />
    </figure>
 
 5. On **Install the chart**, run the Helm command in the same directory. When the page says Fleet Manager created the selected fleets, select **Finish installation**.
 
    <figure class="sp-media-figure not-content">
-     <img src="/images/self-hosting/fleet-verified.webp" alt="Install the chart with Finish installation" />
+     <img src="https://docs-assets.superplane.com/images/self-hosting/fleet-verified.webp" alt="Install the chart with Finish installation" />
    </figure>
 
 </Steps>

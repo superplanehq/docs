@@ -14,6 +14,7 @@ kubectl logs -n superplane deploy/fleet-manager-fleet-manager --tail=20
 | `SkuNotAvailable` or `NotAvailableForSubscription` | Azure | Change the region or `runner_zones`. See the region table in the install guide. |
 | `QuotaExceeded` | Azure | Request quota for DDSv4 or Dpdsv6, or lower maximum capacity. A new subscription often has 4 regional vCPUs, which fits one node and one runner. |
 | On-Demand vCPU limit reached | AWS | Request more Standard vCPU quota (quota code `L-1216C47A`), or lower maximum capacity. |
+| `failed to load assume role` | AWS | The profile assumes a role from an `aws login` source profile. Export the CLI credentials, run `unset AWS_PROFILE`, then run plan again. See the AWS sign-in step. |
 | arm64 runner fails Trusted Launch | Azure | Set `vmSize` to `Standard_D2pds_v6`. Do not use a `v5` size. Run Helm again. |
 | Values file contains `<AZURE_ZONE>` | Azure | Set `zones` to `terraform output -raw runner_zones`, then run Helm again. |
 | `ParameterOutOfRange: The value of the 'Version' should be in: []` | Azure | Set `create_postgresql_flexible_server = false` and apply again. |

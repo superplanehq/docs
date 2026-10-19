@@ -23,6 +23,16 @@ export AWS_PROFILE=your_aws_profile
 aws sts get-caller-identity
 ```
 
+Terraform cannot use an `aws login` source profile to assume a role, but the AWS CLI can. When `terraform plan` reports `failed to load assume role`, export the credentials and clear the profile:
+
+```bash
+eval "$(aws configure export-credentials --profile your_aws_profile --format env)"
+unset AWS_PROFILE
+aws sts get-caller-identity
+```
+
+Clear `AWS_PROFILE` so Terraform uses the exported credentials. Run the export again when those credentials expire.
+
   </TabItem>
   <TabItem label="Azure">
 

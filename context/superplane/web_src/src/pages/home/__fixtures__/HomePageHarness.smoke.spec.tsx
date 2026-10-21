@@ -1,0 +1,35 @@
+import { render, screen } from "@testing-library/react";
+import { beforeAll, describe, expect, it } from "bun:test";
+
+import { client } from "@/api-client/client.gen";
+
+import { HomePageHarness } from "./HomePageHarness";
+import { emptyHomePageFixture } from "./homePageResponses";
+
+describe("HomePageHarness story smoke", () => {
+  beforeAll(() => {
+    // jsdom/undici cannot construct `new Request("/relative")` without a base.
+    // Storybook's real browser location makes this unnecessary at preview time.
+    client.setConfig({ baseUrl: "http://localhost" });
+  });
+
+  it("renders populated current homepage without redirecting to apps/new", async () => {
+    render(<HomePageHarness />);
+
+    expect(await screen.findByRole("heading", { name: "Apps" }, { timeout: 5000 })).toBeInTheDocument();
+    expect(await screen.findByText("Software Factory")).toBeInTheDocument();
+    expect(screen.getByText("PR Risk Review")).toBeInTheDocument();
+    expect(screen.getByText("Clean Code Assessment")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /create a? ?new app/i })).not.toBeInTheDocument();
+  });
+
+  it("redirects a fresh org to the factory-first create screen", async () => {
+    render(<HomePageHarness fixture={emptyHomePageFixture} />);
+
+    expect(await screen.findByRole("heading", { name: "Create a new app" }, { timeout: 5000 })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /setup factory/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /create a blank app/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /start from scratch/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Apps" })).not.toBeInTheDocument();
+  });
+});

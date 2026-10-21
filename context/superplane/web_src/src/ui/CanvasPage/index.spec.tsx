@@ -1,0 +1,1000 @@
+/* eslint-disable max-lines */
+import { act, fireEvent, render as testingLibraryRender, screen, waitFor } from "@testing-library/react";
+import type { ReactElement, ReactNode } from "react";
+import { MemoryRouter } from "react-router";
+import { beforeEach, describe, expect, it, vi } from "bun:test";
+import { ThemeProvider } from "@/contexts/ThemeProvider";
+import type { BlockData } from "./Block";
+
+const { captureException, fitViewMock, getNodesMock, reactFlowPropsRef } = vi.hoisted(() => ({
+  captureException: vi.fn(),
+  fitViewMock: vi.fn().mockResolvedValue(true),
+  getNodesMock: vi.fn<() => Array<{ id: string; position: { x: number; y: number } }>>(() => []),
+  reactFlowPropsRef: {
+    current: null as null | {
+      nodes?: unknown;
+      onConnectStart?: (...args: unknown[]) => unknown;
+      onConnectEnd?: (...args: unknown[]) => unknown;
+      onPaneClick?: (...args: unknown[]) => unknown;
+      onEdgeMouseEnter?: (...args: unknown[]) => unknown;
+      onEdgeMouseLeave?: (...args: unknown[]) => unknown;
+      onInit?: (instance: { setViewport: (viewport: unknown) => void }) => void;
+      onlyRenderVisibleElements?: boolean;
+      nodesDraggable?: boolean;
+    },
+  },
+}));
+
+vi.mock("@/sentry", () => ({
+  Sentry: {
+    withScope: (callback: (scope: { setTag: typeof vi.fn; setExtra: typeof vi.fn }) => void) =>
+      callback({
+        setTag: vi.fn(),
+        setExtra: vi.fn(),
+      }),
+    captureException,
+  },
+}));
+
+vi.mock("@xyflow/react", () => ({
+  Position: {
+    Left: "left",
+    Right: "right",
+    Top: "top",
+    Bottom: "bottom",
+  },
+  Background: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
+  Panel: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
+  ReactFlow: (props: { children?: ReactNode; nodes?: unknown }) => {
+    reactFlowPropsRef.current = props;
+    return <div>{props.children}</div>;
+  },
+  ReactFlowProvider: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
+  ViewportPortal: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
+  useOnSelectionChange: vi.fn(),
+  useReactFlow: vi.fn(() => ({
+    fitView: fitViewMock,
+    screenToFlowPosition: vi.fn((position) => position),
+    getViewport: vi.fn(() => ({ x: 0, y: 0, zoom: 1 })),
+    setViewport: vi.fn(),
+    getInternalNode: vi.fn(),
+    zoomTo: vi.fn(),
+    zoomIn: vi.fn(),
+    zoomOut: vi.fn(),
+    getNodes: getNodesMock,
+    getZoom: vi.fn(() => 1),
+  })),
+  useStore: vi.fn((selector: (state: { minZoom: number; maxZoom: number }) => unknown) =>
+    selector({ minZoom: 0.1, maxZoom: 1.5 }),
+  ),
+  useViewport: vi.fn(() => ({ zoom: 1, x: 0, y: 0 })),
+}));
+
+vi.mock("../BuildingBlocksSidebar", () => ({
+  BuildingBlocksSidebar: ({ isOpen }: { isOpen: boolean }) =>
+    isOpen ? <aside data-testid="building-blocks-sidebar" /> : null,
+}));
+
+vi.mock("../componentSidebar", () => ({
+  ComponentSidebar: () => <aside data-testid="component-sidebar" />,
+}));
+
+vi.mock("@/components/CanvasToolSidebar", () => ({
+  CanvasToolSidebar: () => null,
+}));
+
+vi.mock("@/pages/factories/agent/FactoryCanvasToolSidebar", () => ({
+  FactoryCanvasToolSidebar: () => null,
+}));
+
+vi.mock("@/components/CanvasToolSidebar/useCanvasToolSidebarState", () => ({
+  useCanvasToolSidebarState: () => ({
+    canvasId: undefined,
+    organizationId: undefined,
+    isEditing: false,
+    readOnly: false,
+    isToolSidebarOpen: false,
+    showToolSidebarToggle: false,
+    handleToolSidebarToggle: vi.fn(),
+    openToolSidebar: vi.fn(),
+    closeToolSidebar: vi.fn(),
+  }),
+}));
+
+vi.mock("./Header", () => ({
+  Header: () => <header data-testid="canvas-header" />,
+}));
+
+import { CanvasNodeErrorBoundary, CanvasPage } from "./index";
+
+function render(ui: ReactElement) {
+  return testingLibraryRender(ui, { wrapper: ThemeProvider });
+}
+
+function ThrowingNode(): ReactElement {
+  throw new Error("render failed");
+}
+
+describe("CanvasNodeErrorBoundary", () => {
+  beforeEach(() => {
+    captureException.mockClear();
+  });
+
+  it("isolates one node render failure and keeps sibling nodes visible", () => {
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    render(
+      <>
+        <CanvasNodeErrorBoundary
+          nodeId="node-1"
+          nodeData={{ label: "Broken", state: "pending", type: "component" }}
+          fallback={<div>node fallback</div>}
+        >
+          <ThrowingNode />
+        </CanvasNodeErrorBoundary>
+        <CanvasNodeErrorBoundary
+          nodeId="node-2"
+          nodeData={{ label: "Healthy", state: "pending", type: "component" }}
+          fallback={<div>unused fallback</div>}
+        >
+          <div>healthy node</div>
+        </CanvasNodeErrorBoundary>
+      </>,
+    );
+
+    expect(screen.getByText("node fallback")).toBeInTheDocument();
+    expect(screen.getByText("healthy node")).toBeInTheDocument();
+    expect(captureException).toHaveBeenCalledTimes(1);
+    consoleSpy.mockRestore();
+  });
+
+  it("does not retry a broken node when rerendered with equivalent data", () => {
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const { rerender } = render(
+      <CanvasNodeErrorBoundary
+        nodeId="node-1"
+        nodeData={{ label: "Broken", state: "pending", type: "component" }}
+        fallback={<div>node fallback</div>}
+      >
+        <ThrowingNode />
+      </CanvasNodeErrorBoundary>,
+    );
+
+    expect(screen.getByText("node fallback")).toBeInTheDocument();
+    expect(captureException).toHaveBeenCalledTimes(1);
+
+    rerender(
+      <CanvasNodeErrorBoundary
+        nodeId="node-1"
+        nodeData={{ label: "Broken", state: "pending", type: "component" }}
+        fallback={<div>node fallback</div>}
+      >
+        <ThrowingNode />
+      </CanvasNodeErrorBoundary>,
+    );
+
+    expect(screen.getByText("node fallback")).toBeInTheDocument();
+    expect(captureException).toHaveBeenCalledTimes(1);
+    consoleSpy.mockRestore();
+  });
+
+  it("keeps the boundary alive when node data has an unknown runtime type", () => {
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const invalidNodeData = { label: "Broken", state: "pending", type: "unexpected" } as unknown as BlockData;
+
+    render(
+      <CanvasNodeErrorBoundary nodeId="node-unknown" nodeData={invalidNodeData} fallback={<div>unknown fallback</div>}>
+        <ThrowingNode />
+      </CanvasNodeErrorBoundary>,
+    );
+
+    expect(screen.getByText("unknown fallback")).toBeInTheDocument();
+    expect(captureException).toHaveBeenCalledTimes(1);
+    consoleSpy.mockRestore();
+  });
+});
+
+describe("CanvasPage connection drop", () => {
+  beforeEach(() => {
+    reactFlowPropsRef.current = null;
+    fitViewMock.mockClear();
+    fitViewMock.mockResolvedValue(true);
+    getNodesMock.mockReset();
+    getNodesMock.mockReturnValue([]);
+    globalThis.ResizeObserver = class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    };
+  });
+
+  it("uses padded viewport culling instead of React Flow onlyRenderVisibleElements", () => {
+    render(
+      <MemoryRouter>
+        <CanvasPage
+          title="Canvas"
+          headerMode="version-live"
+          nodes={[]}
+          edges={[]}
+          buildingBlocks={[]}
+          isEditing={true}
+          activeCanvasVersionId="draft-version"
+          onEdgeCreate={vi.fn()}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(reactFlowPropsRef.current?.onlyRenderVisibleElements).not.toBe(true);
+  });
+
+  it("locks nodes only in Factory auto-layout mode", () => {
+    const { rerender } = render(
+      <MemoryRouter>
+        <CanvasPage
+          title="Factory automation"
+          nodes={[]}
+          edges={[]}
+          buildingBlocks={[]}
+          isEditing
+          activeCanvasVersionId="version-live"
+          layoutMode="factory-auto"
+        />
+      </MemoryRouter>,
+    );
+
+    expect(reactFlowPropsRef.current?.nodesDraggable).toBe(false);
+
+    rerender(
+      <MemoryRouter>
+        <CanvasPage
+          title="Canvas"
+          nodes={[]}
+          edges={[]}
+          buildingBlocks={[]}
+          isEditing
+          activeCanvasVersionId="version-live"
+          layoutMode="manual"
+        />
+      </MemoryRouter>,
+    );
+
+    expect(reactFlowPropsRef.current?.nodesDraggable).toBe(true);
+  });
+
+  it("hides the auto-layout preference in Factory auto-layout mode", () => {
+    const commonProps = {
+      title: "Factory automation",
+      nodes: [],
+      edges: [],
+      buildingBlocks: [],
+      isEditing: true,
+      activeCanvasVersionId: "version-live",
+      isAutoLayoutOnUpdateEnabled: true,
+      onToggleAutoLayoutOnUpdate: vi.fn(),
+    };
+    const { rerender } = render(
+      <MemoryRouter>
+        <CanvasPage {...commonProps} layoutMode="factory-auto" />
+      </MemoryRouter>,
+    );
+
+    expect(screen.queryByRole("button", { pressed: true })).not.toBeInTheDocument();
+
+    rerender(
+      <MemoryRouter>
+        <CanvasPage {...commonProps} layoutMode="manual" />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByRole("button", { pressed: true })).toBeInTheDocument();
+  });
+
+  it("does not open the versions sidebar as the initial edit-session view", () => {
+    render(
+      <MemoryRouter>
+        <CanvasPage
+          title="Canvas"
+          headerMode="version-live"
+          nodes={[]}
+          edges={[]}
+          buildingBlocks={[]}
+          isEditing={true}
+          isEditSessionActive={true}
+          activeCanvasVersionId="draft-version"
+          toolSidebarVersionsContent={<div>Version history</div>}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(screen.queryByTestId("canvas-versions-sidebar")).not.toBeInTheDocument();
+    expect(screen.queryByText("Version history")).not.toBeInTheDocument();
+  });
+
+  it("does not close the building blocks sidebar from the pane click that follows a connection drop", () => {
+    const onPlaceholderAdd = vi.fn(() => new Promise<string>(() => {}));
+
+    render(
+      <MemoryRouter>
+        <CanvasPage
+          title="Canvas"
+          headerMode="version-live"
+          nodes={[]}
+          edges={[]}
+          buildingBlocks={[]}
+          isEditing={true}
+          activeCanvasVersionId="draft-version"
+          onEdgeCreate={vi.fn()}
+          onPlaceholderAdd={onPlaceholderAdd}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByTestId("building-blocks-sidebar")).toBeInTheDocument();
+
+    act(() => {
+      reactFlowPropsRef.current?.onConnectStart?.(new MouseEvent("mousedown"), {
+        nodeId: "source",
+        handleId: "default",
+        handleType: "source",
+      });
+      reactFlowPropsRef.current?.onConnectEnd?.(
+        new MouseEvent("mouseup", {
+          clientX: 100,
+          clientY: 100,
+        }),
+      );
+      reactFlowPropsRef.current?.onPaneClick?.();
+    });
+
+    expect(onPlaceholderAdd).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId("building-blocks-sidebar")).toBeInTheDocument();
+  });
+
+  it("creates a placeholder when appending from an end-node connector", async () => {
+    const onPlaceholderAdd = vi.fn(async () => "placeholder-node");
+
+    render(
+      <MemoryRouter>
+        <CanvasPage
+          title="Canvas"
+          nodes={[
+            {
+              id: "source-node",
+              position: { x: 100, y: 200 },
+              width: 240,
+              data: {
+                label: "Source",
+                state: "pending",
+                type: "component",
+                outputChannels: ["default"],
+                component: {
+                  title: "Source",
+                  iconSlug: "box",
+                  collapsed: false,
+                },
+              },
+            },
+          ]}
+          edges={[]}
+          buildingBlocks={[]}
+          isEditing={true}
+          activeCanvasVersionId="draft-version"
+          onEdgeCreate={vi.fn()}
+          onPlaceholderAdd={onPlaceholderAdd}
+        />
+      </MemoryRouter>,
+    );
+
+    const nodes = reactFlowPropsRef.current?.nodes as Array<{
+      data: {
+        _callbacksRef?: {
+          current?: {
+            onAppendFromNode?: (nodeId: string, sourceHandleId?: string | null) => void | Promise<void>;
+          };
+        };
+      };
+    }>;
+
+    await act(async () => {
+      await nodes[0].data._callbacksRef?.current?.onAppendFromNode?.("source-node", "default");
+    });
+
+    expect(onPlaceholderAdd).toHaveBeenCalledWith({
+      position: { x: 640, y: 200 },
+      sourceNodeId: "source-node",
+      sourceHandleId: "default",
+    });
+  });
+
+  it("opens the building blocks sidebar without creating a placeholder when the add component button is clicked", async () => {
+    const onPlaceholderAdd = vi.fn(
+      async (_data: { position: { x: number; y: number }; sourceNodeId?: string; sourceHandleId?: string | null }) =>
+        "placeholder-starter",
+    );
+
+    render(
+      <MemoryRouter>
+        <CanvasPage
+          title="Canvas"
+          headerMode="version-live"
+          nodes={[]}
+          edges={[]}
+          buildingBlocks={[]}
+          isEditing={true}
+          activeCanvasVersionId="draft-version"
+          onEdgeCreate={vi.fn()}
+          onPlaceholderAdd={onPlaceholderAdd}
+        />
+      </MemoryRouter>,
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("canvas-add-component-button"));
+    });
+
+    expect(onPlaceholderAdd).not.toHaveBeenCalled();
+    expect(screen.getByTestId("building-blocks-sidebar")).toBeInTheDocument();
+  });
+
+  it("does not load component sidebar run data in live mode", async () => {
+    const loadSidebarData = vi.fn();
+    const getSidebarData = vi.fn(() => ({
+      latestEvents: [],
+      nextInQueueEvents: [],
+      title: "Node",
+      totalInQueueCount: 0,
+      totalInHistoryCount: 0,
+    }));
+
+    const { rerender } = render(
+      <MemoryRouter>
+        <CanvasPage
+          title="Canvas"
+          headerMode="version-live"
+          canvasStateMode="editing"
+          nodes={[
+            {
+              id: "node-1",
+              position: { x: 0, y: 0 },
+              data: {
+                label: "Node",
+                state: "pending",
+                type: "component",
+              },
+            },
+          ]}
+          edges={[]}
+          buildingBlocks={[]}
+          isEditing={true}
+          activeCanvasVersionId="draft-version"
+          initialSidebar={{ isOpen: true, nodeId: "node-1" }}
+          getSidebarData={getSidebarData}
+          loadSidebarData={loadSidebarData}
+          workflowNodes={[{ id: "node-1", type: "TYPE_ACTION", name: "Node" }]}
+        />
+      </MemoryRouter>,
+    );
+
+    await act(async () => {});
+    expect(loadSidebarData).not.toHaveBeenCalled();
+
+    rerender(
+      <MemoryRouter>
+        <CanvasPage
+          title="Canvas"
+          headerMode="version-live"
+          canvasStateMode="default"
+          nodes={[
+            {
+              id: "node-1",
+              position: { x: 0, y: 0 },
+              data: {
+                label: "Node",
+                state: "pending",
+                type: "component",
+              },
+            },
+          ]}
+          edges={[]}
+          buildingBlocks={[]}
+          isEditing={false}
+          activeCanvasVersionId=""
+          initialSidebar={{ isOpen: true, nodeId: "node-1" }}
+          getSidebarData={getSidebarData}
+          loadSidebarData={loadSidebarData}
+          workflowNodes={[{ id: "node-1", type: "TYPE_ACTION", name: "Node" }]}
+        />
+      </MemoryRouter>,
+    );
+
+    await act(async () => {});
+    expect(loadSidebarData).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("component-sidebar")).not.toBeInTheDocument();
+  });
+
+  it("does not render a live bottom inspector", async () => {
+    const getSidebarData = vi.fn(() => ({
+      latestEvents: [],
+      nextInQueueEvents: [],
+      title: "Node",
+      totalInQueueCount: 0,
+      totalInHistoryCount: 0,
+    }));
+
+    render(
+      <MemoryRouter>
+        <CanvasPage
+          title="Canvas"
+          headerMode="version-live"
+          canvasStateMode="default"
+          nodes={[
+            {
+              id: "node-1",
+              position: { x: 0, y: 0 },
+              data: {
+                label: "Node",
+                state: "pending",
+                type: "component",
+              },
+            },
+          ]}
+          edges={[]}
+          buildingBlocks={[]}
+          isEditing={false}
+          activeCanvasVersionId="live-version"
+          initialSidebar={{ isOpen: true, nodeId: "node-1" }}
+          getSidebarData={getSidebarData}
+          workflowNodes={[{ id: "node-1", type: "TYPE_ACTION", name: "Node" }]}
+        />
+      </MemoryRouter>,
+    );
+
+    await act(async () => {});
+
+    expect(screen.queryByTestId("live-node-detail-pane")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("component-sidebar")).not.toBeInTheDocument();
+  });
+
+  it("renders edit inspector in right sidebar, not bottom pane", async () => {
+    const getSidebarData = vi.fn(() => ({
+      latestEvents: [],
+      nextInQueueEvents: [],
+      title: "Node",
+      totalInQueueCount: 0,
+      totalInHistoryCount: 0,
+    }));
+
+    render(
+      <MemoryRouter>
+        <CanvasPage
+          title="Canvas"
+          headerMode="version-live"
+          canvasStateMode="editing"
+          nodes={[
+            {
+              id: "node-1",
+              position: { x: 0, y: 0 },
+              data: {
+                label: "Node",
+                state: "pending",
+                type: "component",
+              },
+            },
+          ]}
+          edges={[]}
+          buildingBlocks={[]}
+          isEditing={true}
+          activeCanvasVersionId="draft-version"
+          initialSidebar={{ isOpen: true, nodeId: "node-1" }}
+          getSidebarData={getSidebarData}
+          workflowNodes={[{ id: "node-1", type: "TYPE_ACTION", name: "Node" }]}
+        />
+      </MemoryRouter>,
+    );
+
+    await act(async () => {});
+
+    expect(screen.queryByTestId("live-node-detail-pane")).not.toBeInTheDocument();
+    expect(screen.getByTestId("component-sidebar")).toBeInTheDocument();
+  });
+
+  it("selects the deep-linked node when the edit sidebar opens from the URL", async () => {
+    const getSidebarData = vi.fn(() => ({
+      latestEvents: [],
+      nextInQueueEvents: [],
+      title: "Node",
+      totalInQueueCount: 0,
+      totalInHistoryCount: 0,
+    }));
+
+    render(
+      <MemoryRouter>
+        <CanvasPage
+          title="Canvas"
+          headerMode="version-live"
+          canvasStateMode="editing"
+          nodes={[
+            {
+              id: "node-1",
+              position: { x: 0, y: 0 },
+              data: {
+                label: "Node",
+                state: "pending",
+                type: "component",
+              },
+            },
+          ]}
+          edges={[]}
+          buildingBlocks={[]}
+          isEditing={true}
+          activeCanvasVersionId="draft-version"
+          initialSidebar={{ isOpen: true, nodeId: "node-1" }}
+          getSidebarData={getSidebarData}
+          workflowNodes={[{ id: "node-1", type: "TYPE_ACTION", name: "Node" }]}
+        />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      const nodes = reactFlowPropsRef.current?.nodes as Array<{ id: string; selected?: boolean }>;
+      expect(nodes.find((node) => node.id === "node-1")?.selected).toBe(true);
+    });
+    expect(screen.getByTestId("component-sidebar")).toBeInTheDocument();
+  });
+
+  it("closes hidden live sidebar state from canvas pane click", async () => {
+    const onSidebarChange = vi.fn();
+    const getSidebarData = vi.fn(() => ({
+      latestEvents: [],
+      nextInQueueEvents: [],
+      title: "Node",
+      totalInQueueCount: 0,
+      totalInHistoryCount: 0,
+    }));
+
+    render(
+      <MemoryRouter>
+        <CanvasPage
+          title="Canvas"
+          headerMode="version-live"
+          canvasStateMode="default"
+          nodes={[
+            {
+              id: "node-1",
+              position: { x: 0, y: 0 },
+              data: {
+                label: "Node",
+                state: "pending",
+                type: "component",
+              },
+            },
+          ]}
+          edges={[]}
+          buildingBlocks={[]}
+          isEditing={false}
+          activeCanvasVersionId="live-version"
+          initialSidebar={{ isOpen: true, nodeId: "node-1" }}
+          onSidebarChange={onSidebarChange}
+          getSidebarData={getSidebarData}
+          workflowNodes={[{ id: "node-1", type: "TYPE_ACTION", name: "Node" }]}
+        />
+      </MemoryRouter>,
+    );
+
+    await act(async () => {});
+
+    expect(screen.queryByTestId("component-sidebar")).not.toBeInTheDocument();
+
+    act(() => {
+      reactFlowPropsRef.current?.onPaneClick?.();
+    });
+
+    await waitFor(() => {
+      expect(onSidebarChange).toHaveBeenCalledWith(false, null);
+    });
+  });
+});
+
+describe("CanvasPage fit-to-view on canvas/version switch", () => {
+  beforeEach(() => {
+    reactFlowPropsRef.current = null;
+    fitViewMock.mockClear();
+    fitViewMock.mockResolvedValue(true);
+    getNodesMock.mockReset();
+    getNodesMock.mockReturnValue([]);
+    globalThis.ResizeObserver = class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    };
+  });
+
+  const singleNode = [
+    {
+      id: "node-1",
+      position: { x: 0, y: 0 },
+      data: { label: "Node", state: "pending" as const, type: "component" as const },
+    },
+  ];
+
+  function renderCanvas(overrides: {
+    fitViewContentKey?: string;
+    lockNativeZoom?: boolean;
+    factoryDisplayLayout?: boolean;
+    hasFitToViewRef: { current: boolean };
+    lastFittedContentKeyRef: { current: string | null };
+  }) {
+    return render(
+      <MemoryRouter>
+        <CanvasPage
+          title="Canvas"
+          headerMode="version-live"
+          nodes={singleNode}
+          edges={[]}
+          buildingBlocks={[]}
+          isEditing={false}
+          activeCanvasVersionId="v1"
+          {...overrides}
+        />
+      </MemoryRouter>,
+    );
+  }
+
+  it("fits to view and stamps the content key on first initialization", () => {
+    const hasFitToViewRef = { current: false };
+    const lastFittedContentKeyRef = { current: null as string | null };
+
+    renderCanvas({ fitViewContentKey: "canvas-1:v1", hasFitToViewRef, lastFittedContentKeyRef });
+
+    act(() => {
+      reactFlowPropsRef.current?.onInit?.({ setViewport: vi.fn() });
+    });
+
+    expect(fitViewMock).toHaveBeenCalledTimes(1);
+    expect(lastFittedContentKeyRef.current).toBe("canvas-1:v1");
+  });
+
+  it("fits immediately when factoryDisplayLayout is set", () => {
+    const hasFitToViewRef = { current: false };
+    const lastFittedContentKeyRef = { current: null as string | null };
+
+    renderCanvas({ factoryDisplayLayout: true, hasFitToViewRef, lastFittedContentKeyRef });
+
+    act(() => {
+      reactFlowPropsRef.current?.onInit?.({ setViewport: vi.fn() });
+    });
+
+    expect(fitViewMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        duration: 0,
+      }),
+    );
+  });
+
+  it("keeps the factory display fit at 100% zoom when lockNativeZoom is set", async () => {
+    const hasFitToViewRef = { current: false };
+    const lastFittedContentKeyRef = { current: null as string | null };
+
+    renderCanvas({ factoryDisplayLayout: true, lockNativeZoom: true, hasFitToViewRef, lastFittedContentKeyRef });
+
+    act(() => {
+      reactFlowPropsRef.current?.onInit?.({ setViewport: vi.fn() });
+    });
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 80));
+    });
+
+    const lastFit = fitViewMock.mock.calls.at(-1)?.[0] as { minZoom?: number; maxZoom?: number } | undefined;
+    expect(lastFit).toEqual(expect.objectContaining({ minZoom: 1, maxZoom: 1 }));
+  });
+
+  it("locks the first-load fit to 100% zoom when lockNativeZoom is set", () => {
+    const hasFitToViewRef = { current: false };
+    const lastFittedContentKeyRef = { current: null as string | null };
+
+    renderCanvas({ lockNativeZoom: true, hasFitToViewRef, lastFittedContentKeyRef });
+
+    act(() => {
+      reactFlowPropsRef.current?.onInit?.({ setViewport: vi.fn() });
+    });
+
+    expect(fitViewMock).toHaveBeenCalledTimes(1);
+    expect(fitViewMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        minZoom: 1,
+        maxZoom: 1,
+        duration: 500,
+      }),
+    );
+  });
+
+  it("re-fits when the content key changes (canvas/version switch)", () => {
+    const hasFitToViewRef = { current: false };
+    const lastFittedContentKeyRef = { current: null as string | null };
+
+    const { rerender } = renderCanvas({
+      fitViewContentKey: "canvas-1:v1",
+      hasFitToViewRef,
+      lastFittedContentKeyRef,
+    });
+
+    act(() => {
+      reactFlowPropsRef.current?.onInit?.({ setViewport: vi.fn() });
+    });
+    expect(fitViewMock).toHaveBeenCalledTimes(1);
+
+    // Simulate switching to another version: refs persist across the remount.
+    rerender(
+      <MemoryRouter>
+        <CanvasPage
+          title="Canvas"
+          headerMode="version-live"
+          nodes={singleNode}
+          edges={[]}
+          buildingBlocks={[]}
+          isEditing={false}
+          activeCanvasVersionId="v2"
+          fitViewContentKey="canvas-1:v2"
+          hasFitToViewRef={hasFitToViewRef}
+          lastFittedContentKeyRef={lastFittedContentKeyRef}
+        />
+      </MemoryRouter>,
+    );
+
+    act(() => {
+      reactFlowPropsRef.current?.onInit?.({ setViewport: vi.fn() });
+    });
+
+    expect(fitViewMock).toHaveBeenCalledTimes(2);
+    expect(lastFittedContentKeyRef.current).toBe("canvas-1:v2");
+  });
+
+  it("honors the URL node focus only on the first fit, not on later switches", () => {
+    const hasFitToViewRef = { current: false };
+    const lastFittedContentKeyRef = { current: null as string | null };
+
+    const canvas = (fitViewContentKey: string) => (
+      <MemoryRouter>
+        <CanvasPage
+          title="Canvas"
+          headerMode="version-live"
+          nodes={singleNode}
+          edges={[]}
+          buildingBlocks={[]}
+          isEditing={false}
+          activeCanvasVersionId="v1"
+          initialFocusNodeId="node-1"
+          fitViewContentKey={fitViewContentKey}
+          hasFitToViewRef={hasFitToViewRef}
+          lastFittedContentKeyRef={lastFittedContentKeyRef}
+        />
+      </MemoryRouter>
+    );
+
+    const { rerender } = render(canvas("canvas-1:v1"));
+    act(() => {
+      reactFlowPropsRef.current?.onInit?.({ setViewport: vi.fn() });
+    });
+    // First fit frames the deep-linked node.
+    expect(fitViewMock).toHaveBeenCalledTimes(1);
+    expect(fitViewMock.mock.calls[0][0]?.nodes).toBeDefined();
+
+    // Switching version must frame the whole graph, not re-zoom onto the URL node.
+    rerender(canvas("canvas-1:v2"));
+    act(() => {
+      reactFlowPropsRef.current?.onInit?.({ setViewport: vi.fn() });
+    });
+    expect(fitViewMock).toHaveBeenCalledTimes(2);
+    expect(fitViewMock.mock.calls[1][0]?.nodes).toBeUndefined();
+  });
+
+  it("re-fits without a remount once the previewed version's nodes arrive", () => {
+    vi.useFakeTimers();
+    try {
+      const hasFitToViewRef = { current: false };
+      const lastFittedContentKeyRef = { current: null as string | null };
+      const workflowNodes = [{ id: "node-1", type: "TYPE_ACTION" as const, name: "Node" }];
+
+      const canvas = (fitViewContentKey: string) => (
+        <MemoryRouter>
+          <CanvasPage
+            title="Canvas"
+            headerMode="version-live"
+            nodes={singleNode}
+            edges={[]}
+            buildingBlocks={[]}
+            isEditing={false}
+            activeCanvasVersionId="v1"
+            fitViewContentKey={fitViewContentKey}
+            hasFitToViewRef={hasFitToViewRef}
+            lastFittedContentKeyRef={lastFittedContentKeyRef}
+            workflowNodes={workflowNodes}
+          />
+        </MemoryRouter>
+      );
+
+      // Previewing a published version renders the stale live graph first.
+      const { rerender } = render(canvas("canvas-1:live"));
+      act(() => {
+        reactFlowPropsRef.current?.onInit?.({ setViewport: vi.fn() });
+      });
+      expect(fitViewMock).toHaveBeenCalledTimes(1);
+      expect(lastFittedContentKeyRef.current).toBe("canvas-1:live");
+
+      // The version's spec loads without a remount: the content key flips to the
+      // version, so the graph must re-fit to the real nodes rather than stay stale.
+      rerender(canvas("canvas-1:v2"));
+      act(() => {
+        vi.runAllTimers();
+      });
+
+      expect(fitViewMock).toHaveBeenCalledTimes(2);
+      expect(lastFittedContentKeyRef.current).toBe("canvas-1:v2");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not re-fit while editing when the draft version changes", () => {
+    const hasFitToViewRef = { current: false };
+    const lastFittedContentKeyRef = { current: null as string | null };
+
+    const canvas = (fitViewContentKey: string) => (
+      <MemoryRouter>
+        <CanvasPage
+          title="Canvas"
+          headerMode="version-live"
+          nodes={singleNode}
+          edges={[]}
+          buildingBlocks={[]}
+          isEditing={true}
+          activeCanvasVersionId="draft-1"
+          fitViewContentKey={fitViewContentKey}
+          hasFitToViewRef={hasFitToViewRef}
+          lastFittedContentKeyRef={lastFittedContentKeyRef}
+        />
+      </MemoryRouter>
+    );
+
+    const { rerender } = render(canvas("canvas-1:draft-1"));
+    act(() => {
+      reactFlowPropsRef.current?.onInit?.({ setViewport: vi.fn() });
+    });
+    // First mount still performs the initial fit so a freshly opened editor is framed.
+    expect(fitViewMock).toHaveBeenCalledTimes(1);
+
+    // Entering edit mode / saving churns the draft version id. That must not move
+    // the viewport, otherwise coordinate-based interactions (e.g. deleting an edge)
+    // would land on the wrong place.
+    rerender(canvas("canvas-1:draft-2"));
+    const setViewport = vi.fn();
+    act(() => {
+      reactFlowPropsRef.current?.onInit?.({ setViewport });
+    });
+
+    expect(fitViewMock).toHaveBeenCalledTimes(1);
+    expect(setViewport).toHaveBeenCalled();
+  });
+
+  it("restores the stored viewport instead of re-fitting when the content key is unchanged", () => {
+    const hasFitToViewRef = { current: false };
+    const lastFittedContentKeyRef = { current: null as string | null };
+
+    renderCanvas({ fitViewContentKey: "canvas-1:v1", hasFitToViewRef, lastFittedContentKeyRef });
+
+    act(() => {
+      reactFlowPropsRef.current?.onInit?.({ setViewport: vi.fn() });
+    });
+    expect(fitViewMock).toHaveBeenCalledTimes(1);
+
+    const setViewport = vi.fn();
+    act(() => {
+      reactFlowPropsRef.current?.onInit?.({ setViewport });
+    });
+
+    expect(fitViewMock).toHaveBeenCalledTimes(1);
+    expect(setViewport).toHaveBeenCalled();
+  });
+});

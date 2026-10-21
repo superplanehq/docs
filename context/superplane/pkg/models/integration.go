@@ -1,0 +1,748 @@
+package models
+
+import (
+	"fmt"
+	"maps"
+	"strings"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/superplanehq/superplane/pkg/core"
+	"github.com/superplanehq/superplane/pkg/database"
+	"gorm.io/datatypes"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
+)
+
+const (
+	IntegrationStatePending = "pending"
+	IntegrationStateReady   = "ready"
+	IntegrationStateError   = "error"
+)
+
+type Integration struct {
+	ID               uuid.UUID `gorm:"primary_key;default:uuid_generate_v4()"`
+	OrganizationID   uuid.UUID
+	AppName          string
+	InstallationName string
+	State            string
+	StateDescription string
+	CreatedAt        *time.Time
+	UpdatedAt        *time.Time
+	DeletedAt        gorm.DeletedAt `gorm:"index"`
+
+	//
+	// These are fields used by the old integrations.
+	// Should be removed once all integration implementations
+	// are migrated to use core.IntegrationSetupProvider
+	//
+	Configuration datatypes.JSONType[map[string]any]
+	Metadata      datatypes.JSONType[map[string]any]
+	BrowserAction *datatypes.JSONType[BrowserAction]
+
+	//
+	// Fields required for integrations set up using core.IntegrationSetupProvider
+	// All integrations should use this
+	//
+	SetupState   *datatypes.JSONType[SetupState]
+	Properties   datatypes.JSONSlice[core.IntegrationPropertyDefinition]
+	Capabilities datatypes.JSONSlice[CapabilityState]
+}
+
+type SetupState struct {
+	CurrentStep   *core.SetupStep  `json:"current_step,omitempty"`
+	PreviousSteps []core.SetupStep `json:"previous_steps,omitempty"`
+}
+
+type CapabilityState struct {
+	Name   string                          `json:"name"`
+	State  core.IntegrationCapabilityState `json:"state"`
+	Reason *string                         `json:"reason,omitempty"`
+}
+
+func (a *Integration) TableName() string {
+	return "app_installations"
+}
+
+type IntegrationSecret struct {
+	ID             uuid.UUID `gorm:"primary_key;default:uuid_generate_v4()"`
+	OrganizationID uuid.UUID
+	InstallationID uuid.UUID
+	Name           string
+	Label          string
+	Description    string
+	Value          []byte
+	Editable       bool
+	CreatedAt      *time.Time
+	UpdatedAt      *time.Time
+}
+
+func (a *IntegrationSecret) TableName() string {
+	return "app_installation_secrets"
+}
+
+func ListIntegrationSecrets(installationID uuid.UUID) ([]IntegrationSecret, error) {
+	return ListIntegrationSecretsInTransaction(database.Conn(), installationID)
+}
+
+func ListIntegrationSecretsInTransaction(tx *gorm.DB, installationID uuid.UUID) ([]IntegrationSecret, error) {
+	var secrets []IntegrationSecret
+	err := tx.Where("installation_id = ?", installationID).Find(&secrets).Error
+	if err != nil {
+		return nil, err
+	}
+	return secrets, nil
+}
+
+type BrowserAction struct {
+	URL         string
+	Method      string
+	FormFields  map[string]string
+	Description string
+}
+
+func CreateIntegration(id, orgID uuid.UUID, appName string, installationName string, config map[string]any) (*Integration, error) {
+	now := time.Now()
+	integration := Integration{
+		ID:               id,
+		OrganizationID:   orgID,
+		AppName:          appName,
+		InstallationName: installationName,
+		State:            IntegrationStatePending,
+		Configuration:    datatypes.NewJSONType(config),
+		CreatedAt:        &now,
+		UpdatedAt:        &now,
+	}
+
+	err := database.Conn().Create(&integration).Error
+	if err != nil {
+		return nil, err
+	}
+
+	return &integration, nil
+}
+
+func ListIntegrations(db *gorm.DB, orgID uuid.UUID) ([]Integration, error) {
+	var integrations []Integration
+	err := db.Where("organization_id = ?", orgID).Find(&integrations).Error
+	if err != nil {
+		return nil, err
+	}
+	return integrations, nil
+}
+
+// ListIntegrationsPage returns one page of connections for an organization.
+// Search matches the app name or the connection name. Results are ordered by
+// app name, then connection name.
+func ListIntegrationsPage(tx *gorm.DB, orgID uuid.UUID, search string, limit, offset int) ([]Integration, int64, error) {
+	query := tx.Model(&Integration{}).Where("organization_id = ?", orgID)
+	if search != "" {
+		like := containsLikePattern(search)
+		query = query.Where(
+			"app_name ILIKE ? ESCAPE '\\' OR installation_name ILIKE ? ESCAPE '\\'",
+			like,
+			like,
+		)
+	}
+
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	if limit > 0 {
+		query = query.Limit(limit)
+	}
+	if offset > 0 {
+		query = query.Offset(offset)
+	}
+
+	var integrations []Integration
+	err := query.Order("app_name ASC, installation_name ASC").Find(&integrations).Error
+	if err != nil {
+		return nil, 0, err
+	}
+	return integrations, total, nil
+}
+
+// containsLikePattern matches the search text inside a name. Percent and
+// underscore stay literal characters.
+func containsLikePattern(search string) string {
+	escaped := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(search)
+	return "%" + escaped + "%"
+}
+
+func CountIntegrationsByOrganization(orgID string) (int64, error) {
+	return CountIntegrationsByOrganizationInTransaction(database.Conn(), orgID)
+}
+
+func CountIntegrationsByOrganizationInTransaction(tx *gorm.DB, orgID string) (int64, error) {
+	var count int64
+	err := tx.
+		Model(&Integration{}).
+		Where("organization_id = ?", orgID).
+		Count(&count).
+		Error
+	if err != nil {
+		return 0, err
+	}
+
+	return count, nil
+}
+
+func ListIntegrationWebhooks(tx *gorm.DB, integrationID uuid.UUID) ([]Webhook, error) {
+	var webhooks []Webhook
+	err := tx.
+		Where("app_installation_id = ?", integrationID).
+		Find(&webhooks).
+		Error
+
+	if err != nil {
+		return nil, err
+	}
+	return webhooks, nil
+}
+
+func ListUnscopedIntegrationWebhooks(tx *gorm.DB, integrationID uuid.UUID) ([]Webhook, error) {
+	var webhooks []Webhook
+	err := tx.Unscoped().
+		Where("app_installation_id = ?", integrationID).
+		Find(&webhooks).
+		Error
+
+	if err != nil {
+		return nil, err
+	}
+	return webhooks, nil
+}
+
+type CanvasNodeReference struct {
+	CanvasID   uuid.UUID
+	CanvasName string
+	NodeID     string
+	NodeName   string
+	NodeType   string
+	NodeRef    datatypes.JSONType[NodeRef]
+}
+
+func (c *CanvasNodeReference) ComponentName() string {
+	r := c.NodeRef.Data()
+	if c.NodeType == NodeTypeComponent && r.Component != nil {
+		return r.Component.Name
+	}
+
+	if c.NodeType == NodeTypeTrigger && r.Trigger != nil {
+		return r.Trigger.Name
+	}
+
+	return ""
+}
+
+func ListIntegrationNodeReferences(integrationID uuid.UUID) ([]CanvasNodeReference, error) {
+	var nodeReferences []CanvasNodeReference
+	err := database.Conn().
+		Table("workflow_nodes AS wn").
+		Joins("JOIN workflows AS w ON w.id = wn.workflow_id").
+		Select("w.id as canvas_id, w.name as canvas_name, wn.node_id as node_id, wn.name as node_name, wn.type as node_type, wn.ref as node_ref").
+		Where("wn.app_installation_id = ?", integrationID).
+		Where("wn.deleted_at IS NULL").
+		Find(&nodeReferences).
+		Error
+
+	if err != nil {
+		return nil, err
+	}
+	return nodeReferences, nil
+}
+
+func FindUnscopedIntegration(integrationID uuid.UUID) (*Integration, error) {
+	return FindUnscopedIntegrationInTransaction(database.Conn(), integrationID)
+}
+
+func FindUnscopedIntegrationInTransaction(tx *gorm.DB, integrationID uuid.UUID) (*Integration, error) {
+	var integration Integration
+	err := tx.
+		Where("id = ?", integrationID).
+		First(&integration).
+		Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &integration, nil
+}
+
+func FindMaybeDeletedIntegrationInTransaction(tx *gorm.DB, integrationID uuid.UUID) (*Integration, error) {
+	var integration Integration
+	err := tx.Unscoped().
+		Where("id = ?", integrationID).
+		First(&integration).
+		Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &integration, nil
+}
+
+func FindIntegration(orgID, integrationID uuid.UUID) (*Integration, error) {
+	return FindIntegrationInTransaction(database.Conn(), orgID, integrationID)
+}
+
+func FindIntegrationInTransaction(tx *gorm.DB, orgID, integrationID uuid.UUID) (*Integration, error) {
+	var integration Integration
+	err := tx.
+		Where("id = ?", integrationID).
+		Where("organization_id = ?", orgID).
+		First(&integration).
+		Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &integration, nil
+}
+
+func FindIntegrationByName(db *gorm.DB, orgID uuid.UUID, integrationName string) (*Integration, error) {
+	var integration Integration
+	err := db.
+		Where("organization_id = ?", orgID).
+		Where("installation_name = ?", integrationName).
+		First(&integration).
+		Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &integration, nil
+}
+
+func ListDeletedIntegrations() ([]Integration, error) {
+	var integrations []Integration
+	err := database.Conn().Unscoped().
+		Where("deleted_at IS NOT NULL").
+		Find(&integrations).
+		Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	return integrations, nil
+}
+
+func ListMaybeDeletedIntegrationsByOrganizationInTransaction(tx *gorm.DB, orgID uuid.UUID) ([]Integration, error) {
+	var integrations []Integration
+
+	err := tx.
+		Unscoped().
+		Where("organization_id = ?", orgID).
+		Find(&integrations).
+		Error
+	if err != nil {
+		return nil, err
+	}
+
+	return integrations, nil
+}
+
+func LockIntegration(tx *gorm.DB, ID uuid.UUID) (*Integration, error) {
+	var integration Integration
+
+	err := tx.Unscoped().
+		Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).
+		Where("id = ?", ID).
+		First(&integration).
+		Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &integration, nil
+}
+
+func (a *Integration) SoftDelete() error {
+	return a.SoftDeleteInTransaction(database.Conn())
+}
+
+func (a *Integration) SoftDeleteInTransaction(tx *gorm.DB) error {
+	now := time.Now()
+	timestamp := now.Unix()
+
+	newName := fmt.Sprintf("%s (deleted-%d)", a.InstallationName, timestamp)
+	return tx.Model(a).Updates(map[string]interface{}{
+		"deleted_at":        now,
+		"installation_name": newName,
+	}).Error
+}
+
+func (a *Integration) GetRequest(ID string) (*IntegrationRequest, error) {
+	var request IntegrationRequest
+
+	err := database.Conn().
+		Where("id = ?", ID).
+		Where("app_installation_id = ?", a.ID).
+		First(&request).
+		Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &request, nil
+}
+
+func (a *Integration) ListRequests(reqType string) ([]IntegrationRequest, error) {
+	requests := []IntegrationRequest{}
+
+	err := database.Conn().
+		Where("app_installation_id = ?", a.ID).
+		Find(&requests).
+		Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	return requests, nil
+}
+
+// LockInTransaction takes a row-level FOR UPDATE lock on the installation,
+// serializing concurrent request scheduling for it. ScheduleActionCall relies on
+// this so its complete+create always observes successors created by other workers
+// processing the same installation in parallel (#5386); without it, READ COMMITTED
+// snapshots let each transaction insert a successor the others cannot see, leaving
+// multiple chains that never drain.
+func (a *Integration) LockInTransaction(tx *gorm.DB) error {
+	var locked Integration
+	return tx.Unscoped().
+		Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("id = ?", a.ID).
+		First(&locked).
+		Error
+}
+
+func (a *Integration) CreateSyncRequest(tx *gorm.DB, runAt *time.Time) error {
+	now := time.Now()
+	return tx.Create(&IntegrationRequest{
+		ID:                uuid.New(),
+		AppInstallationID: a.ID,
+		State:             IntegrationRequestStatePending,
+		Type:              IntegrationRequestTypeSync,
+		RunAt:             *runAt,
+		CreatedAt:         now,
+		UpdatedAt:         now,
+	}).Error
+}
+
+func (a *Integration) CreateActionRequest(tx *gorm.DB, actionName string, parameters any, runAt *time.Time) error {
+	now := time.Now()
+	return tx.Create(&IntegrationRequest{
+		ID:                uuid.New(),
+		AppInstallationID: a.ID,
+		State:             IntegrationRequestStatePending,
+		Type:              IntegrationRequestTypeInvokeAction,
+		RunAt:             *runAt,
+		CreatedAt:         now,
+		UpdatedAt:         now,
+		Spec: datatypes.NewJSONType(IntegrationRequestSpec{
+			InvokeAction: &IntegrationInvokeAction{
+				ActionName: actionName,
+				Parameters: parameters,
+			},
+		}),
+	}).Error
+}
+
+func (a *Integration) IsLegacy() bool {
+	if a.SetupState != nil {
+		return false
+	}
+
+	return len(a.Capabilities) == 0
+}
+
+func (a *Integration) HasCapabilityEnabled(name string) bool {
+	if a.IsLegacy() {
+		return true
+	}
+
+	for _, capability := range a.Capabilities {
+		if capability.Name == name && capability.State == core.IntegrationCapabilityStateEnabled {
+			return true
+		}
+	}
+
+	return false
+}
+
+// FindGitHubIntegrationByAppState finds the pending GitHub connection that
+// started an install with this CSRF state.
+func FindGitHubIntegrationByAppState(tx *gorm.DB, state string) (*Integration, error) {
+	if state == "" {
+		return nil, gorm.ErrRecordNotFound
+	}
+
+	var integration Integration
+	err := tx.
+		Where("app_name = ? AND metadata->>'state' = ?", "github", state).
+		First(&integration).
+		Error
+	if err != nil {
+		return nil, err
+	}
+	return &integration, nil
+}
+
+// FindJiraIntegrationByOAuthState finds the pending Jira connection that
+// started authorization with this CSRF state.
+func FindJiraIntegrationByOAuthState(tx *gorm.DB, state string) (*Integration, error) {
+	if state == "" {
+		return nil, gorm.ErrRecordNotFound
+	}
+
+	var integration Integration
+	err := tx.
+		Where("app_name = ? AND metadata->>'state' = ?", "jira", state).
+		First(&integration).
+		Error
+	if err != nil {
+		return nil, err
+	}
+	return &integration, nil
+}
+
+// ClaimHostedJiraOAuthState finds the pending hosted Jira connection for this
+// CSRF state and removes that state in the same transaction. A later callback
+// with the same state then fails to find the connection. The returned
+// integration still holds the claimed state in memory so this request can
+// finish authorization.
+func ClaimHostedJiraOAuthState(tx *gorm.DB, state string) (*Integration, error) {
+	if state == "" {
+		return nil, gorm.ErrRecordNotFound
+	}
+
+	var integration Integration
+	err := tx.Transaction(func(inner *gorm.DB) error {
+		if err := inner.
+			Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("app_name = ? AND metadata->>'state' = ?", "jira", state).
+			First(&integration).Error; err != nil {
+			return err
+		}
+
+		data := maps.Clone(integration.Metadata.Data())
+		if data == nil {
+			return gorm.ErrRecordNotFound
+		}
+		hosted, _ := data["hostedOAuth"].(bool)
+		current, _ := data["state"].(string)
+		if !hosted || current == "" || current != state {
+			return gorm.ErrRecordNotFound
+		}
+
+		persisted := maps.Clone(data)
+		delete(persisted, "state")
+		integration.Metadata = datatypes.NewJSONType(persisted)
+		if err := inner.Save(&integration).Error; err != nil {
+			return err
+		}
+
+		data["state"] = state
+		integration.Metadata = datatypes.NewJSONType(data)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &integration, nil
+}
+
+// ClaimHostedLinearOAuthState finds the pending hosted Linear connection for
+// this CSRF state and removes that state in the same transaction. A later
+// callback with the same state then fails to find the connection. The
+// returned integration still holds the claimed state in memory so this
+// request can finish authorization.
+func ClaimHostedLinearOAuthState(tx *gorm.DB, state string) (*Integration, error) {
+	if state == "" {
+		return nil, gorm.ErrRecordNotFound
+	}
+
+	var integration Integration
+	err := tx.Transaction(func(inner *gorm.DB) error {
+		if err := inner.
+			Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("app_name = ? AND metadata->>'state' = ?", "linear", state).
+			First(&integration).Error; err != nil {
+			return err
+		}
+
+		data := maps.Clone(integration.Metadata.Data())
+		if data == nil {
+			return gorm.ErrRecordNotFound
+		}
+		hosted, _ := data["hostedOAuth"].(bool)
+		current, _ := data["state"].(string)
+		if !hosted || current == "" || current != state {
+			return gorm.ErrRecordNotFound
+		}
+
+		persisted := maps.Clone(data)
+		delete(persisted, "state")
+		integration.Metadata = datatypes.NewJSONType(persisted)
+		if err := inner.Save(&integration).Error; err != nil {
+			return err
+		}
+
+		data["state"] = state
+		integration.Metadata = datatypes.NewJSONType(data)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &integration, nil
+}
+
+// ListLinearIntegrationsForAppWebhook finds ready Linear connections for one
+// workspace. organizationID is Linear's organization id. urlKey is the
+// workspace key in issue URLs. Either value can be empty. A connection matches
+// when one of the stored values equals the event.
+func ListLinearIntegrationsForAppWebhook(tx *gorm.DB, organizationID, urlKey string) ([]Integration, error) {
+	organizationID = strings.TrimSpace(organizationID)
+	urlKey = strings.TrimSpace(urlKey)
+	if organizationID == "" && urlKey == "" {
+		return nil, nil
+	}
+
+	query := tx.Where("app_name = ? AND state = ?", "linear", IntegrationStateReady)
+	switch {
+	case organizationID != "" && urlKey != "":
+		query = query.Where(
+			"metadata->>'organizationId' = ? OR metadata->>'urlKey' = ?",
+			organizationID,
+			urlKey,
+		)
+	case organizationID != "":
+		query = query.Where("metadata->>'organizationId' = ?", organizationID)
+	default:
+		query = query.Where("metadata->>'urlKey' = ?", urlKey)
+	}
+
+	var integrations []Integration
+	err := query.Find(&integrations).Error
+	if err != nil {
+		return nil, err
+	}
+	return integrations, nil
+}
+
+// ListGitHubIntegrationsByInstallationID finds GitHub connections bound to a
+// GitHub App installation. One installation can belong to more than one
+// SuperPlane organization.
+func ListGitHubIntegrationsByInstallationID(tx *gorm.DB, installationID string) ([]Integration, error) {
+	if installationID == "" {
+		return nil, nil
+	}
+
+	var integrations []Integration
+	err := tx.
+		Where("app_name = ? AND metadata->>'installationId' = ?", "github", installationID).
+		Find(&integrations).
+		Error
+	if err != nil {
+		return nil, err
+	}
+	return integrations, nil
+}
+
+// FindSentryIntegrationByAppState finds the pending Sentry connection that
+// started an install with this CSRF state.
+func FindSentryIntegrationByAppState(tx *gorm.DB, state string) (*Integration, error) {
+	if state == "" {
+		return nil, gorm.ErrRecordNotFound
+	}
+
+	var integration Integration
+	err := tx.
+		Where("app_name = ? AND metadata->>'state' = ?", "sentry", state).
+		First(&integration).
+		Error
+	if err != nil {
+		return nil, err
+	}
+	return &integration, nil
+}
+
+// FindPendingHostedSentryIntegration finds the newest unbound hosted Sentry
+// connection started by this SuperPlane user.
+func FindPendingHostedSentryIntegration(tx *gorm.DB, startedByUserID string) (*Integration, error) {
+	if startedByUserID == "" {
+		return nil, gorm.ErrRecordNotFound
+	}
+
+	var integration Integration
+	err := tx.
+		Where(
+			"app_name = ? AND metadata->>'hostedApp' = ? AND metadata->>'startedByUserID' = ? AND COALESCE(metadata->>'installationUUID', '') = ''",
+			"sentry",
+			"true",
+			startedByUserID,
+		).
+		Order("created_at DESC").
+		First(&integration).
+		Error
+	if err != nil {
+		return nil, err
+	}
+	return &integration, nil
+}
+
+// FindReadyHostedSentryIntegration finds a SuperPlane Sentry connection that
+// already holds a public Sentry app install for this organization.
+func FindReadyHostedSentryIntegration(tx *gorm.DB, organizationID, excludeID uuid.UUID) (*Integration, error) {
+	if organizationID == uuid.Nil {
+		return nil, gorm.ErrRecordNotFound
+	}
+
+	query := tx.Where(
+		"organization_id = ? AND app_name = ? AND state = ? AND metadata->>'hostedApp' = ? AND COALESCE(metadata->>'installationUUID', '') <> ''",
+		organizationID,
+		"sentry",
+		IntegrationStateReady,
+		"true",
+	)
+	if excludeID != uuid.Nil {
+		query = query.Where("id <> ?", excludeID)
+	}
+
+	var integration Integration
+	err := query.Order("updated_at DESC").First(&integration).Error
+	if err != nil {
+		return nil, err
+	}
+	return &integration, nil
+}
+
+// ListSentryIntegrationsByInstallationUUID finds Sentry connections bound to
+// a public Sentry app installation.
+func ListSentryIntegrationsByInstallationUUID(tx *gorm.DB, installationUUID string) ([]Integration, error) {
+	if installationUUID == "" {
+		return nil, nil
+	}
+
+	var integrations []Integration
+	err := tx.
+		Where("app_name = ? AND metadata->>'installationUUID' = ?", "sentry", installationUUID).
+		Find(&integrations).
+		Error
+	if err != nil {
+		return nil, err
+	}
+	return integrations, nil
+}

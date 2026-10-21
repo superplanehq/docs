@@ -1,0 +1,122 @@
+import type React from "react";
+import type { ComponentBaseProps, EventSection } from "@/ui/componentBase";
+import { getColorClass, getBackgroundColorClass } from "@/lib/colors";
+import { getState, getStateMap, getTriggerRenderer } from "../mapperLookup";
+import githubIcon from "@/assets/icons/integrations/github.svg";
+import type { MetadataItem } from "@/ui/metadataList";
+import type {
+  OutputPayload,
+  ComponentBaseMapper,
+  ComponentBaseContext,
+  SubtitleContext,
+  ExecutionDetailsContext,
+  NodeInfo,
+  ComponentDefinition,
+  ExecutionInfo,
+} from "../types";
+import type { Issue } from "./types";
+import { buildGithubExecutionSubtitle } from "./utils";
+
+export const baseIssueMapper: ComponentBaseMapper = {
+  props(context: ComponentBaseContext): ComponentBaseProps {
+    return baseProps(context.nodes, context.node, context.componentDefinition, context.lastExecutions);
+  },
+
+  subtitle(context: SubtitleContext): string | React.ReactNode {
+    return buildGithubExecutionSubtitle(context.execution);
+  },
+
+  getExecutionDetails(context: ExecutionDetailsContext): Record<string, string> {
+    const outputs = context.execution.outputs as { default?: OutputPayload[] } | undefined;
+    const details: Record<string, string> = {};
+
+    if (!outputs || !outputs.default || outputs.default.length === 0) {
+      return details;
+    }
+
+    const issue = outputs.default[0].data as Issue;
+    return { ...getDetailsForIssue(issue), ...details };
+  },
+};
+
+export function baseProps(
+  nodes: NodeInfo[],
+  node: NodeInfo,
+  componentDefinition: ComponentDefinition,
+  lastExecutions: ExecutionInfo[],
+): ComponentBaseProps {
+  const lastExecution = lastExecutions.length > 0 ? lastExecutions[0] : null;
+  const componentName = componentDefinition.name || node.componentName || "unknown";
+
+  return {
+    iconSrc: githubIcon,
+    iconColor: getColorClass(componentDefinition.color),
+    collapsedBackground: getBackgroundColorClass(componentDefinition.color),
+    collapsed: node.isCollapsed,
+    title: node.name || componentDefinition.label || componentDefinition.name || "Unnamed component",
+    eventSections: lastExecution ? baseEventSections(nodes, lastExecution, componentName) : undefined,
+    metadata: metadataList(node),
+    includeEmptyState: !lastExecution,
+    eventStateMap: getStateMap(componentName),
+  };
+}
+
+function assignClosedIssueDetails(details: Record<string, string>, issue: Issue) {
+  if (!issue.closed_by) {
+    return;
+  }
+  details["Closed By"] = issue.closed_by.html_url;
+  details["Closed At"] = issue.closed_at ? new Date(issue.closed_at).toLocaleString() : "";
+}
+
+function assignIssueCollections(details: Record<string, string>, issue: Issue) {
+  if (issue.labels) {
+    details["Labels"] = issue.labels.map((label) => label.name).join(", ");
+  }
+  if (issue.assignees) {
+    details["Assignees"] = issue.assignees.map((assignee) => assignee.login).join(", ");
+  }
+}
+
+export function getDetailsForIssue(issue: Issue): Record<string, string> {
+  const details: Record<string, string> = {
+    "Created At": issue?.created_at ? new Date(issue.created_at).toLocaleString() : "-",
+    "Created By": issue?.user?.login || "-",
+    Number: issue?.number.toString(),
+    ID: issue?.id.toString(),
+    State: issue?.state,
+    URL: issue?.html_url,
+    Title: issue?.title || "-",
+    Author: issue?.user?.html_url || "-",
+  };
+  assignClosedIssueDetails(details, issue);
+  assignIssueCollections(details, issue);
+  return details;
+}
+
+function metadataList(node: NodeInfo): MetadataItem[] {
+  const metadata: MetadataItem[] = [];
+  const nodeMetadata = node.metadata as { repository?: { name?: string } } | undefined;
+
+  if (nodeMetadata?.repository?.name) {
+    metadata.push({ icon: "book", label: nodeMetadata.repository.name });
+  }
+
+  return metadata;
+}
+
+function baseEventSections(nodes: NodeInfo[], execution: ExecutionInfo, componentName: string): EventSection[] {
+  const rootTriggerNode = nodes.find((n) => n.id === execution.rootEvent?.nodeId);
+  const rootTriggerRenderer = getTriggerRenderer(rootTriggerNode?.componentName ?? "");
+  const { title } = rootTriggerRenderer.getTitleAndSubtitle({ event: execution.rootEvent! });
+
+  return [
+    {
+      receivedAt: new Date(execution.createdAt!),
+      eventTitle: title,
+      eventState: getState(componentName)(execution),
+      eventSubtitle: buildGithubExecutionSubtitle(execution),
+      eventId: execution.rootEvent!.id!,
+    },
+  ];
+}

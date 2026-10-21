@@ -1,0 +1,573 @@
+package daytona
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"io"
+	"mime/multipart"
+	"net/http"
+	"net/url"
+	"path"
+
+	"github.com/superplanehq/superplane/pkg/core"
+)
+
+const defaultBaseURL = "https://app.daytona.io/api"
+
+type Client struct {
+	APIKey  string
+	BaseURL string
+	http    core.HTTPContext
+}
+
+func NewClient(httpClient core.HTTPContext, ctx core.IntegrationContext) (*Client, error) {
+	if ctx == nil {
+		return nil, fmt.Errorf("no app installation context")
+	}
+
+	apiKey, err := ctx.GetConfig("apiKey")
+	if err != nil {
+		return nil, err
+	}
+
+	baseURL := defaultBaseURL
+	if customURL, err := ctx.GetConfig("baseURL"); err == nil && string(customURL) != "" {
+		baseURL = string(customURL)
+	}
+
+	return &Client{
+		APIKey:  string(apiKey),
+		BaseURL: baseURL,
+		http:    httpClient,
+	}, nil
+}
+
+// Sandbox represents a Daytona sandbox environment
+type Sandbox struct {
+	ID    string `json:"id"`
+	State string `json:"state"`
+}
+
+// CreateSandboxRequest represents the request to create a sandbox
+type CreateSandboxRequest struct {
+	Snapshot         string            `json:"snapshot,omitempty"`
+	Target           string            `json:"target,omitempty"`
+	Env              map[string]string `json:"env,omitempty"`
+	Labels           map[string]string `json:"labels,omitempty"`
+	AutoStopInterval int               `json:"autoStopInterval,omitempty"`
+}
+
+// ExecuteCodeRequest represents the request to execute code in a sandbox
+type ExecuteCodeRequest struct {
+	Code     string `json:"code"`
+	Language string `json:"language"`
+	Timeout  int    `json:"timeout,omitempty"`
+}
+
+// ExecuteCodeResponse represents the response from code execution
+type ExecuteCodeResponse struct {
+	ExitCode int    `json:"exitCode"`
+	Result   string `json:"result"`
+}
+
+// ExecuteCommandRequest represents the request to execute a command in a sandbox
+type ExecuteCommandRequest struct {
+	Command string `json:"command"`
+	Cwd     string `json:"cwd,omitempty"`
+	Timeout int    `json:"timeout,omitempty"`
+}
+
+// ExecuteCommandResponse represents the response from command execution
+type ExecuteCommandResponse struct {
+	ExitCode int    `json:"exitCode"`
+	Timeout  bool   `json:"timeout"`
+	Result   string `json:"result"`
+}
+
+func (e *ExecuteCommandResponse) ShortResult() string {
+	if len(e.Result) <= 1024 {
+		return e.Result
+	}
+
+	return e.Result[:1024] + "..."
+}
+
+// Snapshot represents a Daytona snapshot
+type Snapshot struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// PaginatedSnapshots represents a paginated list of snapshots
+type PaginatedSnapshots struct {
+	Items []Snapshot `json:"items"`
+}
+
+// ListSnapshots lists available snapshots
+func (c *Client) ListSnapshots() ([]Snapshot, error) {
+	responseBody, err := c.execRequest(http.MethodGet, c.BaseURL+"/snapshots", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result PaginatedSnapshots
+	if err := json.Unmarshal(responseBody, &result); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal snapshots response: %v", err)
+	}
+
+	return result.Items, nil
+}
+
+type PaginatedSandboxes struct {
+	Items []Sandbox `json:"items"`
+}
+
+// ListSandboxes lists available sandboxes
+func (c *Client) ListSandboxes() ([]Sandbox, error) {
+	responseBody, err := c.execRequest(http.MethodGet, c.BaseURL+"/sandbox", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	// Daytona may return either a plain array or a paginated object.
+	var sandboxes []Sandbox
+	if err := json.Unmarshal(responseBody, &sandboxes); err == nil {
+		return sandboxes, nil
+	}
+
+	var paginated PaginatedSandboxes
+	if err := json.Unmarshal(responseBody, &paginated); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal sandboxes response: %v", err)
+	}
+
+	return paginated.Items, nil
+}
+
+// Verify checks if the API key is valid by listing sandboxes
+func (c *Client) Verify() error {
+	_, err := c.execRequest(http.MethodGet, c.BaseURL+"/sandbox", nil)
+	return err
+}
+
+// CreateSandbox creates a new sandbox environment
+func (c *Client) CreateSandbox(req *CreateSandboxRequest) (*Sandbox, error) {
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %v", err)
+	}
+
+	responseBody, err := c.execRequest(http.MethodPost, c.BaseURL+"/sandbox", bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+
+	var sandbox Sandbox
+	if err := json.Unmarshal(responseBody, &sandbox); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal sandbox response: %v", err)
+	}
+
+	return &sandbox, nil
+}
+
+// APIConfig represents the relevant fields from the /api/config endpoint
+type APIConfig struct {
+	ProxyToolboxURL string `json:"proxyToolboxUrl"`
+}
+
+type PreviewURL struct {
+	SandboxID string `json:"sandboxId"`
+	URL       string `json:"url"`
+	Token     string `json:"token"`
+}
+
+type SignedPreviewURL struct {
+	SandboxID string `json:"sandboxId"`
+	Port      int    `json:"port"`
+	Token     string `json:"token"`
+	URL       string `json:"url"`
+}
+
+// FetchConfig fetches the API configuration from the /api/config endpoint
+func (c *Client) FetchConfig() (*APIConfig, error) {
+	responseBody, err := c.execRequest(http.MethodGet, c.BaseURL+"/config", nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch config: %v", err)
+	}
+
+	var config APIConfig
+	if err := json.Unmarshal(responseBody, &config); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal config response: %v", err)
+	}
+
+	return &config, nil
+}
+
+// toolboxBaseURL returns the toolbox base URL for a given sandbox.
+// It fetches the proxyToolboxUrl from /api/config and constructs the URL.
+func (c *Client) toolboxBaseURL(sandboxID string) (string, error) {
+	config, err := c.FetchConfig()
+	if err != nil {
+		return "", err
+	}
+
+	if config.ProxyToolboxURL == "" {
+		return "", fmt.Errorf("proxyToolboxUrl not found in config")
+	}
+
+	return fmt.Sprintf("%s/%s", config.ProxyToolboxURL, sandboxID), nil
+}
+
+// ExecuteCode executes code in a sandbox (uses the execute command endpoint)
+func (c *Client) ExecuteCode(sandboxID string, req *ExecuteCodeRequest) (*ExecuteCodeResponse, error) {
+	url, err := c.toolboxBaseURL(sandboxID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve toolbox URL: %v", err)
+	}
+
+	// Convert code execution to a command based on language.
+	command := buildExecuteCodeCommand(req.Language, req.Code)
+
+	cmdReq := &ExecuteCommandRequest{
+		Command: command,
+		Timeout: req.Timeout,
+	}
+
+	body, err := json.Marshal(cmdReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %v", err)
+	}
+
+	responseBody, err := c.execRequest(http.MethodPost, url+"/process/execute", bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+
+	var response ExecuteCodeResponse
+	if err := json.Unmarshal(responseBody, &response); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal execute code response: %v", err)
+	}
+
+	return &response, nil
+}
+
+// ExecuteCommand executes a shell command in a sandbox
+func (c *Client) ExecuteCommand(sandboxID string, req *ExecuteCommandRequest) (*ExecuteCommandResponse, error) {
+	url, err := c.toolboxBaseURL(sandboxID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve toolbox URL: %v", err)
+	}
+
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %v", err)
+	}
+
+	responseBody, err := c.execRequest(http.MethodPost, url+"/process/execute", bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+
+	var response ExecuteCommandResponse
+	if err := json.Unmarshal(responseBody, &response); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal execute command response: %v", err)
+	}
+
+	return &response, nil
+}
+
+// SessionExecuteRequest is the request body for executing a command in a session
+type SessionExecuteRequest struct {
+	Command  string `json:"command"`
+	RunAsync bool   `json:"runAsync"`
+}
+
+// CloneRepositoryRequest is the request body for cloning a repository with the toolbox Git API.
+type CloneRepositoryRequest struct {
+	URL      string `json:"url"`
+	Path     string `json:"path"`
+	Username string `json:"username,omitempty"`
+	Password string `json:"password,omitempty"`
+}
+
+// SessionExecuteResponse is the response from executing a command in a session
+type SessionExecuteResponse struct {
+	CmdID string `json:"cmdId"`
+}
+
+// SessionCommand represents a command within a session
+type SessionCommand struct {
+	ID       string `json:"id"`
+	ExitCode *int   `json:"exitCode"`
+}
+
+// Session represents a Daytona session with its commands
+type Session struct {
+	SessionID string           `json:"sessionId"`
+	Commands  []SessionCommand `json:"commands"`
+}
+
+// FindCommand returns the command with the given ID, or nil if not found
+func (s *Session) FindCommand(cmdID string) *SessionCommand {
+	for i := range s.Commands {
+		if s.Commands[i].ID == cmdID {
+			return &s.Commands[i]
+		}
+	}
+	return nil
+}
+
+// CreateSession creates a new session on the sandbox toolbox
+func (c *Client) CreateSession(sandboxID, sessionID string) error {
+	baseURL, err := c.toolboxBaseURL(sandboxID)
+	if err != nil {
+		return fmt.Errorf("failed to resolve toolbox URL: %v", err)
+	}
+
+	body, err := json.Marshal(map[string]string{"sessionId": sessionID})
+	if err != nil {
+		return fmt.Errorf("failed to marshal request: %v", err)
+	}
+
+	_, err = c.execRequest(http.MethodPost, baseURL+"/process/session", bytes.NewReader(body))
+	return err
+}
+
+// ExecuteSessionCommand executes a command asynchronously in a session
+func (c *Client) ExecuteSessionCommand(sandboxID, sessionID, command string) (*SessionExecuteResponse, error) {
+	baseURL, err := c.toolboxBaseURL(sandboxID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve toolbox URL: %v", err)
+	}
+
+	reqBody := SessionExecuteRequest{
+		Command:  command,
+		RunAsync: true,
+	}
+
+	body, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %v", err)
+	}
+
+	url := fmt.Sprintf("%s/process/session/%s/exec", baseURL, sessionID)
+	responseBody, err := c.execRequest(http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+
+	var response SessionExecuteResponse
+	if err := json.Unmarshal(responseBody, &response); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal session execute response: %v", err)
+	}
+
+	return &response, nil
+}
+
+// CloneRepository clones a repository into the sandbox using the toolbox Git API.
+func (c *Client) CloneRepository(sandboxID string, req *CloneRepositoryRequest) error {
+	baseURL, err := c.toolboxBaseURL(sandboxID)
+	if err != nil {
+		return fmt.Errorf("failed to resolve toolbox URL: %v", err)
+	}
+
+	body, err := json.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("failed to marshal request: %v", err)
+	}
+
+	_, err = c.execRequest(http.MethodPost, baseURL+"/git/clone", bytes.NewReader(body))
+	return err
+}
+
+// GetSession retrieves the session state including command statuses
+func (c *Client) GetSession(sandboxID, sessionID string) (*Session, error) {
+	baseURL, err := c.toolboxBaseURL(sandboxID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve toolbox URL: %v", err)
+	}
+
+	url := fmt.Sprintf("%s/process/session/%s", baseURL, sessionID)
+	responseBody, err := c.execRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var session Session
+	if err := json.Unmarshal(responseBody, &session); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal session response: %v", err)
+	}
+
+	return &session, nil
+}
+
+// GetSessionCommandLogs retrieves the logs for a specific command in a session
+func (c *Client) GetSessionCommandLogs(sandboxID, sessionID, commandID string) (string, error) {
+	baseURL, err := c.toolboxBaseURL(sandboxID)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve toolbox URL: %v", err)
+	}
+
+	url := fmt.Sprintf("%s/process/session/%s/command/%s/logs", baseURL, sessionID, commandID)
+	responseBody, err := c.execRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return "", err
+	}
+
+	return string(responseBody), nil
+}
+
+// CreateFolder creates a folder in the sandbox filesystem.
+func (c *Client) CreateFolder(sandboxID, folderPath string) error {
+	baseURL, err := c.toolboxBaseURL(sandboxID)
+	if err != nil {
+		return fmt.Errorf("failed to resolve toolbox URL: %v", err)
+	}
+
+	url := fmt.Sprintf("%s/files/folder?path=%s", baseURL, url.QueryEscape(folderPath))
+	_, err = c.execRequest(http.MethodPost, url, nil)
+	return err
+}
+
+// UploadFile uploads a file to the sandbox filesystem.
+func (c *Client) UploadFile(sandboxID, filePath string, content []byte) error {
+	baseURL, err := c.toolboxBaseURL(sandboxID)
+	if err != nil {
+		return fmt.Errorf("failed to resolve toolbox URL: %v", err)
+	}
+
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+
+	name := path.Base(filePath)
+	if name == "" || name == "." || name == "/" {
+		name = "file"
+	}
+
+	part, err := writer.CreateFormFile("file", name)
+	if err != nil {
+		return fmt.Errorf("failed to build multipart file part: %v", err)
+	}
+
+	if _, err := part.Write(content); err != nil {
+		return fmt.Errorf("failed to write multipart file content: %v", err)
+	}
+
+	if err := writer.Close(); err != nil {
+		return fmt.Errorf("failed to close multipart writer: %v", err)
+	}
+
+	url := fmt.Sprintf("%s/files/upload?path=%s", baseURL, url.QueryEscape(filePath))
+	_, err = c.execRequestWithContentType(http.MethodPost, url, body, writer.FormDataContentType())
+	return err
+}
+
+// GetSandbox retrieves the current state of a sandbox
+func (c *Client) GetSandbox(sandboxID string) (*Sandbox, error) {
+	url := fmt.Sprintf("%s/sandbox/%s", c.BaseURL, sandboxID)
+	responseBody, err := c.execRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var sandbox Sandbox
+	if err := json.Unmarshal(responseBody, &sandbox); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal sandbox response: %v", err)
+	}
+
+	return &sandbox, nil
+}
+
+func (c *Client) GetPreviewURL(sandboxID string, port int) (*PreviewURL, error) {
+	url := fmt.Sprintf("%s/sandbox/%s/ports/%d/preview-url", c.BaseURL, sandboxID, port)
+
+	responseBody, err := c.execRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var preview PreviewURL
+	if err := json.Unmarshal(responseBody, &preview); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal preview URL response: %v", err)
+	}
+
+	return &preview, nil
+}
+
+func (c *Client) GetSignedPreviewURL(sandboxID string, port int, expiresInSeconds int) (*SignedPreviewURL, error) {
+	url := fmt.Sprintf(
+		"%s/sandbox/%s/ports/%d/signed-preview-url?expiresInSeconds=%d",
+		c.BaseURL,
+		sandboxID,
+		port,
+		expiresInSeconds,
+	)
+
+	responseBody, err := c.execRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var preview SignedPreviewURL
+	if err := json.Unmarshal(responseBody, &preview); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal signed preview URL response: %v", err)
+	}
+
+	return &preview, nil
+}
+
+// DeleteSandbox deletes a sandbox
+func (c *Client) DeleteSandbox(sandboxID string, force bool) error {
+	url := fmt.Sprintf("%s/sandbox/%s?force=%t", c.BaseURL, sandboxID, force)
+	_, err := c.execRequest(http.MethodDelete, url, nil)
+	return err
+}
+
+// APIError represents an error response from the Daytona API
+type APIError struct {
+	Error   string `json:"error"`
+	Message string `json:"message"`
+}
+
+func (c *Client) execRequest(method, url string, body io.Reader) ([]byte, error) {
+	return c.execRequestWithContentType(method, url, body, "application/json")
+}
+
+func (c *Client) execRequestWithContentType(method, url string, body io.Reader, contentType string) ([]byte, error) {
+	req, err := http.NewRequest(method, url, body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build request: %v", err)
+	}
+
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.APIKey)
+
+	res, err := c.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %v", err)
+	}
+	defer res.Body.Close()
+
+	responseBody, err := io.ReadAll(res.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %v", err)
+	}
+
+	// 204 No Content is valid for DELETE
+	if res.StatusCode == http.StatusNoContent {
+		return nil, nil
+	}
+
+	if res.StatusCode < http.StatusOK || res.StatusCode >= http.StatusMultipleChoices {
+		// Try to parse error response for a cleaner message
+		var apiErr APIError
+		if json.Unmarshal(responseBody, &apiErr) == nil && apiErr.Message != "" {
+			return nil, fmt.Errorf("API error (%d): %s", res.StatusCode, apiErr.Message)
+		}
+		return nil, fmt.Errorf("API error (%d)", res.StatusCode)
+	}
+
+	return responseBody, nil
+}

@@ -1,0 +1,241 @@
+import { useMemo } from "react";
+import { Link } from "react-router";
+import { usePageTitle } from "@/hooks/usePageTitle";
+import { useReportPageReady } from "@/hooks/useReportPageReady";
+import { defaultOrganizationRoleSortIndex, isDefaultOrganizationRole } from "@/lib/organizationRoles";
+import type { RolesRole } from "../../../api-client/types.gen";
+import { Icon } from "../../../components/Icon";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../../components/Table/table";
+import { useDeleteRole, useOrganizationRoles } from "../../../hooks/useOrganizationData";
+import { Button } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/buttonVariants";
+import { cn } from "@/lib/utils";
+import { PermissionTooltip } from "@/components/PermissionGate";
+import { usePermissions } from "@/contexts/usePermissions";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { showErrorToast } from "@/lib/toast";
+import { settingsErrorClassName, settingsRowActionClassName, settingsTableCardClassName } from "./settingsPageStyles";
+
+interface RolesProps {
+  organizationId: string;
+}
+
+export function Roles({ organizationId }: RolesProps) {
+  usePageTitle(["Roles"]);
+  const { canAct, isLoading: permissionsLoading } = usePermissions();
+  const { data: roles = [], isLoading: loadingRoles, error } = useOrganizationRoles(organizationId);
+
+  const deleteRoleMutation = useDeleteRole(organizationId);
+  const canCreateRoles = canAct("roles", "create");
+  const canUpdateRoles = canAct("roles", "update");
+  const canDeleteRoles = canAct("roles", "delete");
+
+  useReportPageReady(!loadingRoles && !permissionsLoading, {
+    failed: !!error,
+  });
+
+  const roleHref = (role: RolesRole) => `/${organizationId}/settings/create-role/${role.metadata?.name}`;
+
+  const handleDeleteRole = async (role: RolesRole) => {
+    if (!canDeleteRoles) return;
+    if (!role.metadata?.name) return;
+
+    const confirmed = window.confirm(
+      `Are you sure you want to delete the role "${role.metadata?.name}"? This cannot be undone.`,
+    );
+
+    if (!confirmed) return;
+
+    try {
+      await deleteRoleMutation.mutateAsync({
+        roleName: role.metadata?.name,
+        domainType: "DOMAIN_TYPE_ORGANIZATION",
+        domainId: organizationId,
+      });
+    } catch {
+      showErrorToast("Failed to delete role");
+    }
+  };
+
+  const isDefaultRole = (roleName: string | undefined) => isDefaultOrganizationRole(roleName);
+
+  const filteredAndSortedRoles = useMemo(() => {
+    const getSortedData = (data: RolesRole[]) => {
+      const defaultRoles: RolesRole[] = [];
+      const customRoles: RolesRole[] = [];
+
+      data.forEach((role) => {
+        if (isDefaultRole(role.metadata?.name)) {
+          defaultRoles.push(role);
+        } else {
+          customRoles.push(role);
+        }
+      });
+
+      const sortedCustomRoles = [...customRoles].sort((a, b) => {
+        const aValue = (a.spec?.displayName || a.metadata?.name || "").toLowerCase();
+        const bValue = (b.spec?.displayName || b.metadata?.name || "").toLowerCase();
+        return aValue.localeCompare(bValue);
+      });
+
+      const sortedDefaultRoles = [...defaultRoles].sort((a, b) => {
+        return defaultOrganizationRoleSortIndex(a.metadata?.name) - defaultOrganizationRoleSortIndex(b.metadata?.name);
+      });
+
+      return [...sortedCustomRoles, ...sortedDefaultRoles];
+    };
+
+    return getSortedData(roles);
+  }, [roles]);
+
+  return (
+    <div className="space-y-6 pt-6">
+      {error && (
+        <div className={settingsErrorClassName}>
+          <p>{error instanceof Error ? error.message : "Failed to fetch roles"}</p>
+        </div>
+      )}
+
+      <div className={settingsTableCardClassName}>
+        <div className="px-6 pt-6 pb-4 flex items-center justify-start">
+          <PermissionTooltip
+            allowed={canCreateRoles || permissionsLoading}
+            message="You don't have permission to create roles."
+          >
+            <NewRoleButton canCreate={canCreateRoles} organizationId={organizationId} />
+          </PermissionTooltip>
+        </div>
+        <div className="px-6 pb-6">
+          {loadingRoles ? (
+            <div className="flex justify-center items-center h-32">
+              <p className="text-gray-500 dark:text-gray-400">Loading roles...</p>
+            </div>
+          ) : (
+            <Table dense>
+              <TableHead>
+                <TableRow>
+                  <TableHeader>Role name</TableHeader>
+                  <TableHeader>Permissions</TableHeader>
+                  <TableHeader></TableHeader>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {filteredAndSortedRoles.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={3} className="text-center py-8 text-gray-500 dark:text-gray-400">
+                      No roles found
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  filteredAndSortedRoles.map((role, index) => {
+                    const isDefault = isDefaultRole(role.metadata?.name);
+                    return (
+                      <TableRow key={role.metadata?.name || index} className="last:[&>td]:border-b-0">
+                        <TableCell className="font-semibold">{role.spec?.displayName || role.metadata?.name}</TableCell>
+                        <TableCell>{(role.spec?.permissions || []).length || 0}</TableCell>
+                        <TableCell>
+                          <div className="flex justify-end">
+                            {isDefault ? (
+                              <div className="flex items-center gap-2">
+                                <span className="rounded bg-gray-200 px-2 py-1 text-xs text-gray-700 dark:bg-gray-700 dark:text-gray-200">
+                                  Default Role
+                                </span>
+                                <TooltipProvider delayDuration={200}>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Link
+                                        to={roleHref(role)}
+                                        className={settingsRowActionClassName}
+                                        aria-label="View role"
+                                      >
+                                        <Icon name="eye" size="sm" />
+                                      </Link>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="top">View Permissions</TooltipContent>
+                                  </Tooltip>
+                                </TooltipProvider>
+                              </div>
+                            ) : (
+                              <TooltipProvider delayDuration={200}>
+                                <div className="flex items-center gap-1">
+                                  <PermissionTooltip
+                                    allowed={canUpdateRoles || permissionsLoading}
+                                    message="You don't have permission to update roles."
+                                  >
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <EditRoleButton canUpdate={canUpdateRoles} href={roleHref(role)} />
+                                      </TooltipTrigger>
+                                      <TooltipContent side="top">Edit Role</TooltipContent>
+                                    </Tooltip>
+                                  </PermissionTooltip>
+                                  <PermissionTooltip
+                                    allowed={canDeleteRoles || permissionsLoading}
+                                    message="You don't have permission to delete roles."
+                                  >
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleDeleteRole(role)}
+                                          className={settingsRowActionClassName}
+                                          aria-label="Delete role"
+                                          disabled={deleteRoleMutation.isPending || !canDeleteRoles}
+                                        >
+                                          <Icon name="trash-2" size="sm" />
+                                        </button>
+                                      </TooltipTrigger>
+                                      <TooltipContent side="top">
+                                        {deleteRoleMutation.isPending ? "Deleting..." : "Delete Role"}
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  </PermissionTooltip>
+                                </div>
+                              </TooltipProvider>
+                            )}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })
+                )}
+              </TableBody>
+            </Table>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EditRoleButton({ canUpdate, href }: { canUpdate: boolean; href: string }) {
+  if (canUpdate) {
+    return (
+      <Link to={href} className={settingsRowActionClassName} aria-label="Edit role">
+        <Icon name="edit" size="sm" />
+      </Link>
+    );
+  }
+  return (
+    <span className="cursor-not-allowed rounded-sm p-1 text-gray-400 dark:text-gray-500" aria-label="Edit role">
+      <Icon name="edit" size="sm" />
+    </span>
+  );
+}
+
+function NewRoleButton({ canCreate, organizationId }: { canCreate: boolean; organizationId: string }) {
+  if (canCreate) {
+    return (
+      <Link to={`/${organizationId}/settings/create-role`} className={cn(buttonVariants(), "flex items-center")}>
+        <Icon name="plus" />
+        New Organization Role
+      </Link>
+    );
+  }
+  return (
+    <Button className="flex items-center" disabled>
+      <Icon name="plus" />
+      New Organization Role
+    </Button>
+  );
+}

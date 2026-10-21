@@ -1,0 +1,107 @@
+import { useEffect, useRef, useState } from "react";
+import { useNavigate, useParams } from "react-router";
+import { Alert, AlertDescription, AlertTitle } from "@/ui/alert";
+import { useAccount } from "@/contexts/useAccount";
+import { showErrorToast } from "@/lib/toast";
+import { analytics } from "@/lib/analytics";
+import { useReportPageReady } from "@/hooks/useReportPageReady";
+
+type AcceptStatus = "idle" | "loading" | "error";
+
+export default function InviteLinkAccept() {
+  const { token } = useParams();
+  const { account, loading } = useAccount();
+  const navigate = useNavigate();
+  const [status, setStatus] = useState<AcceptStatus>("idle");
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const hasSubmitted = useRef(false);
+
+  useReportPageReady(!loading && status !== "loading", {
+    failed: status === "error",
+  });
+
+  useEffect(() => {
+    if (loading || hasSubmitted.current) {
+      return;
+    }
+
+    if (!token) {
+      setStatus("error");
+      setErrorMessage("Invalid invite link.");
+      return;
+    }
+
+    if (!account) {
+      const redirect = encodeURIComponent(`/invite/${token}`);
+      window.location.href = `/login?redirect=${redirect}`;
+      return;
+    }
+
+    hasSubmitted.current = true;
+
+    const acceptInvite = async () => {
+      try {
+        setStatus("loading");
+        const response = await fetch(`/api/v1/invite-links/${token}/accept`, {
+          method: "POST",
+          credentials: "include",
+        });
+
+        if (!response.ok) {
+          const rawResponse = await response.text();
+          let responseMessage = rawResponse;
+
+          try {
+            const responseBody = JSON.parse(rawResponse) as { message?: string };
+            if (typeof responseBody.message === "string" && responseBody.message.trim()) {
+              responseMessage = responseBody.message;
+            }
+          } catch {
+            responseMessage = rawResponse;
+          }
+
+          throw new Error(responseMessage || "Unable to accept invite link.");
+        }
+
+        const data = (await response.json()) as { organization_id?: string; organization_slug?: string };
+        if (!data.organization_id || !data.organization_slug) {
+          throw new Error("Invite link response was missing organization details.");
+        }
+
+        analytics.memberAccept(data.organization_id);
+        navigate(`/${data.organization_slug}`);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Unable to accept invite link.";
+        setStatus("error");
+        setErrorMessage(message);
+        showErrorToast(message);
+      }
+    };
+
+    acceptInvite();
+  }, [account, loading, navigate, token]);
+
+  if (status === "error") {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 px-6">
+        <div className="max-w-md w-full">
+          <Alert variant="destructive">
+            <AlertTitle>Invite link not available</AlertTitle>
+            <AlertDescription>{errorMessage || "This invite link is invalid or has been disabled."}</AlertDescription>
+          </Alert>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 px-6">
+      <div className="flex flex-col items-center space-y-4">
+        <div className="animate-spin rounded-full h-8 w-8 border-b border-blue-600"></div>
+        <p className="text-sm text-gray-500 dark:text-gray-400">
+          {status === "loading" ? "Joining organization..." : "Preparing invite..."}
+        </p>
+      </div>
+    </div>
+  );
+}

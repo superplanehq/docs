@@ -1,0 +1,113 @@
+import type { OrganizationsIntegrationResourceRef } from "@/api-client";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { cn } from "@/lib/utils";
+import { Check, Loader2 } from "lucide-react";
+import { useMemo } from "react";
+
+import { statusCheckDisplay, statusCheckRows } from "./checksPRFeedbackSetup";
+import { PR_FEEDBACK_SETTINGS_COPY } from "./prFeedbackSettingsModel";
+
+export function StatusCheckPicker({
+  names,
+  catalog,
+  loading,
+  loadError,
+  onToggle,
+  hideHeading = false,
+}: {
+  names: string[];
+  catalog: OrganizationsIntegrationResourceRef[];
+  loading?: boolean;
+  loadError?: boolean;
+  onToggle: (name: string) => void;
+  hideHeading?: boolean;
+}) {
+  const selected = useMemo(() => new Set(names.map((name) => name.toLowerCase())), [names]);
+  const rows = useMemo(() => statusCheckRows(catalog, names), [catalog, names]);
+  const showFullLoading = Boolean(loading) && rows.length === 0;
+  const showCatalogLoading = Boolean(loading) && catalog.length === 0 && rows.length > 0;
+
+  return (
+    <section>
+      {hideHeading ? null : (
+        <>
+          <Label>{PR_FEEDBACK_SETTINGS_COPY.checkNamesLabel}</Label>
+          <p className="workspace-body-text mt-1 text-muted-foreground">{PR_FEEDBACK_SETTINGS_COPY.checkNamesHelper}</p>
+        </>
+      )}
+      {loadError ? (
+        <p className="workspace-body-text mt-1 text-muted-foreground">
+          {PR_FEEDBACK_SETTINGS_COPY.checkNamesLoadError}
+        </p>
+      ) : null}
+      <div
+        className={cn("max-h-56 overflow-y-auto rounded-lg border border-border", hideHeading ? undefined : "mt-2")}
+        role="listbox"
+        aria-label={PR_FEEDBACK_SETTINGS_COPY.checkNamesLabel}
+        aria-multiselectable="true"
+        data-testid="pr-feedback-check-names-picker"
+      >
+        {showFullLoading ? (
+          <div
+            className="flex flex-col items-center gap-2 px-4 py-6 text-center"
+            data-testid="pr-feedback-check-names-loading"
+          >
+            <Loader2 className="size-5 animate-spin text-muted-foreground" aria-hidden />
+            <p className="text-[13px] font-medium text-foreground">{PR_FEEDBACK_SETTINGS_COPY.checkNamesLoading}</p>
+            <p className="workspace-body-text text-muted-foreground">
+              {PR_FEEDBACK_SETTINGS_COPY.checkNamesLoadingDetail}
+            </p>
+          </div>
+        ) : rows.length === 0 ? (
+          <p
+            className="px-3 py-6 text-center text-[13px] text-muted-foreground"
+            data-testid="pr-feedback-check-names-empty"
+          >
+            {PR_FEEDBACK_SETTINGS_COPY.checkNamesCatalogEmpty}
+          </p>
+        ) : (
+          <>
+            <ul className="divide-y divide-border" data-testid="pr-feedback-check-names-list">
+              {rows.map((row) => {
+                const isSelected = selected.has(row.value.toLowerCase());
+                return (
+                  <li key={row.value.toLowerCase()}>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      role="option"
+                      aria-selected={isSelected}
+                      onClick={() => onToggle(row.value)}
+                      className={cn(
+                        "h-auto w-full justify-start gap-3 rounded-none px-3 py-2.5 text-left text-[13px] font-medium",
+                        isSelected ? "bg-accent/50" : "hover:bg-accent/30",
+                      )}
+                      data-testid={`pr-feedback-check-option-${row.value}`}
+                    >
+                      <span className="min-w-0 flex-1 truncate">{statusCheckDisplay(row, rows)}</span>
+                      {isSelected ? (
+                        <Check className="size-3.5 shrink-0 text-foreground" strokeWidth={2.5} aria-hidden />
+                      ) : null}
+                    </Button>
+                  </li>
+                );
+              })}
+            </ul>
+            {showCatalogLoading ? (
+              <div
+                className="flex items-center gap-2 border-t border-border px-3 py-2.5"
+                data-testid="pr-feedback-check-names-loading"
+              >
+                <Loader2 className="size-3.5 animate-spin text-muted-foreground" aria-hidden />
+                <p className="workspace-body-text text-muted-foreground">
+                  {PR_FEEDBACK_SETTINGS_COPY.checkNamesLoadingMore}
+                </p>
+              </div>
+            ) : null}
+          </>
+        )}
+      </div>
+    </section>
+  );
+}

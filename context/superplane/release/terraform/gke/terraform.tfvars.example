@@ -1,0 +1,105 @@
+# -----------------------------------------------------------------------------
+# Required Variables
+# -----------------------------------------------------------------------------
+
+# Your GCP project ID
+project_id = "my-gcp-project"
+
+# Domain name for SuperPlane (must have DNS configured to point to the static IP)
+domain_name = "superplane.example.com"
+
+# Name of the pre-created global static IP address
+# Create it with: gcloud compute addresses create superplane-ip --global --ip-version=IPV4
+static_ip_name = "superplane-ip"
+
+# Email for Let's Encrypt certificate notifications
+letsencrypt_email = "admin@example.com"
+
+# -----------------------------------------------------------------------------
+# Optional Variables - GCP Region/Zone
+# -----------------------------------------------------------------------------
+
+# region = "us-central1"
+# zone   = "us-central1-a"
+
+# -----------------------------------------------------------------------------
+# Optional Variables - GKE Cluster
+# -----------------------------------------------------------------------------
+
+# cluster_name    = "superplane"
+# cluster_version = "1.36"
+# node_count      = 2
+# machine_type    = "e2-medium"
+
+# Set to false and apply before terraform destroy
+# gke_deletion_protection = true
+
+# -----------------------------------------------------------------------------
+# Optional Variables - Cloud SQL
+# -----------------------------------------------------------------------------
+
+# db_instance_name = "superplane-db"
+# db_version       = "POSTGRES_17"
+# db_tier          = "db-custom-2-4096"  # 2 vCPUs, 4GB RAM
+# db_name          = "superplane"
+
+# Set to false and apply before terraform destroy
+# sql_deletion_protection = true
+
+# Optionally provide a database password (otherwise one will be generated)
+# db_password = "your-secure-password"
+
+# -----------------------------------------------------------------------------
+# Optional Variables - SuperPlane
+# -----------------------------------------------------------------------------
+
+# superplane_namespace = "superplane"
+
+# Required. The plain SHA and stable images fail CORS on your domain.
+superplane_image_tag = "<git-sha>-selfhosted"
+
+# Required unless you set superplane_chart_path. Empty installs the latest
+# published chart, which may lack GKE ACME and migrate fixes.
+superplane_chart_version = "0.0.0-<git-sha>"
+
+# Install the chart from this repository to test changes that are not published.
+# superplane_chart_path = "../../superplane-helm-chart/helm"
+
+# -----------------------------------------------------------------------------
+# Optional Variables - Blob Storage
+# -----------------------------------------------------------------------------
+
+# Store task logs and files in a GCS bucket. Runners require this.
+# enable_gcs_blob_storage = true
+# blob_bucket_name        = ""     # Default: <project_id>-superplane-blobs
+# blob_bucket_force_destroy = false
+
+# -----------------------------------------------------------------------------
+# Optional Variables - Runners
+# -----------------------------------------------------------------------------
+
+# Step 1: create the runner network and enable the runner API.
+# enable_runners = true
+
+# Step 2: after owner setup, create a personal API token and deploy Fleet Manager.
+# Do not commit the token. You can set TF_VAR_installation_admin_token instead.
+# installation_admin_token = "..."
+# fleet_manager_image_tag  = "<git-sha>"
+
+# runner_zones       = ["us-central1-a", "us-central1-b"]
+# runner_subnet_cidr = "172.20.0.0/24"
+# runner_fleets = [
+#   {
+#     id            = "e1-large-amd64"
+#     architecture  = "amd64"
+#     machine_type  = "e2-standard-4"
+#     warm_capacity = 0
+#     max_capacity  = 2
+#   }
+# ]
+
+# -----------------------------------------------------------------------------
+# Optional Variables - Network
+# -----------------------------------------------------------------------------
+
+# network = "default"

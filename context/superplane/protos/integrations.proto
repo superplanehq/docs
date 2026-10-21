@@ -1,0 +1,93 @@
+syntax = "proto3";
+
+package Superplane.Integrations;
+
+import "actions.proto";
+import "configuration.proto";
+import "google/api/annotations.proto";
+import "google/protobuf/struct.proto";
+import "protoc-gen-openapiv2/options/annotations.proto";
+
+option go_package = "github.com/superplanehq/superplane/pkg/protos/integrations";
+
+option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_swagger) = {
+  info: {
+    title: "Superplane Integrations API";
+    version: "1.0";
+    description: "API for Superplane Integrations";
+    contact: {
+      name: "API Support";
+      email: "support@superplane.com";
+    };
+  };
+  schemes: HTTPS;
+  schemes: HTTP;
+  consumes: "application/json";
+  produces: "application/json";
+};
+
+service Integrations {
+
+  rpc ListIntegrations(ListIntegrationsRequest) returns (ListIntegrationsResponse) {
+    option (google.api.http) = {
+      get: "/api/v1/integrations"
+    };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      summary: "List available integrations";
+      description: "List available integrations";
+      tags: "Integration";
+    };
+  }
+}
+
+message ListIntegrationsRequest {
+}
+
+message ListIntegrationsResponse {
+  repeated IntegrationDefinition integrations = 1;
+  // True when this process holds complete public GitHub App credentials.
+  // Independent of per-organization hosted install (factories feature).
+  bool github_app_configured = 2;
+}
+
+message IntegrationDefinition {
+  string name = 1;
+  string label = 2;
+  string icon = 3;
+  string description = 4;
+  repeated CapabilityDefinition capabilities = 5;
+  repeated CapabilityGroup capability_groups = 6;
+  bool legacy_setup_only = 7;
+
+  //
+  // NOTE: should be removed once we migrate every integration to the new flow
+  //
+  repeated Configuration.Field configuration = 8;
+  string instructions = 9;
+
+  // When true, new GitHub connections install SuperPlane's public GitHub App.
+  // The client skips the organization dialog and the SetupProvider wizard.
+  bool hosted_app_install = 10;
+}
+
+message CapabilityDefinition {
+  enum Type {
+    TYPE_UNKNOWN = 0;
+    TYPE_ACTION = 1;
+    TYPE_TRIGGER = 2;
+  }
+
+  Type type = 1;
+  string name = 2;
+  string label = 3;
+  string description = 4;
+  repeated Configuration.Field configuration = 5;
+  repeated Actions.OutputChannel output_channels = 6;
+  google.protobuf.Struct example_output = 7;
+  google.protobuf.Struct example_data = 8;
+}
+
+message CapabilityGroup {
+  string label = 1;
+  repeated string capabilities = 2;
+}

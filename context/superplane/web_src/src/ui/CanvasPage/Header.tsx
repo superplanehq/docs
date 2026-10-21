@@ -1,0 +1,300 @@
+import type { CanvasToolSidebarState } from "@/components/CanvasToolSidebar/useCanvasToolSidebarState";
+import type { CanvasRunsSidebarState } from "@/components/CanvasRunsSidebar/useCanvasRunsSidebarState";
+import type { CanvasVersionsSidebarState } from "@/components/CanvasVersionsSidebar/useCanvasVersionsSidebarState";
+import { OrganizationMenuButton } from "@/components/OrganizationMenuButton";
+import { Link } from "@/components/Link/link";
+import { useExperimentalFeature } from "@/hooks/useExperimentalFeature";
+import { FEATURE_FACTORIES } from "@/lib/experimentalFeatures";
+import { useParams } from "react-router";
+import { ChevronLeft } from "lucide-react";
+import { CanvasModeToggle, type CanvasMode } from "./components/CanvasModeToggle";
+import { CanvasProjectSwitcher } from "./components/CanvasProjectSwitcher";
+import { CanvasRunsSidebarTrigger } from "./components/CanvasRunsSidebarTrigger";
+import { CanvasVersionsSidebarTrigger } from "./components/CanvasVersionsSidebarTrigger";
+import type { AgentSuggestion } from "./components/AgentSuggestionsHoverCard";
+import { CanvasToolSidebarTrigger } from "./components/CanvasToolSidebarTrigger";
+import { SecondaryHeaderActions, EditModeTopHeaderActions, LiveModeTopHeaderActions } from "./HeaderSecondaryActions";
+
+export type HeaderMode = "default" | "version-live" | "console" | "memory";
+
+export interface HeaderProps {
+  /** Shown centered in the top bar (canvas or template display name). May be undefined while the canvas is still loading. */
+  canvasName?: string;
+  /** When set, shows a link back to the owning factory. */
+  factoryId?: string;
+  onPublishVersion?: () => void;
+  onDiscardVersion?: () => void;
+  onShowDiff?: () => void;
+  onShowConsoleDiff?: () => void;
+  visualDiffEnabled?: boolean;
+  onToggleVisualDiff?: () => void;
+  draftVisualDiff?: {
+    diffCounts: { added: number; updated: number; removed: number };
+    diffToggles: {
+      showDeletedNodes: boolean;
+      showDeletedNodesControl?: boolean;
+      toggleShowDeletedNodes: () => void;
+      showEdgeDiff: boolean;
+      toggleShowEdgeDiff: () => void;
+    };
+  };
+  draftConsoleDiff?: {
+    diffCounts: { added: number; updated: number; removed: number };
+  };
+  organizationId?: string;
+  publishVersionDisabled?: boolean;
+  publishVersionDisabledTooltip?: string;
+  discardVersionDisabled?: boolean;
+  discardVersionDisabledTooltip?: string;
+  /** True when the active edit session has uncommitted staged spec edits (shows Commit/Reset). */
+  hasStagingChanges?: boolean;
+  /** Staging is based on an outdated main-branch commit; only discard is allowed. */
+  stagingStale?: boolean;
+  /** Opens the commit dialog for staged edits. */
+  onCommitStaging?: () => void;
+  commitStagingPending?: boolean;
+  resetStagingPending?: boolean;
+  /** Discard staged edits, reverting to the last commit. */
+  onResetStaging?: () => void;
+  /** Discard stale staging after main moved forward. */
+  onDiscardStaleStaging?: () => void;
+  discardStaleStagingPending?: boolean;
+  mode?: HeaderMode;
+  /** When true, the canvas draft is active regardless of the current Console / Canvas / Memory tab. */
+  isEditing?: boolean;
+  /** True while an edit session is active (editing a draft or previewing a version from the versions sidebar). Controls the Edit/Exit affordance. */
+  isEditSessionActive?: boolean;
+  /** Switches back to the Canvas tab without changing edit mode. */
+  onSelectCanvasView?: () => void;
+  onEnterEditMode?: () => void;
+  enterEditModeDisabled?: boolean;
+  enterEditModeDisabledTooltip?: string;
+  onExitEditMode?: () => void;
+  exitEditModeDisabled?: boolean;
+  exitEditModeDisabledTooltip?: string;
+  onSelectConsole?: () => void;
+  /** Provided when Memory is available as a first-class tab; opens the Memory view. */
+  onSelectMemory?: () => void;
+  /** Label for the publish/propose-change button in version edit mode. Defaults to "Publish". */
+  publishVersionLabel?: string;
+  /** When true, shows the Discard control next to Publish in version edit mode (draft differs from live). */
+  hasUnpublishedDraftChanges?: boolean;
+  /** Draft indicator for the Canvas tab when workflow graph changes exist. */
+  hasUnpublishedCanvasDraftChanges?: boolean;
+  /** Draft indicator for the Console tab when console changes exist. */
+  hasUnpublishedConsoleDraftChanges?: boolean;
+  hasUncommittedCanvasDraftChanges?: boolean;
+  hasUncommittedConsoleDraftChanges?: boolean;
+  hasCommittedCanvasDraftChanges?: boolean;
+  hasCommittedConsoleDraftChanges?: boolean;
+  activeDraftBranchLabel?: string;
+  activeDraftBranchShortSha?: string;
+  /** Canvas rename requires `canvases:update`; hide rename when the user cannot update. */
+  showCanvasSettingsMenu?: boolean;
+  toolSidebarState: CanvasToolSidebarState;
+  runsSidebarState: CanvasRunsSidebarState;
+  versionsSidebarState: CanvasVersionsSidebarState;
+  /** Optional Agent improvement suggestions (Storybook / post-install prototype). */
+  agentSuggestions?: AgentSuggestion[];
+  onSelectAgentSuggestion?: (suggestion: AgentSuggestion) => void;
+}
+
+export function Header(props: HeaderProps) {
+  const headerTitle = (props.canvasName ?? "").trim() || "Canvas";
+
+  return (
+    <header>
+      <PageHeader
+        organizationId={props.organizationId}
+        factoryId={props.factoryId}
+        headerTitle={headerTitle}
+        isEditing={props.isEditing}
+        isEditSessionActive={props.isEditSessionActive}
+        onExitEditMode={props.onExitEditMode}
+        exitEditModeDisabled={props.exitEditModeDisabled}
+        exitEditModeDisabledTooltip={props.exitEditModeDisabledTooltip}
+        onEnterEditMode={props.onEnterEditMode}
+        enterEditModeDisabled={props.enterEditModeDisabled}
+        enterEditModeDisabledTooltip={props.enterEditModeDisabledTooltip}
+        activeDraftBranchLabel={props.activeDraftBranchLabel}
+        activeDraftBranchShortSha={props.activeDraftBranchShortSha}
+        showCanvasSettingsMenu={props.showCanvasSettingsMenu}
+      />
+
+      <SecondaryHeader {...props} />
+    </header>
+  );
+}
+
+interface PageHeaderBarProps {
+  organizationId?: string;
+  factoryId?: string;
+  headerTitle: string;
+  showCanvasSettingsMenu?: boolean;
+  isEditing?: boolean;
+  isEditSessionActive?: boolean;
+  onExitEditMode?: () => void;
+  exitEditModeDisabled?: boolean;
+  exitEditModeDisabledTooltip?: string;
+  onEnterEditMode?: () => void;
+  enterEditModeDisabled?: boolean;
+  enterEditModeDisabledTooltip?: string;
+  activeDraftBranchLabel?: string;
+  activeDraftBranchShortSha?: string;
+}
+
+function PageHeader({
+  organizationId,
+  factoryId,
+  headerTitle,
+  isEditing = false,
+  isEditSessionActive,
+  onExitEditMode,
+  exitEditModeDisabled,
+  exitEditModeDisabledTooltip,
+  onEnterEditMode,
+  enterEditModeDisabled,
+  enterEditModeDisabledTooltip,
+  activeDraftBranchLabel,
+  activeDraftBranchShortSha,
+  showCanvasSettingsMenu = true,
+}: PageHeaderBarProps) {
+  const {
+    workflowId,
+    canvasId: canvasIdParam,
+    appId,
+  } = useParams<{
+    workflowId?: string;
+    canvasId?: string;
+    appId?: string;
+  }>();
+  const activeCanvasId = appId || canvasIdParam || workflowId;
+  const inEditSession = isEditSessionActive ?? isEditing;
+  const { has: hasExperimentalFeature } = useExperimentalFeature(organizationId);
+  const showFactoryReturnLink = Boolean(organizationId && factoryId && hasExperimentalFeature(FEATURE_FACTORIES));
+
+  return (
+    <div className="relative z-20 flex h-10 items-center border-b border-slate-950/15 pl-2 pr-1 sm:pl-3 sm:pr-1.5 dark:border-gray-700/70">
+      <div className="relative z-10 flex min-w-0 shrink-0 items-center gap-1">
+        <OrganizationMenuButton organizationId={organizationId} />
+        {showFactoryReturnLink ? <FactoryReturnLink organizationId={organizationId!} factoryId={factoryId!} /> : null}
+      </div>
+      <div className="pointer-events-none absolute inset-x-0 flex items-center justify-center px-24">
+        <div className="pointer-events-auto">
+          {organizationId && activeCanvasId ? (
+            <CanvasProjectSwitcher
+              organizationId={organizationId}
+              activeCanvasId={activeCanvasId}
+              canvasName={headerTitle}
+              canUpdateCanvas={showCanvasSettingsMenu}
+            />
+          ) : (
+            <span className="block truncate text-center text-[13px] font-medium text-slate-900 dark:text-gray-100">
+              {headerTitle}
+            </span>
+          )}
+        </div>
+      </div>
+      <div className="relative z-10 ml-auto flex shrink-0 items-center gap-2">
+        {inEditSession ? (
+          <div className="flex items-center">
+            {activeDraftBranchLabel ? (
+              <span
+                className="hidden text-[13px] font-medium text-slate-600 sm:inline dark:text-gray-400"
+                data-testid="active-draft-branch-chip"
+              >
+                Editing: {activeDraftBranchLabel}
+                {activeDraftBranchShortSha ? ` @ ${activeDraftBranchShortSha}` : ""}
+              </span>
+            ) : null}
+            <EditModeTopHeaderActions
+              onExitEditMode={onExitEditMode}
+              exitEditModeDisabled={exitEditModeDisabled}
+              exitEditModeDisabledTooltip={exitEditModeDisabledTooltip}
+            />
+          </div>
+        ) : null}
+        {!inEditSession && onEnterEditMode ? (
+          <LiveModeTopHeaderActions
+            onEnterEditMode={onEnterEditMode}
+            enterEditModeDisabled={enterEditModeDisabled}
+            enterEditModeDisabledTooltip={enterEditModeDisabledTooltip}
+          />
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function FactoryReturnLink({ organizationId, factoryId }: { organizationId: string; factoryId: string }) {
+  return (
+    <Link
+      href={`/${organizationId}/workspaces/${factoryId}/overview`}
+      className="inline-flex items-center gap-1 text-sm font-medium text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100"
+      data-testid="return-to-factory-link"
+    >
+      <ChevronLeft className="h-4 w-4" aria-hidden />
+      Return to workspace
+    </Link>
+  );
+}
+
+function SecondaryHeader(props: HeaderProps) {
+  const showCanvasViewModeToggle = shouldShowCanvasViewModeToggle(props);
+  const canvasViewMode = getCanvasViewMode(props.mode);
+  const editing = props.isEditing ?? false;
+
+  return (
+    <div className="relative z-10 flex h-10 items-center gap-3 border-b border-slate-950/15 bg-white px-3 dark:border-gray-700/70 dark:bg-gray-900">
+      <div className="relative z-10 -ml-1.5 flex h-7 shrink-0 items-center gap-1">
+        <CanvasToolSidebarTrigger
+          toolSidebarState={props.toolSidebarState}
+          agentSuggestions={props.agentSuggestions}
+          onSelectAgentSuggestion={props.onSelectAgentSuggestion}
+        />
+        <CanvasRunsSidebarTrigger runsSidebarState={props.runsSidebarState} />
+        <CanvasVersionsSidebarTrigger versionsSidebarState={props.versionsSidebarState} />
+      </div>
+
+      <div className="pointer-events-none absolute inset-x-0 flex justify-center px-16 sm:px-24">
+        <div className="pointer-events-auto">
+          {showCanvasViewModeToggle && props.onSelectCanvasView ? (
+            <CanvasModeToggle
+              mode={canvasViewMode}
+              onSelectLive={props.onSelectCanvasView}
+              onSelectConsole={props.onSelectConsole}
+              onSelectMemory={props.onSelectMemory}
+              editing={editing}
+              hasCanvasUncommitted={!!props.hasUncommittedCanvasDraftChanges}
+              hasCanvasCommitted={!!props.hasCommittedCanvasDraftChanges}
+              hasConsoleUncommitted={!!props.hasUncommittedConsoleDraftChanges}
+              hasConsoleCommitted={!!props.hasCommittedConsoleDraftChanges}
+            />
+          ) : null}
+        </div>
+      </div>
+
+      <SecondaryHeaderActions {...props} />
+    </div>
+  );
+}
+
+function shouldShowCanvasViewModeToggle(props: HeaderProps): boolean {
+  if (!props.onSelectConsole && !props.onSelectMemory) {
+    return false;
+  }
+
+  return isCanvasViewMode(props.mode);
+}
+
+function isCanvasViewMode(mode: HeaderMode | undefined): boolean {
+  return !mode || mode === "default" || mode === "version-live" || mode === "console" || mode === "memory";
+}
+
+function getCanvasViewMode(mode: HeaderMode | undefined): CanvasMode {
+  if (mode === "console" || mode === "memory") {
+    return mode;
+  }
+
+  return "version-live";
+}

@@ -1,0 +1,148 @@
+import type { ComponentBaseProps, EventSection } from "@/ui/componentBase";
+import type React from "react";
+import { getState, getStateMap, getTriggerRenderer } from "../mapperLookup";
+import type {
+  ComponentBaseMapper,
+  ExecutionDetailsContext,
+  ComponentBaseContext,
+  ExecutionInfo,
+  NodeInfo,
+  OutputPayload,
+  SubtitleContext,
+} from "../types";
+import type { MetadataItem } from "@/ui/metadataList";
+import dash0Icon from "@/assets/icons/integrations/dash0.svg";
+import type { CheckRuleConfiguration, CheckRulePayload } from "./types";
+import { truncate } from "../safeMappers";
+import { renderTimeAgo } from "@/components/TimeAgo";
+
+export const createCheckRuleMapper: ComponentBaseMapper = {
+  props(context: ComponentBaseContext): ComponentBaseProps {
+    const lastExecution = context.lastExecutions.length > 0 ? context.lastExecutions[0] : null;
+    const componentName = context.componentDefinition.name || "unknown";
+
+    return {
+      iconSrc: dash0Icon,
+      collapsedBackground: "bg-white",
+      collapsed: context.node.isCollapsed,
+      title: context.node.name || context.componentDefinition.label || "Unnamed component",
+      eventSections: lastExecution ? baseEventSections(context.nodes, lastExecution, componentName) : undefined,
+      metadata: metadataList(context.node),
+      includeEmptyState: !lastExecution,
+      eventStateMap: getStateMap(componentName),
+    };
+  },
+
+  getExecutionDetails(context: ExecutionDetailsContext): Record<string, string> {
+    const outputs = context.execution.outputs as { default?: OutputPayload[] } | undefined;
+
+    if (!outputs || !outputs.default || outputs.default.length === 0) {
+      return { Response: "No data returned" };
+    }
+
+    const payload = outputs.default[0];
+    const responseData = payload?.data as CheckRulePayload | undefined;
+
+    if (!responseData) {
+      return { Response: "No data returned" };
+    }
+
+    return detailsFromCreatedCheckRule(payload, responseData);
+  },
+
+  subtitle(context: SubtitleContext): string | React.ReactNode {
+    if (!context.execution.createdAt) return "";
+    return renderTimeAgo(new Date(context.execution.createdAt));
+  },
+};
+
+function detailsFromCreatedCheckRule(payload: OutputPayload, responseData: CheckRulePayload): Record<string, string> {
+  const details: Record<string, string> = {};
+
+  if (payload?.timestamp) {
+    details["Created At"] = new Date(payload.timestamp).toLocaleString();
+  }
+
+  addCheckRuleFieldDetails(details, responseData);
+  return details;
+}
+
+function addCheckRuleFieldDetails(details: Record<string, string>, responseData: CheckRulePayload) {
+  if (responseData.name) details["Name"] = String(responseData.name);
+  if (responseData.id) details["ID"] = String(responseData.id);
+  if (responseData.expression) {
+    details["Expression"] = truncatedExpression(String(responseData.expression));
+  }
+
+  const thresholds = thresholdSummary(responseData.thresholds);
+  if (thresholds) details["Thresholds"] = thresholds;
+
+  if (responseData.interval) details["Interval"] = String(responseData.interval);
+  if (responseData.enabled != null) details["Enabled"] = responseData.enabled ? "Yes" : "No";
+}
+
+function truncatedExpression(expr: string): string {
+  return expr.length > 100 ? expr.substring(0, 100) + "..." : expr;
+}
+
+function thresholdSummary(thresholds?: CheckRulePayload["thresholds"]): string | undefined {
+  if (!thresholds) {
+    return undefined;
+  }
+
+  const parts: string[] = [];
+  if (thresholds.degraded != null) parts.push(`Degraded: ${thresholds.degraded}`);
+  if (thresholds.critical != null) parts.push(`Critical: ${thresholds.critical}`);
+  if (parts.length === 0) {
+    return undefined;
+  }
+
+  return parts.join(", ");
+}
+
+function metadataList(node: NodeInfo): MetadataItem[] {
+  const metadata: MetadataItem[] = [];
+  const configuration = node.configuration as CheckRuleConfiguration;
+
+  if (configuration?.expression) {
+    const exprPreview = truncate(configuration.expression, 50);
+    metadata.push({ icon: "code", label: exprPreview });
+  }
+
+  if (configuration?.interval) {
+    metadata.push({ icon: "clock", label: `Every ${configuration.interval}` });
+  }
+
+  if (configuration?.enabled !== undefined) {
+    metadata.push({
+      icon: configuration.enabled ? "check-circle" : "x-circle",
+      label: configuration.enabled ? "Enabled" : "Disabled",
+    });
+  }
+
+  return metadata;
+}
+
+function baseEventSections(nodes: NodeInfo[], execution: ExecutionInfo, componentName: string): EventSection[] {
+  if (!execution.rootEvent || !execution.createdAt || !execution.rootEvent.id) {
+    return [];
+  }
+
+  const rootTriggerNode = nodes.find((n) => n.id === execution.rootEvent?.nodeId);
+  if (!rootTriggerNode || !rootTriggerNode.componentName) {
+    return [];
+  }
+
+  const rootTriggerRenderer = getTriggerRenderer(rootTriggerNode.componentName);
+  const { title } = rootTriggerRenderer.getTitleAndSubtitle({ event: execution.rootEvent });
+
+  return [
+    {
+      receivedAt: new Date(execution.createdAt),
+      eventTitle: title,
+      eventSubtitle: renderTimeAgo(new Date(execution.createdAt)),
+      eventState: getState(componentName)(execution),
+      eventId: execution.rootEvent.id,
+    },
+  ];
+}

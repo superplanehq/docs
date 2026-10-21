@@ -1,0 +1,199 @@
+package index
+
+import (
+	"fmt"
+	"io"
+	"strings"
+	"text/tabwriter"
+
+	"github.com/spf13/cobra"
+	"github.com/superplanehq/superplane/pkg/cli/core"
+	"github.com/superplanehq/superplane/pkg/openapi_client"
+)
+
+func newTriggersCommand(options core.BindOptions) *cobra.Command {
+	var from string
+	var name string
+	var full bool
+
+	cmd := &cobra.Command{
+		Use:   "triggers",
+		Short: "List or describe available triggers",
+		Long: `List or describe available triggers.
+
+Use -o json or -o yaml with --name to inspect nested schema fields, enum options, defaults, and conditions.`,
+		Args: cobra.NoArgs,
+	}
+	cmd.Flags().StringVar(&from, "from", "", "integration definition name")
+	cmd.Flags().StringVar(&name, "name", "", "trigger name")
+	cmd.Flags().BoolVar(&full, "full", false, "show full output including all fields")
+	core.Bind(cmd, &triggersCommand{from: &from, name: &name, full: &full}, options)
+
+	return cmd
+}
+
+type triggersCommand struct {
+	from *string
+	name *string
+	full *bool
+}
+
+func (c *triggersCommand) Execute(ctx core.CommandContext) error {
+	name := strings.TrimSpace(*c.name)
+	from := strings.TrimSpace(*c.from)
+
+	if name != "" {
+		return c.getTriggerByName(ctx, name)
+	}
+
+	triggers, err := c.listTriggers(ctx, from)
+	if err != nil {
+		return err
+	}
+
+	if !ctx.Renderer.IsText() {
+		if c.full != nil && *c.full {
+			return ctx.Renderer.Render(triggers)
+		}
+
+		summary := make([]map[string]string, len(triggers))
+		for i, trigger := range triggers {
+			summary[i] = map[string]string{
+				"name":        trigger.GetName(),
+				"label":       trigger.GetLabel(),
+				"description": trigger.GetDescription(),
+			}
+		}
+		return ctx.Renderer.Render(summary)
+	}
+
+	return ctx.Renderer.RenderText(func(stdout io.Writer) error {
+		writer := tabwriter.NewWriter(stdout, 0, 8, 2, ' ', 0)
+		_, _ = fmt.Fprintln(writer, "NAME\tLABEL\tDESCRIPTION")
+		for _, trigger := range triggers {
+			_, _ = fmt.Fprintf(writer, "%s\t%s\t%s\n", trigger.GetName(), trigger.GetLabel(), trigger.GetDescription())
+		}
+		return writer.Flush()
+	})
+}
+
+func (c *triggersCommand) getTriggerByName(ctx core.CommandContext, name string) error {
+	trigger, err := c.findTriggerByName(ctx, name)
+	if err != nil {
+		return err
+	}
+
+	if !ctx.Renderer.IsText() {
+		return ctx.Renderer.Render(trigger)
+	}
+
+	return ctx.Renderer.RenderText(func(stdout io.Writer) error {
+		return renderTriggerText(stdout, trigger)
+	})
+}
+
+func renderTriggerText(stdout io.Writer, trigger openapi_client.TriggersTrigger) error {
+	_, err := fmt.Fprintf(stdout, "Name: %s\n", trigger.GetName())
+	if err != nil {
+		return err
+	}
+
+	_, err = fmt.Fprintf(stdout, "Label: %s\n", trigger.GetLabel())
+	if err != nil {
+		return err
+	}
+
+	_, err = fmt.Fprintf(stdout, "Description: %s\n", trigger.GetDescription())
+	if err != nil {
+		return err
+	}
+
+	_, err = fmt.Fprintln(stdout)
+	if err != nil {
+		return err
+	}
+
+	err = renderConfigurationText(stdout, trigger.GetConfiguration())
+	if err != nil {
+		return err
+	}
+
+	_, err = fmt.Fprintln(stdout)
+	if err != nil {
+		return err
+	}
+
+	return renderExamplePayloadText(stdout, trigger.GetExampleData())
+}
+
+func (c *triggersCommand) listTriggers(ctx core.CommandContext, from string) ([]openapi_client.TriggersTrigger, error) {
+	//
+	// if --from is used, we grab the triggers from the integration
+	//
+	if from != "" {
+		integration, err := core.FindIntegrationDefinition(ctx, from)
+		if err != nil {
+			return nil, err
+		}
+
+		return triggersFromCapabilities(integration.GetCapabilities()), nil
+	}
+
+	//
+	// Otherwise, we list core triggers.
+	//
+	response, _, err := ctx.API.TriggerAPI.TriggersListTriggers(ctx.Context).Execute()
+	if err != nil {
+		return nil, err
+	}
+
+	return response.GetTriggers(), nil
+}
+
+func (c *triggersCommand) findTriggerByName(ctx core.CommandContext, name string) (openapi_client.TriggersTrigger, error) {
+	integrationName, triggerName, scoped := core.ParseIntegrationScopedName(name)
+	if scoped {
+		integration, err := core.FindIntegrationDefinition(ctx, integrationName)
+		if err != nil {
+			return openapi_client.TriggersTrigger{}, fmt.Errorf("trigger %q not found: no integration named %q", name, integrationName)
+		}
+		return findIntegrationTrigger(integration, triggerName)
+	}
+
+	response, _, err := ctx.API.TriggerAPI.TriggersDescribeTrigger(ctx.Context, name).Execute()
+	if err != nil {
+		return openapi_client.TriggersTrigger{}, err
+	}
+	return response.GetTrigger(), nil
+}
+
+func findIntegrationTrigger(
+	integration openapi_client.IntegrationsIntegrationDefinition,
+	name string,
+) (openapi_client.TriggersTrigger, error) {
+	for _, trigger := range triggersFromCapabilities(integration.GetCapabilities()) {
+		triggerName := trigger.GetName()
+		if triggerName == name || triggerName == fmt.Sprintf("%s.%s", integration.GetName(), name) {
+			return trigger, nil
+		}
+	}
+
+	return openapi_client.TriggersTrigger{}, fmt.Errorf("trigger %q not found in integration %q", name, integration.GetName())
+}
+
+func triggersFromCapabilities(capabilities []openapi_client.IntegrationsCapabilityDefinition) []openapi_client.TriggersTrigger {
+	triggers := []openapi_client.TriggersTrigger{}
+	for _, capability := range capabilities {
+		if capability.GetType() != openapi_client.INTEGRATIONSCAPABILITYDEFINITIONTYPE_TYPE_TRIGGER {
+			continue
+		}
+		triggers = append(triggers, openapi_client.TriggersTrigger{
+			Name:          capability.Name,
+			Label:         capability.Label,
+			Description:   capability.Description,
+			Configuration: capability.Configuration,
+			ExampleData:   capability.ExampleData,
+		})
+	}
+	return triggers
+}

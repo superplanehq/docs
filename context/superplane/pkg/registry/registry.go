@@ -1,0 +1,457 @@
+package registry
+
+import (
+	"fmt"
+	"sort"
+	"strings"
+	"sync"
+
+	"github.com/google/uuid"
+	"github.com/superplanehq/superplane/pkg/core"
+	"github.com/superplanehq/superplane/pkg/crypto"
+	"github.com/superplanehq/superplane/pkg/features"
+	"github.com/superplanehq/superplane/pkg/models"
+	"gorm.io/gorm"
+)
+
+var (
+	registeredActions         = make(map[string]core.Action)
+	registeredTriggers        = make(map[string]core.Trigger)
+	registeredIntegrations    = make(map[string]core.Integration)
+	registeredWebhookHandlers = make(map[string]core.WebhookHandler)
+	registeredSetupProviders  = make(map[string]core.IntegrationSetupProvider)
+	registeredWidgets         = make(map[string]core.Widget)
+	mu                        sync.RWMutex
+)
+
+func RegisterAction(name string, a core.Action) {
+	mu.Lock()
+	defer mu.Unlock()
+	registeredActions[name] = a
+}
+
+func RegisterTrigger(name string, t core.Trigger) {
+	mu.Lock()
+	defer mu.Unlock()
+	registeredTriggers[name] = t
+}
+
+func RegisterIntegration(name string, i core.Integration) {
+	mu.Lock()
+	defer mu.Unlock()
+	registeredIntegrations[name] = i
+}
+
+func RegisterIntegrationWithWebhookHandler(name string, i core.Integration, h core.WebhookHandler) {
+	mu.Lock()
+	defer mu.Unlock()
+	registeredIntegrations[name] = i
+	registeredWebhookHandlers[name] = h
+}
+
+type IntegrationRegistrationOptions struct {
+	WebhookHandler core.WebhookHandler
+	SetupProvider  core.IntegrationSetupProvider
+}
+
+func RegisterIntegrationWithOptions(name string, i core.Integration, options IntegrationRegistrationOptions) {
+	mu.Lock()
+	defer mu.Unlock()
+	registeredIntegrations[name] = i
+
+	if options.WebhookHandler != nil {
+		registeredWebhookHandlers[name] = options.WebhookHandler
+	}
+
+	if options.SetupProvider != nil {
+		registeredSetupProviders[name] = options.SetupProvider
+	}
+}
+
+func RegisterWidget(name string, w core.Widget) {
+	mu.Lock()
+	defer mu.Unlock()
+	registeredWidgets[name] = w
+}
+
+type IntegrationRegistration struct {
+	Name           string
+	Integration    core.Integration
+	WebhookHandler core.WebhookHandler
+}
+
+type Registry struct {
+	httpCtx   *HTTPContext
+	Encryptor crypto.Encryptor
+
+	Integrations    map[string]core.Integration
+	WebhookHandlers map[string]core.WebhookHandler
+	SetupProviders  map[string]core.IntegrationSetupProvider
+
+	Actions  map[string]core.Action
+	Triggers map[string]core.Trigger
+	Widgets  map[string]core.Widget
+}
+
+type RegistryOptions struct {
+	Encryptor crypto.Encryptor
+	HTTP      HTTPOptions
+}
+
+func NewRegistryWithOptions(options RegistryOptions) (*Registry, error) {
+	httpCtx, err := NewHTTPContext(options.HTTP)
+	if err != nil {
+		return nil, err
+	}
+
+	r := &Registry{
+		Encryptor:       options.Encryptor,
+		httpCtx:         httpCtx,
+		Actions:         map[string]core.Action{},
+		Triggers:        map[string]core.Trigger{},
+		Integrations:    map[string]core.Integration{},
+		WebhookHandlers: map[string]core.WebhookHandler{},
+		SetupProviders:  map[string]core.IntegrationSetupProvider{},
+		Widgets:         map[string]core.Widget{},
+	}
+
+	r.Init()
+
+	return r, nil
+}
+
+func NewRegistry(encryptor crypto.Encryptor, httpOptions HTTPOptions) (*Registry, error) {
+	httpCtx, err := NewHTTPContext(httpOptions)
+	if err != nil {
+		return nil, err
+	}
+
+	r := &Registry{
+		Encryptor:       encryptor,
+		httpCtx:         httpCtx,
+		Actions:         map[string]core.Action{},
+		Triggers:        map[string]core.Trigger{},
+		Integrations:    map[string]core.Integration{},
+		WebhookHandlers: map[string]core.WebhookHandler{},
+		SetupProviders:  map[string]core.IntegrationSetupProvider{},
+		Widgets:         map[string]core.Widget{},
+	}
+
+	r.Init()
+
+	return r, nil
+}
+
+func (r *Registry) Init() {
+	//
+	// Copy registered components, triggers, and integrations with safe wrappers
+	//
+	mu.RLock()
+	defer mu.RUnlock()
+
+	for name, action := range registeredActions {
+		r.Actions[name] = NewPanicableAction(action)
+	}
+
+	for name, trigger := range registeredTriggers {
+		r.Triggers[name] = NewPanicableTrigger(trigger)
+	}
+
+	for name, integration := range registeredIntegrations {
+		r.Integrations[name] = NewPanicableIntegration(integration)
+	}
+
+	for name, webhookHandler := range registeredWebhookHandlers {
+		r.WebhookHandlers[name] = NewPanicableWebhookHandler(webhookHandler)
+	}
+
+	for name, setupProvider := range registeredSetupProviders {
+		r.SetupProviders[name] = setupProvider
+	}
+
+	//
+	// Widgets are not required to be panicable, since they just carry Configuration data
+	// and no logic is executed.
+	//
+	for name, widget := range registeredWidgets {
+		r.Widgets[name] = widget
+	}
+}
+
+func (r *Registry) HTTPContext() *HTTPContext {
+	return r.httpCtx
+}
+
+func (r *Registry) HTTPContextInTransaction(tx *gorm.DB) *HTTPContextInTransaction {
+	return &HTTPContextInTransaction{
+		httpCtx: r.httpCtx,
+		tx:      tx,
+	}
+}
+
+func (r *Registry) FindConfigurableComponent(name string) (core.Configurable, error) {
+	action, err := r.GetAction(name)
+	if err == nil {
+		return action.(core.Configurable), nil
+	}
+
+	trigger, err := r.GetTrigger(name)
+	if err == nil {
+		return trigger.(core.Configurable), nil
+	}
+
+	widget, err := r.GetWidget(name)
+	if err == nil {
+		return widget.(core.Configurable), nil
+	}
+
+	return nil, fmt.Errorf("component %s not found", name)
+}
+
+func (r *Registry) ComponentType(name string) (string, error) {
+	_, err := r.GetAction(name)
+	if err == nil {
+		return models.NodeTypeComponent, nil
+	}
+
+	_, err = r.GetTrigger(name)
+	if err == nil {
+		return models.NodeTypeTrigger, nil
+	}
+
+	_, err = r.GetWidget(name)
+	if err == nil {
+		return models.NodeTypeWidget, nil
+	}
+
+	return "", fmt.Errorf("component %s not found", name)
+}
+
+func (r *Registry) ListTriggers() []core.Trigger {
+	triggers := make([]core.Trigger, 0, len(r.Triggers))
+	for _, trigger := range r.Triggers {
+		triggers = append(triggers, trigger)
+	}
+
+	sort.Slice(triggers, func(i, j int) bool {
+		return triggers[i].Name() < triggers[j].Name()
+	})
+
+	return triggers
+}
+
+func (r *Registry) GetTrigger(name string) (core.Trigger, error) {
+	parts := strings.SplitN(name, ".", 2)
+
+	if len(parts) == 1 {
+		trigger, ok := r.Triggers[name]
+		if !ok {
+			return nil, fmt.Errorf("trigger %s not registered", name)
+		}
+
+		return trigger, nil
+	}
+
+	return r.GetIntegrationTrigger(parts[0], name)
+}
+
+func (r *Registry) ListActions() []core.Action {
+	actions := make([]core.Action, 0, len(r.Actions))
+	for _, action := range r.Actions {
+		actions = append(actions, action)
+	}
+
+	sort.Slice(actions, func(i, j int) bool {
+		return actions[i].Name() < actions[j].Name()
+	})
+
+	return actions
+}
+
+func (r *Registry) GetAction(name string) (core.Action, error) {
+	parts := strings.SplitN(name, ".", 2)
+
+	if len(parts) == 1 {
+		action, ok := r.Actions[name]
+		if !ok {
+			return nil, fmt.Errorf("action %s not registered", name)
+		}
+
+		return action, nil
+	}
+
+	return r.GetIntegrationAction(parts[0], name)
+}
+
+func (r *Registry) GetWidget(name string) (core.Widget, error) {
+	widget, ok := r.Widgets[name]
+
+	if !ok {
+		return nil, fmt.Errorf("widget %s not registered", name)
+	}
+
+	return widget, nil
+}
+
+func (r *Registry) ListWidgets() []core.Widget {
+	widgets := make([]core.Widget, 0, len(r.Widgets))
+	for _, widget := range r.Widgets {
+		widgets = append(widgets, widget)
+	}
+
+	sort.Slice(widgets, func(i, j int) bool {
+		return widgets[i].Name() < widgets[j].Name()
+	})
+
+	return widgets
+}
+
+func (r *Registry) GetIntegration(name string) (core.Integration, error) {
+	integration, ok := r.Integrations[name]
+	if !ok {
+		return nil, fmt.Errorf("integration %s not registered", name)
+	}
+
+	return integration, nil
+}
+
+// SupportsNewSetupFlow reports whether the integration registers a SetupProvider.
+func (r *Registry) SupportsNewSetupFlow(integrationName string) bool {
+	setupProvider, _ := r.GetSetupProvider(integrationName)
+	return setupProvider != nil
+}
+
+// UseNewSetupFlow reports whether create/list should use the SetupProvider
+// wizard for this organization. Requires both a SetupProvider and the
+// new_integration_setup_flow experimental feature.
+func (r *Registry) UseNewSetupFlow(orgID uuid.UUID, integrationName string) bool {
+	if !r.SupportsNewSetupFlow(integrationName) {
+		return false
+	}
+	ok, err := models.HasExperimentalFeature(orgID, features.FeatureNewIntegrationSetupFlow)
+	return err == nil && ok
+}
+
+func (r *Registry) GetSetupProvider(name string) (core.IntegrationSetupProvider, error) {
+	setupProvider, ok := r.SetupProviders[name]
+	if !ok {
+		return nil, fmt.Errorf("setup provider not registered for integration %s", name)
+	}
+
+	return setupProvider, nil
+}
+
+func (r *Registry) GetWebhookHandler(name string) (core.WebhookHandler, error) {
+	webhookHandler, ok := r.WebhookHandlers[name]
+	if !ok {
+		return nil, fmt.Errorf("webhook handler %s not registered", name)
+	}
+
+	return webhookHandler, nil
+}
+
+func (r *Registry) ListIntegrations() []core.Integration {
+	integrations := make([]core.Integration, 0, len(r.Integrations))
+	for _, integration := range r.Integrations {
+		integrations = append(integrations, integration)
+	}
+
+	sort.Slice(integrations, func(i, j int) bool {
+		return integrations[i].Name() < integrations[j].Name()
+	})
+
+	return integrations
+}
+
+func (r *Registry) GetIntegrationTrigger(appName, triggerName string) (core.Trigger, error) {
+	integration, err := r.GetIntegration(appName)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, trigger := range integration.Triggers() {
+		if trigger.Name() == triggerName {
+			return trigger, nil
+		}
+	}
+
+	return nil, fmt.Errorf("trigger %s not found for integration %s", triggerName, appName)
+}
+
+func (r *Registry) GetIntegrationAction(appName, actionName string) (core.Action, error) {
+	integration, err := r.GetIntegration(appName)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, action := range integration.Actions() {
+		if action.Name() == actionName {
+			return action, nil
+		}
+	}
+
+	return nil, fmt.Errorf("action %s not found for integration %s", actionName, appName)
+}
+
+func (r *Registry) IsCoreBlock(name string) bool {
+	return !strings.Contains(name, ".")
+}
+
+func (r *Registry) FindActionHook(actionName, hookName string) (core.Action, *core.Hook, error) {
+	action, err := r.GetAction(actionName)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	for _, hook := range action.Hooks() {
+		if hook.Name == hookName {
+			return action, &hook, nil
+		}
+	}
+
+	return nil, nil, fmt.Errorf("hook %s not found for action %s", hookName, actionName)
+}
+
+func (r *Registry) FindTriggerHook(triggerName, hookName string) (core.Trigger, *core.Hook, error) {
+	trigger, err := r.GetTrigger(triggerName)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	for _, hook := range trigger.Hooks() {
+		if hook.Name == hookName {
+			return trigger, &hook, nil
+		}
+	}
+
+	return nil, nil, fmt.Errorf("hook %s not found for trigger %s", hookName, triggerName)
+}
+
+func (r *Registry) FindIntegrationHook(integrationName, hookName string) (core.Integration, *core.Hook, error) {
+	integration, err := r.GetIntegration(integrationName)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	for _, hook := range integration.Hooks() {
+		if hook.Name == hookName {
+			return integration, &hook, nil
+		}
+	}
+
+	return nil, nil, fmt.Errorf("hook %s not found for integration %s", hookName, integrationName)
+}
+
+func (r *Registry) AllCapabilities(name string) []core.Capability {
+	setupProvider, err := r.GetSetupProvider(name)
+	if err != nil {
+		return []core.Capability{}
+	}
+
+	capabilities := []core.Capability{}
+	for _, group := range setupProvider.CapabilityGroups() {
+		capabilities = append(capabilities, group.Capabilities...)
+	}
+
+	return capabilities
+}

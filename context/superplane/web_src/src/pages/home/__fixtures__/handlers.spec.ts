@@ -1,0 +1,63 @@
+import { describe, expect, it, vi } from "bun:test";
+
+import { createHomeFixtureFetch } from "./handlers";
+
+async function fetchFixture(path: string): Promise<Response> {
+  const fallback = vi.fn() as unknown as typeof fetch;
+  const fixtureFetch = createHomeFixtureFetch(fallback);
+  return fixtureFetch(`http://localhost${path}`);
+}
+
+describe("createHomeFixtureFetch", () => {
+  it("serves populated canvases", async () => {
+    const canvases = await fetchFixture("/api/v1/canvases");
+    await expect(canvases.json()).resolves.toMatchObject({
+      canvases: expect.arrayContaining([expect.objectContaining({ name: "Software Factory" })]),
+    });
+  });
+
+  it("serves account and me for providers", async () => {
+    const account = await fetchFixture("/account");
+    await expect(account.json()).resolves.toMatchObject({
+      id: "storybook-user",
+      name: "Leonardo DiCaprio",
+      avatar_url: "/storybook/leonardo-dicaprio.jpg",
+    });
+
+    const me = await fetchFixture("/api/v1/me");
+    const meBody = await me.json();
+    expect(meBody).toMatchObject({
+      user: expect.objectContaining({
+        organizationId: expect.any(String),
+        permissions: expect.arrayContaining([
+          expect.objectContaining({ resource: "agents", action: "read" }),
+          expect.objectContaining({ resource: "agents", action: "create" }),
+          expect.objectContaining({ resource: "work_orders", action: "create" }),
+          expect.objectContaining({ resource: "work_orders", action: "update" }),
+        ]),
+      }),
+    });
+  });
+
+  it("serves the account organization list", async () => {
+    const organizations = await fetchFixture("/organizations");
+    await expect(organizations.json()).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "SuperPlane" }),
+        expect.objectContaining({ id: "org-storybook-acme", slug: "acme", name: "Acme" }),
+      ]),
+    );
+  });
+
+  it("exposes the managed-agents experimental feature", async () => {
+    const features = await fetchFixture("/account/experimental-features");
+    await expect(features.json()).resolves.toMatchObject({
+      features: expect.arrayContaining([
+        expect.objectContaining({ id: "claude_managed_agents", released: true }),
+        expect.objectContaining({ id: "workspace_mcp" }),
+        expect.objectContaining({ id: "workspace_skills" }),
+        expect.objectContaining({ id: "superplane_mcp_server", released: true }),
+      ]),
+    });
+  });
+});

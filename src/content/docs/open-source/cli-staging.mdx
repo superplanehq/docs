@@ -1,0 +1,44 @@
+---
+title: CLI staging
+description: Stage, inspect, and commit canvas.yaml and console.yaml with superplane apps staging.
+---
+
+Stage, inspect, and commit uncommitted app edits with `superplane apps staging`. The subcommands are `update`, `status`, and `commit`. Use this reference when you change `canvas.yaml` or `console.yaml` from the SuperPlane CLI and want to commit those files together. The app name or id is optional on each subcommand when an active app is set with `superplane apps active`.
+
+## Stage files with update
+
+`superplane apps staging update [app]` stages local spec files without committing them. `--file` is required and repeatable. Repeat the flag once per file. The command has no `-f` short flag.
+
+Each `--file` path maps to a repository path by file name only. `./tmp/canvas.yaml` stages as `canvas.yaml`. Only `canvas.yaml` and `console.yaml` can be staged.
+
+Stage both spec files for the active app:
+
+```sh
+superplane apps staging update \
+  --file canvas.yaml \
+  --file console.yaml
+```
+
+## Show staged paths with status
+
+`superplane apps staging status [app]` shows the staged paths. `status` has no local flags.
+
+List staged paths for a named app:
+
+```sh
+superplane apps staging status your_app_name
+```
+
+## Commit staged changes
+
+`superplane apps staging commit [app]` commits the staged edits. Pass `-m` or `--message`. Both names set the same required commit message.
+
+Commit the staged files for the active app:
+
+```sh
+superplane apps staging commit --message "Add incident routing path"
+```
+
+## Discard staged changes
+
+The CLI has no discard command. Discard staged changes with `DELETE /api/v1/canvases/<id>/staging`.

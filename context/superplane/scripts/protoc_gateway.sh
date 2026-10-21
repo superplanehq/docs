@@ -1,0 +1,37 @@
+#!/bin/bash
+
+<< 'DOCS'
+  Generate gRPC-Gateway from internal_api definitions.
+  This script uses the existing HTTP annotations in the proto file.
+DOCS
+
+# When DEBUG env is set - print output of the scripts.
+if [[ -e $DEBUG ]];
+then
+  set -x
+fi
+
+INTERNAL_OUT=pkg/protos
+GATEWAY_OUT=pkg/protos
+MODULE_NAME=github.com/superplanehq/superplane
+MODULES=(${1//,/ })
+PROTO_DIR="protos"
+
+generate_gateway_files() {
+  MODULE=$1
+  FILE=$2
+
+  # Generate gRPC-Gateway code
+  protoc --proto_path $PROTO_DIR/ \
+         --proto_path $PROTO_DIR/include \
+         --grpc-gateway_out=. \
+         --grpc-gateway_opt=logtostderr=true \
+         --grpc-gateway_opt=module=$MODULE_NAME \
+         $FILE
+}
+
+# Main execution
+for MODULE in ${MODULES[@]};
+do
+  generate_gateway_files $MODULE $PROTO_DIR/$MODULE.proto
+done

@@ -1,0 +1,460 @@
+package digitalocean
+
+import (
+	_ "embed"
+	"sync"
+
+	"github.com/superplanehq/superplane/pkg/utils"
+)
+
+//go:embed example_output_create_droplet.json
+var exampleOutputCreateDropletBytes []byte
+
+var exampleOutputCreateDropletOnce sync.Once
+var exampleOutputCreateDroplet map[string]any
+
+func (c *CreateDroplet) ExampleOutput() map[string]any {
+	return utils.UnmarshalEmbeddedJSON(&exampleOutputCreateDropletOnce, exampleOutputCreateDropletBytes, &exampleOutputCreateDroplet)
+}
+
+//go:embed example_output_get_droplet.json
+var exampleOutputGetDropletBytes []byte
+
+var exampleOutputGetDropletOnce sync.Once
+var exampleOutputGetDroplet map[string]any
+
+func (g *GetDroplet) ExampleOutput() map[string]any {
+	return utils.UnmarshalEmbeddedJSON(&exampleOutputGetDropletOnce, exampleOutputGetDropletBytes, &exampleOutputGetDroplet)
+}
+
+//go:embed example_output_delete_droplet.json
+var exampleOutputDeleteDropletBytes []byte
+
+var exampleOutputDeleteDropletOnce sync.Once
+var exampleOutputDeleteDroplet map[string]any
+
+func (d *DeleteDroplet) ExampleOutput() map[string]any {
+	return utils.UnmarshalEmbeddedJSON(&exampleOutputDeleteDropletOnce, exampleOutputDeleteDropletBytes, &exampleOutputDeleteDroplet)
+}
+
+//go:embed example_output_manage_droplet_power.json
+var exampleOutputManageDropletPowerBytes []byte
+
+var exampleOutputManageDropletPowerOnce sync.Once
+var exampleOutputManageDropletPower map[string]any
+
+func (m *ManageDropletPower) ExampleOutput() map[string]any {
+	return utils.UnmarshalEmbeddedJSON(&exampleOutputManageDropletPowerOnce, exampleOutputManageDropletPowerBytes, &exampleOutputManageDropletPower)
+}
+
+//go:embed example_output_create_snapshot.json
+var exampleOutputCreateSnapshotBytes []byte
+
+var exampleOutputCreateSnapshotOnce sync.Once
+var exampleOutputCreateSnapshot map[string]any
+
+func (c *CreateSnapshot) ExampleOutput() map[string]any {
+	return utils.UnmarshalEmbeddedJSON(&exampleOutputCreateSnapshotOnce, exampleOutputCreateSnapshotBytes, &exampleOutputCreateSnapshot)
+}
+
+//go:embed example_output_delete_snapshot.json
+var exampleOutputDeleteSnapshotBytes []byte
+
+var exampleOutputDeleteSnapshotOnce sync.Once
+var exampleOutputDeleteSnapshot map[string]any
+
+func (c *DeleteSnapshot) ExampleOutput() map[string]any {
+	return utils.UnmarshalEmbeddedJSON(&exampleOutputDeleteSnapshotOnce, exampleOutputDeleteSnapshotBytes, &exampleOutputDeleteSnapshot)
+}
+
+//go:embed example_output_create_dns_record.json
+var exampleOutputCreateDNSRecordBytes []byte
+
+var exampleOutputCreateDNSRecordOnce sync.Once
+var exampleOutputCreateDNSRecord map[string]any
+
+func (c *CreateDNSRecord) ExampleOutput() map[string]any {
+	return utils.UnmarshalEmbeddedJSON(&exampleOutputCreateDNSRecordOnce, exampleOutputCreateDNSRecordBytes, &exampleOutputCreateDNSRecord)
+}
+
+//go:embed example_output_delete_dns_record.json
+var exampleOutputDeleteDNSRecordBytes []byte
+
+var exampleOutputDeleteDNSRecordOnce sync.Once
+var exampleOutputDeleteDNSRecord map[string]any
+
+func (d *DeleteDNSRecord) ExampleOutput() map[string]any {
+	return utils.UnmarshalEmbeddedJSON(&exampleOutputDeleteDNSRecordOnce, exampleOutputDeleteDNSRecordBytes, &exampleOutputDeleteDNSRecord)
+}
+
+//go:embed example_output_upsert_dns_record.json
+var exampleOutputUpsertDNSRecordBytes []byte
+
+var exampleOutputUpsertDNSRecordOnce sync.Once
+var exampleOutputUpsertDNSRecord map[string]any
+
+func (u *UpsertDNSRecord) ExampleOutput() map[string]any {
+	return utils.UnmarshalEmbeddedJSON(&exampleOutputUpsertDNSRecordOnce, exampleOutputUpsertDNSRecordBytes, &exampleOutputUpsertDNSRecord)
+}
+
+//go:embed example_output_create_load_balancer.json
+var exampleOutputCreateLoadBalancerBytes []byte
+
+var exampleOutputCreateLoadBalancerOnce sync.Once
+var exampleOutputCreateLoadBalancer map[string]any
+
+func (c *CreateLoadBalancer) ExampleOutput() map[string]any {
+	return utils.UnmarshalEmbeddedJSON(&exampleOutputCreateLoadBalancerOnce, exampleOutputCreateLoadBalancerBytes, &exampleOutputCreateLoadBalancer)
+}
+
+//go:embed example_output_delete_load_balancer.json
+var exampleOutputDeleteLoadBalancerBytes []byte
+
+var exampleOutputDeleteLoadBalancerOnce sync.Once
+var exampleOutputDeleteLoadBalancer map[string]any
+
+func (d *DeleteLoadBalancer) ExampleOutput() map[string]any {
+	return utils.UnmarshalEmbeddedJSON(&exampleOutputDeleteLoadBalancerOnce, exampleOutputDeleteLoadBalancerBytes, &exampleOutputDeleteLoadBalancer)
+}
+
+//go:embed example_output_assign_reserved_ip.json
+var exampleOutputAssignReservedIPBytes []byte
+
+var exampleOutputAssignReservedIPOnce sync.Once
+var exampleOutputAssignReservedIP map[string]any
+
+func (a *AssignReservedIP) ExampleOutput() map[string]any {
+	return utils.UnmarshalEmbeddedJSON(&exampleOutputAssignReservedIPOnce, exampleOutputAssignReservedIPBytes, &exampleOutputAssignReservedIP)
+}
+
+//go:embed example_output_create_alert_policy.json
+var exampleOutputCreateAlertPolicyBytes []byte
+
+var exampleOutputCreateAlertPolicyOnce sync.Once
+var exampleOutputCreateAlertPolicy map[string]any
+
+func (c *CreateAlertPolicy) ExampleOutput() map[string]any {
+	return utils.UnmarshalEmbeddedJSON(&exampleOutputCreateAlertPolicyOnce, exampleOutputCreateAlertPolicyBytes, &exampleOutputCreateAlertPolicy)
+}
+
+//go:embed example_output_get_alert_policy.json
+var exampleOutputGetAlertPolicyBytes []byte
+
+var exampleOutputGetAlertPolicyOnce sync.Once
+var exampleOutputGetAlertPolicy map[string]any
+
+func (g *GetAlertPolicy) ExampleOutput() map[string]any {
+	return utils.UnmarshalEmbeddedJSON(&exampleOutputGetAlertPolicyOnce, exampleOutputGetAlertPolicyBytes, &exampleOutputGetAlertPolicy)
+}
+
+//go:embed example_output_delete_alert_policy.json
+var exampleOutputDeleteAlertPolicyBytes []byte
+
+var exampleOutputDeleteAlertPolicyOnce sync.Once
+var exampleOutputDeleteAlertPolicy map[string]any
+
+func (d *DeleteAlertPolicy) ExampleOutput() map[string]any {
+	return utils.UnmarshalEmbeddedJSON(&exampleOutputDeleteAlertPolicyOnce, exampleOutputDeleteAlertPolicyBytes, &exampleOutputDeleteAlertPolicy)
+}
+
+//go:embed example_output_update_alert_policy.json
+var exampleOutputUpdateAlertPolicyBytes []byte
+
+var exampleOutputUpdateAlertPolicyOnce sync.Once
+var exampleOutputUpdateAlertPolicy map[string]any
+
+func (u *UpdateAlertPolicy) ExampleOutput() map[string]any {
+	return utils.UnmarshalEmbeddedJSON(&exampleOutputUpdateAlertPolicyOnce, exampleOutputUpdateAlertPolicyBytes, &exampleOutputUpdateAlertPolicy)
+}
+
+//go:embed example_output_get_droplet_metrics.json
+var exampleOutputGetDropletMetricsBytes []byte
+
+var exampleOutputGetDropletMetricsOnce sync.Once
+var exampleOutputGetDropletMetrics map[string]any
+
+func (g *GetDropletMetrics) ExampleOutput() map[string]any {
+	return utils.UnmarshalEmbeddedJSON(&exampleOutputGetDropletMetricsOnce, exampleOutputGetDropletMetricsBytes, &exampleOutputGetDropletMetrics)
+}
+
+//go:embed example_output_get_database.json
+var exampleOutputGetDatabaseBytes []byte
+
+var exampleOutputGetDatabaseOnce sync.Once
+var exampleOutputGetDatabase map[string]any
+
+func (g *GetDatabase) ExampleOutput() map[string]any {
+	return utils.UnmarshalEmbeddedJSON(&exampleOutputGetDatabaseOnce, exampleOutputGetDatabaseBytes, &exampleOutputGetDatabase)
+}
+
+//go:embed example_output_get_cluster_configuration.json
+var exampleOutputGetClusterConfigurationBytes []byte
+
+var exampleOutputGetClusterConfigurationOnce sync.Once
+var exampleOutputGetClusterConfiguration map[string]any
+
+func (g *GetClusterConfiguration) ExampleOutput() map[string]any {
+	return utils.UnmarshalEmbeddedJSON(
+		&exampleOutputGetClusterConfigurationOnce,
+		exampleOutputGetClusterConfigurationBytes,
+		&exampleOutputGetClusterConfiguration,
+	)
+}
+
+//go:embed example_output_get_object.json
+var exampleOutputGetObjectBytes []byte
+
+var exampleOutputGetObjectOnce sync.Once
+var exampleOutputGetObject map[string]any
+
+func (g *GetObject) ExampleOutput() map[string]any {
+	return utils.UnmarshalEmbeddedJSON(&exampleOutputGetObjectOnce, exampleOutputGetObjectBytes, &exampleOutputGetObject)
+}
+
+//go:embed example_output_copy_object.json
+var exampleOutputCopyObjectBytes []byte
+
+var exampleOutputCopyObjectOnce sync.Once
+var exampleOutputCopyObject map[string]any
+
+func (c *CopyObject) ExampleOutput() map[string]any {
+	return utils.UnmarshalEmbeddedJSON(&exampleOutputCopyObjectOnce, exampleOutputCopyObjectBytes, &exampleOutputCopyObject)
+}
+
+//go:embed example_output_delete_object.json
+var exampleOutputDeleteObjectBytes []byte
+
+var exampleOutputDeleteObjectOnce sync.Once
+var exampleOutputDeleteObject map[string]any
+
+func (d *DeleteObject) ExampleOutput() map[string]any {
+	return utils.UnmarshalEmbeddedJSON(&exampleOutputDeleteObjectOnce, exampleOutputDeleteObjectBytes, &exampleOutputDeleteObject)
+}
+
+//go:embed example_output_put_object.json
+var exampleOutputPutObjectBytes []byte
+
+var exampleOutputPutObjectOnce sync.Once
+var exampleOutputPutObject map[string]any
+
+func (p *PutObject) ExampleOutput() map[string]any {
+	return utils.UnmarshalEmbeddedJSON(&exampleOutputPutObjectOnce, exampleOutputPutObjectBytes, &exampleOutputPutObject)
+}
+
+//go:embed example_output_create_app.json
+var exampleOutputCreateAppBytes []byte
+
+var exampleOutputCreateAppOnce sync.Once
+var exampleOutputCreateApp map[string]any
+
+func (c *CreateApp) ExampleOutput() map[string]any {
+	return utils.UnmarshalEmbeddedJSON(&exampleOutputCreateAppOnce, exampleOutputCreateAppBytes, &exampleOutputCreateApp)
+}
+
+//go:embed example_output_create_database.json
+var exampleOutputCreateDatabaseBytes []byte
+
+var exampleOutputCreateDatabaseOnce sync.Once
+var exampleOutputCreateDatabase map[string]any
+
+func (c *CreateDatabase) ExampleOutput() map[string]any {
+	return utils.UnmarshalEmbeddedJSON(&exampleOutputCreateDatabaseOnce, exampleOutputCreateDatabaseBytes, &exampleOutputCreateDatabase)
+}
+
+//go:embed example_output_create_database_cluster.json
+var exampleOutputCreateDatabaseClusterBytes []byte
+
+var exampleOutputCreateDatabaseClusterOnce sync.Once
+var exampleOutputCreateDatabaseCluster map[string]any
+
+func (c *CreateDatabaseCluster) ExampleOutput() map[string]any {
+	return utils.UnmarshalEmbeddedJSON(
+		&exampleOutputCreateDatabaseClusterOnce,
+		exampleOutputCreateDatabaseClusterBytes,
+		&exampleOutputCreateDatabaseCluster,
+	)
+}
+
+//go:embed example_output_get_app.json
+var exampleOutputGetAppBytes []byte
+
+var exampleOutputGetAppOnce sync.Once
+var exampleOutputGetApp map[string]any
+
+func (g *GetApp) ExampleOutput() map[string]any {
+	return utils.UnmarshalEmbeddedJSON(&exampleOutputGetAppOnce, exampleOutputGetAppBytes, &exampleOutputGetApp)
+}
+
+//go:embed example_output_get_database_cluster.json
+var exampleOutputGetDatabaseClusterBytes []byte
+
+var exampleOutputGetDatabaseClusterOnce sync.Once
+var exampleOutputGetDatabaseCluster map[string]any
+
+func (g *GetDatabaseCluster) ExampleOutput() map[string]any {
+	return utils.UnmarshalEmbeddedJSON(
+		&exampleOutputGetDatabaseClusterOnce,
+		exampleOutputGetDatabaseClusterBytes,
+		&exampleOutputGetDatabaseCluster,
+	)
+}
+
+//go:embed example_output_delete_app.json
+var exampleOutputDeleteAppBytes []byte
+
+var exampleOutputDeleteAppOnce sync.Once
+var exampleOutputDeleteApp map[string]any
+
+func (d *DeleteApp) ExampleOutput() map[string]any {
+	return utils.UnmarshalEmbeddedJSON(&exampleOutputDeleteAppOnce, exampleOutputDeleteAppBytes, &exampleOutputDeleteApp)
+}
+
+//go:embed example_output_delete_database.json
+var exampleOutputDeleteDatabaseBytes []byte
+
+var exampleOutputDeleteDatabaseOnce sync.Once
+var exampleOutputDeleteDatabase map[string]any
+
+func (d *DeleteDatabase) ExampleOutput() map[string]any {
+	return utils.UnmarshalEmbeddedJSON(&exampleOutputDeleteDatabaseOnce, exampleOutputDeleteDatabaseBytes, &exampleOutputDeleteDatabase)
+}
+
+//go:embed example_output_update_app.json
+var exampleOutputUpdateAppBytes []byte
+
+var exampleOutputUpdateAppOnce sync.Once
+var exampleOutputUpdateApp map[string]any
+
+func (u *UpdateApp) ExampleOutput() map[string]any {
+	return utils.UnmarshalEmbeddedJSON(&exampleOutputUpdateAppOnce, exampleOutputUpdateAppBytes, &exampleOutputUpdateApp)
+}
+
+//go:embed example_output_get_knowledge_base.json
+var exampleOutputGetKnowledgeBaseBytes []byte
+
+var exampleOutputGetKnowledgeBaseOnce sync.Once
+var exampleOutputGetKnowledgeBase map[string]any
+
+func (g *GetKnowledgeBase) ExampleOutput() map[string]any {
+	return utils.UnmarshalEmbeddedJSON(&exampleOutputGetKnowledgeBaseOnce, exampleOutputGetKnowledgeBaseBytes, &exampleOutputGetKnowledgeBase)
+}
+
+//go:embed example_output_add_data_source.json
+var exampleOutputAddDataSourceBytes []byte
+
+var exampleOutputAddDataSourceOnce sync.Once
+var exampleOutputAddDataSource map[string]any
+
+func (a *AddDataSource) ExampleOutput() map[string]any {
+	return utils.UnmarshalEmbeddedJSON(&exampleOutputAddDataSourceOnce, exampleOutputAddDataSourceBytes, &exampleOutputAddDataSource)
+}
+
+//go:embed example_output_delete_data_source.json
+var exampleOutputDeleteDataSourceBytes []byte
+
+var exampleOutputDeleteDataSourceOnce sync.Once
+var exampleOutputDeleteDataSource map[string]any
+
+func (d *DeleteDataSource) ExampleOutput() map[string]any {
+	return utils.UnmarshalEmbeddedJSON(&exampleOutputDeleteDataSourceOnce, exampleOutputDeleteDataSourceBytes, &exampleOutputDeleteDataSource)
+}
+
+//go:embed example_output_index_knowledge_base.json
+var exampleOutputIndexKnowledgeBaseBytes []byte
+
+var exampleOutputIndexKnowledgeBaseOnce sync.Once
+var exampleOutputIndexKnowledgeBase map[string]any
+
+func (i *IndexKnowledgeBase) ExampleOutput() map[string]any {
+	return utils.UnmarshalEmbeddedJSON(&exampleOutputIndexKnowledgeBaseOnce, exampleOutputIndexKnowledgeBaseBytes, &exampleOutputIndexKnowledgeBase)
+}
+
+//go:embed example_output_create_knowledge_base.json
+var exampleOutputCreateKnowledgeBaseBytes []byte
+
+var exampleOutputCreateKnowledgeBaseOnce sync.Once
+var exampleOutputCreateKnowledgeBase map[string]any
+
+func (c *CreateKnowledgeBase) ExampleOutput() map[string]any {
+	return utils.UnmarshalEmbeddedJSON(&exampleOutputCreateKnowledgeBaseOnce, exampleOutputCreateKnowledgeBaseBytes, &exampleOutputCreateKnowledgeBase)
+}
+
+//go:embed example_output_attach_knowledge_base.json
+var exampleOutputAttachKnowledgeBaseBytes []byte
+
+var exampleOutputAttachKnowledgeBaseOnce sync.Once
+var exampleOutputAttachKnowledgeBase map[string]any
+
+func (a *AttachKnowledgeBase) ExampleOutput() map[string]any {
+	return utils.UnmarshalEmbeddedJSON(&exampleOutputAttachKnowledgeBaseOnce, exampleOutputAttachKnowledgeBaseBytes, &exampleOutputAttachKnowledgeBase)
+}
+
+//go:embed example_output_detach_knowledge_base.json
+var exampleOutputDetachKnowledgeBaseBytes []byte
+
+var exampleOutputDetachKnowledgeBaseOnce sync.Once
+var exampleOutputDetachKnowledgeBase map[string]any
+
+func (d *DetachKnowledgeBase) ExampleOutput() map[string]any {
+	return utils.UnmarshalEmbeddedJSON(&exampleOutputDetachKnowledgeBaseOnce, exampleOutputDetachKnowledgeBaseBytes, &exampleOutputDetachKnowledgeBase)
+}
+
+//go:embed example_output_delete_knowledge_base.json
+var exampleOutputDeleteKnowledgeBaseBytes []byte
+
+var exampleOutputDeleteKnowledgeBaseOnce sync.Once
+var exampleOutputDeleteKnowledgeBase map[string]any
+
+func (d *DeleteKnowledgeBase) ExampleOutput() map[string]any {
+	return utils.UnmarshalEmbeddedJSON(&exampleOutputDeleteKnowledgeBaseOnce, exampleOutputDeleteKnowledgeBaseBytes, &exampleOutputDeleteKnowledgeBase)
+}
+
+//go:embed example_output_run_evaluation.json
+var exampleOutputRunEvaluationBytes []byte
+
+var exampleOutputRunEvaluationOnce sync.Once
+var exampleOutputRunEvaluation map[string]any
+
+func (r *RunEvaluation) ExampleOutput() map[string]any {
+	return utils.UnmarshalEmbeddedJSON(&exampleOutputRunEvaluationOnce, exampleOutputRunEvaluationBytes, &exampleOutputRunEvaluation)
+}
+
+//go:embed example_output_create_gpu_droplet.json
+var exampleOutputCreateGPUDropletBytes []byte
+
+var exampleOutputCreateGPUDropletOnce sync.Once
+var exampleOutputCreateGPUDroplet map[string]any
+
+func (c *CreateGPUDroplet) ExampleOutput() map[string]any {
+	return utils.UnmarshalEmbeddedJSON(&exampleOutputCreateGPUDropletOnce, exampleOutputCreateGPUDropletBytes, &exampleOutputCreateGPUDroplet)
+}
+
+//go:embed example_output_get_gpu_droplet.json
+var exampleOutputGetGPUDropletBytes []byte
+
+var exampleOutputGetGPUDropletOnce sync.Once
+var exampleOutputGetGPUDroplet map[string]any
+
+func (g *GetGPUDroplet) ExampleOutput() map[string]any {
+	return utils.UnmarshalEmbeddedJSON(&exampleOutputGetGPUDropletOnce, exampleOutputGetGPUDropletBytes, &exampleOutputGetGPUDroplet)
+}
+
+//go:embed example_output_update_gpu_droplet.json
+var exampleOutputUpdateGPUDropletBytes []byte
+
+var exampleOutputUpdateGPUDropletOnce sync.Once
+var exampleOutputUpdateGPUDroplet map[string]any
+
+func (u *UpdateGPUDroplet) ExampleOutput() map[string]any {
+	return utils.UnmarshalEmbeddedJSON(&exampleOutputUpdateGPUDropletOnce, exampleOutputUpdateGPUDropletBytes, &exampleOutputUpdateGPUDroplet)
+}
+
+//go:embed example_output_delete_gpu_droplet.json
+var exampleOutputDeleteGPUDropletBytes []byte
+
+var exampleOutputDeleteGPUDropletOnce sync.Once
+var exampleOutputDeleteGPUDroplet map[string]any
+
+func (d *DeleteGPUDroplet) ExampleOutput() map[string]any {
+	return utils.UnmarshalEmbeddedJSON(&exampleOutputDeleteGPUDropletOnce, exampleOutputDeleteGPUDropletBytes, &exampleOutputDeleteGPUDroplet)
+}

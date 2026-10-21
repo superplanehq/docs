@@ -1,0 +1,148 @@
+import { describe, expect, it } from "bun:test";
+import type { SuperplaneComponentsNode, TriggersTrigger } from "@/api-client";
+import { evaluateExpr } from "@/lib/exprEvaluator";
+import { buildAutocompleteExampleObj, type AutocompleteExampleContext } from "./buildAutocompleteExampleObj";
+
+const triggerNode: SuperplaneComponentsNode = {
+  id: "trigger-1",
+  name: "GitHub Check Run",
+  type: "TYPE_TRIGGER",
+  component: "github.onCheckRun",
+};
+
+const triggerMetadata: TriggersTrigger = {
+  name: "github.onCheckRun",
+  label: "Check Run",
+  exampleData: {
+    type: "github.checkRun",
+    timestamp: "2026-06-12T08:00:00Z",
+    data: {
+      check_run: {
+        name: "DCO",
+        conclusion: "success",
+        head_sha: "d6f3c8a2e8b7f0a9c0a1f67f0c5d7b2a1d9e3f44",
+      },
+    },
+  },
+};
+
+function makeContext(overrides: Partial<AutocompleteExampleContext>): AutocompleteExampleContext {
+  return {
+    canvasNodes: [],
+    canvasNodesById: new Map(),
+    incomingNodeIdsByTargetId: new Map(),
+    visibleNodeExecutionsMap: {},
+    visibleNodeEventsMap: {},
+    allComponentsByName: new Map(),
+    allTriggersByName: new Map(),
+    ...overrides,
+  };
+}
+
+describe("buildAutocompleteExampleObj", () => {
+  it("keeps root context when editing a trigger without upstream nodes", () => {
+    const autocompleteContext = buildAutocompleteExampleObj(
+      triggerNode.id!,
+      makeContext({
+        canvasNodes: [triggerNode],
+        canvasNodesById: new Map([[triggerNode.id!, triggerNode]]),
+        allTriggersByName: new Map([[triggerMetadata.name, triggerMetadata]]),
+      }),
+    );
+
+    expect(autocompleteContext).toEqual({
+      __root: triggerMetadata.exampleData,
+      __app: expect.objectContaining({
+        id: expect.any(String),
+        name: "Example App",
+        description: "",
+        url: expect.any(String),
+      }),
+      __run: expect.objectContaining({
+        id: "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+        url: expect.stringContaining("?run=f47ac10b-58cc-4372-a567-0e02b2c3d479"),
+        started_at: expect.any(String),
+      }),
+      __order: expect.objectContaining({
+        id: expect.any(String),
+        title: "Ship feature",
+        artifacts: expect.any(Array),
+        comments: expect.any(Array),
+      }),
+      __workspace: expect.objectContaining({
+        id: expect.any(String),
+        name: "Example workspace",
+        repository: "acme/service",
+        default_branch: "main",
+      }),
+    });
+    expect(
+      evaluateExpr(
+        "root().data.check_run.name + ' ' + root().data.check_run.conclusion + ' - ' + root().data.check_run.head_sha[:7]",
+        autocompleteContext!,
+      ),
+    ).toBe("DCO success - d6f3c8a");
+  });
+
+  it("uses the latest trigger event before falling back to example data", () => {
+    const latestEventData = {
+      type: "github.checkRun",
+      timestamp: "2026-06-12T09:00:00Z",
+      data: {
+        check_run: {
+          name: "Unit tests",
+          conclusion: "failure",
+          head_sha: "abcdef1234567890",
+        },
+      },
+    };
+
+    const autocompleteContext = buildAutocompleteExampleObj(
+      triggerNode.id!,
+      makeContext({
+        canvasNodes: [triggerNode],
+        canvasNodesById: new Map([[triggerNode.id!, triggerNode]]),
+        visibleNodeEventsMap: {
+          [triggerNode.id!]: [{ data: latestEventData }],
+        },
+        allTriggersByName: new Map([[triggerMetadata.name, triggerMetadata]]),
+        app: {
+          id: "canvas-1",
+          name: "Deploy",
+          description: "Production deploy",
+        },
+      }),
+    );
+
+    expect(autocompleteContext).toEqual({
+      __root: latestEventData,
+      __app: expect.objectContaining({
+        id: "canvas-1",
+        name: "Deploy",
+        description: "Production deploy",
+        url: expect.any(String),
+      }),
+      __run: expect.objectContaining({
+        id: "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+        url: expect.stringContaining("?run=f47ac10b-58cc-4372-a567-0e02b2c3d479"),
+        started_at: expect.any(String),
+      }),
+      __order: expect.objectContaining({
+        id: expect.any(String),
+        title: "Ship feature",
+        artifacts: expect.any(Array),
+        comments: expect.any(Array),
+      }),
+      __workspace: expect.objectContaining({
+        id: expect.any(String),
+        name: "Example workspace",
+        repository: "acme/service",
+        default_branch: "main",
+      }),
+    });
+    expect(evaluateExpr("root().data.check_run.name", autocompleteContext!)).toBe("Unit tests");
+    expect(evaluateExpr("app().name", autocompleteContext!)).toBe("Deploy");
+    expect(evaluateExpr("order().title", autocompleteContext!)).toBe("Ship feature");
+    expect(evaluateExpr("task().title", autocompleteContext!)).toBe("Ship feature");
+  });
+});

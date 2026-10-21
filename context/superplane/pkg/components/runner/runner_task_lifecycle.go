@@ -1,0 +1,293 @@
+package runner
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"strings"
+	"time"
+
+	log "github.com/sirupsen/logrus"
+	"github.com/superplanehq/superplane/pkg/core"
+)
+
+const executionKVTaskBackend = "runner_task_backend"
+
+func afterRunnerTaskCreated(ctx core.ExecutionContext, taskID, backend string) error {
+	backend = normalizeTaskBackend(backend)
+	if err := ctx.ExecutionState.SetKV("task_id", taskID); err != nil {
+		return fmt.Errorf("set task id in kv: %w", err)
+	}
+	if err := ctx.ExecutionState.SetKV(executionKVTaskBackend, backend); err != nil {
+		return fmt.Errorf("set runner task backend in kv: %w", err)
+	}
+	if err := storeRunnerFleetKV(ctx, "", backend); err != nil {
+		return fmt.Errorf("set runner fleet kv: %w", err)
+	}
+	if err := mergeRunnerBrokerTaskID(ctx.Metadata, taskID); err != nil {
+		return fmt.Errorf("runner execution metadata: %w", err)
+	}
+	if err := mergeRunnerTaskBackend(ctx.Metadata, backend); err != nil {
+		return fmt.Errorf("runner task backend metadata: %w", err)
+	}
+	return scheduleBrokerPoll(ctx.Requests, taskID, ctx.OrganizationID)
+}
+
+func pollBrokerTask(ctx core.ActionHookContext, finishedEventType string) error {
+	taskID, ok := ctx.Parameters["task_id"].(string)
+	if !ok || strings.TrimSpace(taskID) == "" {
+		if ctx.ExecutionState.IsFinished() {
+			revokeOpenRouterChildKeyOrReschedule(ctx)
+			return nil
+		}
+		return fmt.Errorf("task_id is missing from parameters")
+	}
+	organizationID, _ := ctx.Parameters["organization_id"].(string)
+
+	client, err := taskClientForBackend(
+		taskBackendFromState(ctx.ExecutionState),
+		ctx.HTTP,
+		ctx.RunnerTasks,
+	)
+	if err != nil {
+		if ctx.ExecutionState.IsFinished() {
+			revokeOpenRouterChildKeyOrReschedule(ctx)
+			return nil
+		}
+		return fmt.Errorf("new broker client: %w", err)
+	}
+
+	task, err := client.FetchTaskStatus(taskID)
+	if err != nil {
+		if ctx.Logger != nil {
+			ctx.Logger.WithError(err).Warn("runner: broker poll failed, will retry")
+		}
+		if ctx.ExecutionState.IsFinished() {
+			revokeOpenRouterChildKeyOrReschedule(ctx)
+		}
+		return scheduleBrokerPoll(ctx.Requests, taskID, organizationID)
+	}
+
+	sink := taskLogFromBrokerTask(task)
+	if err := mergeRunnerTaskLog(ctx.Metadata, taskID, sink); err != nil && ctx.Logger != nil {
+		ctx.Logger.WithError(err).Warn("runner: execution metadata update failed")
+	}
+
+	if task.IsInTerminalState() {
+		err := processBrokerTaskStatus(ctx.ExecutionState, task, finishedEventType, organizationID, ctx.Logger, ctx.Usage, ctx.Configuration)
+		revokeOpenRouterChildKeyOrReschedule(ctx)
+		return err
+	}
+
+	if ctx.ExecutionState.IsFinished() {
+		revokeOpenRouterChildKeyOrReschedule(ctx)
+	}
+	return scheduleBrokerPoll(ctx.Requests, taskID, organizationID)
+}
+
+func handleBrokerWebhook(ctx core.WebhookRequestContext, finishedEventType string) (int, *core.WebhookResponseBody, error) {
+	broker, err := NewBrokerClient(ctx.HTTP)
+	if err != nil {
+		return http.StatusInternalServerError, nil, fmt.Errorf("new broker client: %w", err)
+	}
+
+	var raw map[string]any
+	if err := json.Unmarshal(ctx.Body, &raw); err != nil {
+		raw = nil
+	}
+
+	task, err := broker.ProcessWebhook(ctx.Body)
+	if err != nil {
+		return http.StatusInternalServerError, nil, fmt.Errorf("process webhook: %w", err)
+	}
+
+	if !task.IsInTerminalState() {
+		ctx.Logger.Warn("runner: broker webhook received non-terminal state")
+	}
+
+	taskID := task.brokerTaskID()
+	executionCtx, err := ctx.FindExecutionByKV("task_id", taskID)
+	if err != nil {
+		return http.StatusNotFound, nil, nil
+	}
+
+	sink := taskLogFromBrokerTask(task)
+	if sink == nil {
+		sink = taskLogFromRawWebhook(raw)
+	}
+	if executionCtx.Metadata != nil {
+		if err := mergeRunnerTaskLog(executionCtx.Metadata, taskID, sink); err != nil {
+			ctx.Logger.WithError(err).Warn("runner: execution metadata update failed")
+		}
+	}
+
+	if err := processBrokerTaskStatus(executionCtx.ExecutionState, task, finishedEventType, executionCtx.OrganizationID, ctx.Logger, executionCtx.Usage, executionCtx.Configuration); err != nil {
+		_ = revokeOpenRouterChildKey(executionCtx.HTTP, executionCtx.ExecutionState, executionCtx.HostedLLM, ctx.Logger)
+		return http.StatusInternalServerError, nil, fmt.Errorf("process task status: %w", err)
+	}
+	_ = revokeOpenRouterChildKey(executionCtx.HTTP, executionCtx.ExecutionState, executionCtx.HostedLLM, ctx.Logger)
+
+	return http.StatusOK, nil, nil
+}
+
+func processBrokerTaskStatus(
+	state core.ExecutionStateContext,
+	task *Task,
+	finishedEventType string,
+	organizationID string,
+	logger *log.Entry,
+	usage core.UsageRecorder,
+	configuration any,
+) error {
+	if !task.IsInTerminalState() {
+		if state.IsFinished() {
+			return nil
+		}
+		return fmt.Errorf("task is not in terminal state")
+	}
+
+	// Persist spend when the broker reports a terminal task after SuperPlane
+	// already finished the node. A late webhook still carries billed tokens.
+	RecordRunnerLLMUsage(usage, logger, finishedEventType, configuration, task.Result)
+	RecordRunnerComputeUsage(usage, logger, state, configuration, task)
+
+	if state.IsFinished() {
+		return nil
+	}
+
+	if brokerTaskCanceled(task) && isAnalysisSessionExecution(state) {
+		return state.Cancel()
+	}
+
+	channel := FailedOutputChannel
+	if strings.ToLower(strings.TrimSpace(task.Status)) == "succeeded" && task.effectiveExitCode() == 0 {
+		channel = PassedOutputChannel
+	}
+
+	out := map[string]any{"status": task.Status, "exit_code": task.effectiveExitCode()}
+	if errMsg := strings.TrimSpace(task.Error); errMsg != "" {
+		out["error"] = errMsg
+	}
+	if v := brokerResultAsAny(task.Result); v != nil {
+		out["result"] = v
+	}
+	return state.Emit(channel, finishedEventType, []any{out})
+}
+
+func brokerTaskCanceled(task *Task) bool {
+	return strings.EqualFold(strings.TrimSpace(task.Status), "canceled")
+}
+
+func markAnalysisSession(state core.ExecutionStateContext) {
+	if state == nil {
+		return
+	}
+	_ = state.SetKV(executionKVAnalysisSession, "true")
+}
+
+func isAnalysisSessionExecution(state core.ExecutionStateContext) bool {
+	return executionKV(state, executionKVAnalysisSession) == "true"
+}
+
+// billableSeconds rounds a task duration up to the next whole second. Clock skew
+// between the runner and the broker can put finished_at before claimed_at, so
+// non-positive durations bill nothing rather than rounding up to one second.
+func billableSeconds(duration time.Duration) int64 {
+	if duration <= 0 {
+		return 0
+	}
+
+	seconds := int64(duration / time.Second)
+	if duration%time.Second != 0 {
+		seconds++
+	}
+	return seconds
+}
+
+func cancelBrokerTask(ctx core.ExecutionContext, finishedEventType string) error {
+	if ctx.ExecutionState.IsFinished() {
+		_ = revokeOpenRouterChildKey(ctx.HTTP, ctx.ExecutionState, ctx.HostedLLM, ctx.Logger)
+		return nil
+	}
+
+	taskID, err := ctx.ExecutionState.GetKV("task_id")
+	if err != nil {
+		if errors.Is(err, core.ErrExecutionKVNotFound) {
+			_ = revokeOpenRouterChildKey(ctx.HTTP, ctx.ExecutionState, ctx.HostedLLM, ctx.Logger)
+			return nil
+		}
+		return fmt.Errorf("get task_id kv: %w", err)
+	}
+
+	client, err := taskClientForBackend(
+		taskBackendFromState(ctx.ExecutionState),
+		ctx.HTTP,
+		ctx.RunnerTasks,
+	)
+	if err != nil {
+		return err
+	}
+
+	if err := client.CancelTask(taskID); err != nil {
+		return fmt.Errorf("cancel task: %w", err)
+	}
+
+	if err := recordTerminalBrokerUsage(ctx, client, taskID, finishedEventType); err != nil {
+		_ = revokeOpenRouterChildKey(ctx.HTTP, ctx.ExecutionState, ctx.HostedLLM, ctx.Logger)
+		return err
+	}
+
+	_ = revokeOpenRouterChildKey(ctx.HTTP, ctx.ExecutionState, ctx.HostedLLM, ctx.Logger)
+	return nil
+}
+
+func recordTerminalBrokerUsage(ctx core.ExecutionContext, client TaskClient, taskID, finishedEventType string) error {
+	task, err := client.FetchTaskStatus(taskID)
+	if err != nil {
+		if ctx.Logger != nil {
+			ctx.Logger.WithError(err).Warn("runner: fetch after cancel failed")
+		}
+		return scheduleBrokerPollAfterCancel(ctx, taskID)
+	}
+	if !task.IsInTerminalState() {
+		return scheduleBrokerPollAfterCancel(ctx, taskID)
+	}
+	return processBrokerTaskStatus(
+		ctx.ExecutionState,
+		task,
+		finishedEventType,
+		ctx.OrganizationID,
+		ctx.Logger,
+		ctx.Usage,
+		ctx.Configuration,
+	)
+}
+
+func taskBackendFromState(state core.ExecutionStateContext) string {
+	if state == nil {
+		return core.RunnerTaskBackendLegacy
+	}
+	backend, err := state.GetKV(executionKVTaskBackend)
+	if err != nil {
+		return core.RunnerTaskBackendLegacy
+	}
+	return normalizeTaskBackend(backend)
+}
+
+func scheduleBrokerPoll(requests core.RequestContext, taskID, organizationID string) error {
+	if requests == nil {
+		return nil
+	}
+	return requests.ScheduleActionCall(hookActionPoll, map[string]any{
+		"task_id":         taskID,
+		"organization_id": organizationID,
+	}, pollInterval)
+}
+
+func scheduleBrokerPollAfterCancel(ctx core.ExecutionContext, taskID string) error {
+	if err := scheduleBrokerPoll(ctx.Requests, taskID, ctx.OrganizationID); err != nil && ctx.Logger != nil {
+		ctx.Logger.WithError(err).Warn("runner: failed to schedule poll after cancel")
+	}
+	return nil
+}

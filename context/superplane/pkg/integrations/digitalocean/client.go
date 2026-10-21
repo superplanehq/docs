@@ -1,0 +1,3376 @@
+package digitalocean
+
+import (
+	"bytes"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/json"
+	"encoding/xml"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"path"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/mitchellh/mapstructure"
+	"github.com/superplanehq/superplane/pkg/core"
+)
+
+const baseURL = "https://api.digitalocean.com/v2"
+
+type Client struct {
+	Token   string
+	http    core.HTTPContext
+	BaseURL string
+}
+
+type DOAPIError struct {
+	StatusCode int
+	Body       []byte
+}
+
+func (e *DOAPIError) Error() string {
+	return fmt.Sprintf("request got %d code: %s", e.StatusCode, string(e.Body))
+}
+
+func NewClient(http core.HTTPContext, ctx core.IntegrationContext) (*Client, error) {
+	apiToken, err := ctx.GetConfig("apiToken")
+	if err != nil {
+		return nil, fmt.Errorf("error finding API token: %v", err)
+	}
+
+	return &Client{
+		Token:   string(apiToken),
+		http:    http,
+		BaseURL: baseURL,
+	}, nil
+}
+
+func (c *Client) execRequest(method, url string, body io.Reader) ([]byte, error) {
+	req, err := http.NewRequest(method, url, body)
+	if err != nil {
+		return nil, fmt.Errorf("error building request: %v", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.Token))
+
+	res, err := c.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("error executing request: %v", err)
+	}
+	defer res.Body.Close()
+
+	responseBody, err := io.ReadAll(res.Body)
+	if err != nil {
+		return nil, fmt.Errorf("error reading body: %v", err)
+	}
+
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		return nil, &DOAPIError{
+			StatusCode: res.StatusCode,
+			Body:       responseBody,
+		}
+	}
+
+	return responseBody, nil
+}
+
+// Account represents a DigitalOcean account
+type Account struct {
+	Email        string `json:"email"`
+	UUID         string `json:"uuid"`
+	Status       string `json:"status"`
+	DropletLimit int    `json:"droplet_limit"`
+}
+
+// GetAccount validates the API token by fetching account info
+func (c *Client) GetAccount() (*Account, error) {
+	url := fmt.Sprintf("%s/account", c.BaseURL)
+	responseBody, err := c.execRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var response struct {
+		Account Account `json:"account"`
+	}
+
+	if err := json.Unmarshal(responseBody, &response); err != nil {
+		return nil, fmt.Errorf("error parsing response: %v", err)
+	}
+
+	return &response.Account, nil
+}
+
+// Region represents a DigitalOcean region
+type Region struct {
+	Slug      string   `json:"slug"`
+	Name      string   `json:"name"`
+	Sizes     []string `json:"sizes"`
+	Available bool     `json:"available"`
+}
+
+// ListRegions retrieves all available regions
+func (c *Client) ListRegions() ([]Region, error) {
+	url := fmt.Sprintf("%s/regions", c.BaseURL)
+	responseBody, err := c.execRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var response struct {
+		Regions []Region `json:"regions"`
+	}
+
+	if err := json.Unmarshal(responseBody, &response); err != nil {
+		return nil, fmt.Errorf("error parsing response: %v", err)
+	}
+
+	return response.Regions, nil
+}
+
+// Size represents a DigitalOcean droplet size
+type Size struct {
+	Slug         string  `json:"slug"`
+	Memory       int     `json:"memory"`
+	VCPUs        int     `json:"vcpus"`
+	Disk         int     `json:"disk"`
+	PriceMonthly float64 `json:"price_monthly"`
+	Description  string  `json:"description"`
+	Available    bool    `json:"available"`
+}
+
+// ListSizes retrieves all available droplet sizes
+func (c *Client) ListSizes() ([]Size, error) {
+	url := fmt.Sprintf("%s/sizes?per_page=200", c.BaseURL)
+	responseBody, err := c.execRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var response struct {
+		Sizes []Size `json:"sizes"`
+	}
+
+	if err := json.Unmarshal(responseBody, &response); err != nil {
+		return nil, fmt.Errorf("error parsing response: %v", err)
+	}
+
+	return response.Sizes, nil
+}
+
+// SSHKey represents a DigitalOcean SSH key
+type SSHKey struct {
+	ID          int    `json:"id"`
+	Fingerprint string `json:"fingerprint"`
+	Name        string `json:"name"`
+}
+
+// ListSSHKeys retrieves all SSH keys on the account
+func (c *Client) ListSSHKeys() ([]SSHKey, error) {
+	url := fmt.Sprintf("%s/account/keys?per_page=200", c.BaseURL)
+	responseBody, err := c.execRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var response struct {
+		SSHKeys []SSHKey `json:"ssh_keys"`
+	}
+
+	if err := json.Unmarshal(responseBody, &response); err != nil {
+		return nil, fmt.Errorf("error parsing response: %v", err)
+	}
+
+	return response.SSHKeys, nil
+}
+
+// Image represents a DigitalOcean image
+type Image struct {
+	ID           int    `json:"id"`
+	Name         string `json:"name"`
+	Slug         string `json:"slug"`
+	Type         string `json:"type"`
+	Distribution string `json:"distribution"`
+}
+
+// ListImages retrieves images of a given type (e.g., "distribution")
+func (c *Client) ListImages(imageType string) ([]Image, error) {
+	url := fmt.Sprintf("%s/images?type=%s&per_page=200", c.BaseURL, imageType)
+	responseBody, err := c.execRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var response struct {
+		Images []Image `json:"images"`
+	}
+
+	if err := json.Unmarshal(responseBody, &response); err != nil {
+		return nil, fmt.Errorf("error parsing response: %v", err)
+	}
+
+	return response.Images, nil
+}
+
+// CreateDropletRequest is the payload for creating a droplet
+type CreateDropletRequest struct {
+	Name       string   `json:"name"`
+	Region     string   `json:"region"`
+	Size       string   `json:"size"`
+	Image      string   `json:"image"`
+	SSHKeys    []string `json:"ssh_keys,omitempty"`
+	Tags       []string `json:"tags,omitempty"`
+	UserData   string   `json:"user_data,omitempty"`
+	Backups    bool     `json:"backups,omitempty"`
+	IPv6       bool     `json:"ipv6,omitempty"`
+	Monitoring bool     `json:"monitoring,omitempty"`
+	VpcUUID    string   `json:"vpc_uuid,omitempty"`
+}
+
+// Droplet represents a DigitalOcean droplet
+type Droplet struct {
+	ID       int             `json:"id"`
+	Name     string          `json:"name"`
+	Memory   int             `json:"memory"`
+	VCPUs    int             `json:"vcpus"`
+	Disk     int             `json:"disk"`
+	Status   string          `json:"status"`
+	Region   DropletRegion   `json:"region"`
+	Image    DropletImage    `json:"image"`
+	SizeSlug string          `json:"size_slug"`
+	Networks DropletNetworks `json:"networks"`
+	Tags     []string        `json:"tags"`
+	Features []string        `json:"features"`
+}
+
+type DropletRegion struct {
+	Name string `json:"name"`
+	Slug string `json:"slug"`
+}
+
+type DropletImage struct {
+	ID   int    `json:"id"`
+	Name string `json:"name"`
+	Slug string `json:"slug"`
+}
+
+type DropletNetworks struct {
+	V4 []DropletNetworkV4 `json:"v4"`
+}
+
+type DropletNetworkV4 struct {
+	IPAddress string `json:"ip_address"`
+	Type      string `json:"type"`
+}
+
+// CreateDroplet creates a new droplet
+func (c *Client) CreateDroplet(req CreateDropletRequest) (*Droplet, error) {
+	url := fmt.Sprintf("%s/droplets", c.BaseURL)
+
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling request: %v", err)
+	}
+
+	responseBody, err := c.execRequest(http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+
+	var response struct {
+		Droplet Droplet `json:"droplet"`
+	}
+
+	if err := json.Unmarshal(responseBody, &response); err != nil {
+		return nil, fmt.Errorf("error parsing response: %v", err)
+	}
+
+	return &response.Droplet, nil
+}
+
+// GetDroplet retrieves a droplet by its ID
+func (c *Client) GetDroplet(dropletID int) (*Droplet, error) {
+	url := fmt.Sprintf("%s/droplets/%d", c.BaseURL, dropletID)
+	responseBody, err := c.execRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var response struct {
+		Droplet Droplet `json:"droplet"`
+	}
+
+	if err := json.Unmarshal(responseBody, &response); err != nil {
+		return nil, fmt.Errorf("error parsing response: %v", err)
+	}
+
+	return &response.Droplet, nil
+}
+
+// DOAction represents a DigitalOcean action
+type DOAction struct {
+	ID           int    `json:"id"`
+	Status       string `json:"status"`
+	Type         string `json:"type"`
+	StartedAt    string `json:"started_at"`
+	CompletedAt  string `json:"completed_at"`
+	ResourceID   int    `json:"resource_id"`
+	ResourceType string `json:"resource_type"`
+	RegionSlug   string `json:"region_slug"`
+}
+
+// ListDroplets retrieves all droplets in the account
+func (c *Client) ListDroplets() ([]Droplet, error) {
+	url := fmt.Sprintf("%s/droplets", c.BaseURL)
+	responseBody, err := c.execRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var response struct {
+		Droplets []Droplet `json:"droplets"`
+	}
+
+	if err := json.Unmarshal(responseBody, &response); err != nil {
+		return nil, fmt.Errorf("error parsing response: %v", err)
+	}
+
+	return response.Droplets, nil
+}
+
+// DeleteDroplet deletes a droplet by its ID
+func (c *Client) DeleteDroplet(dropletID int) error {
+	url := fmt.Sprintf("%s/droplets/%d", c.BaseURL, dropletID)
+	_, err := c.execRequest(http.MethodDelete, url, nil)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// PostDropletAction initiates a power action on a droplet
+func (c *Client) PostDropletAction(dropletID int, actionType string) (*DOAction, error) {
+	url := fmt.Sprintf("%s/droplets/%d/actions", c.BaseURL, dropletID)
+
+	body, err := json.Marshal(map[string]string{"type": actionType})
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling request: %v", err)
+	}
+
+	responseBody, err := c.execRequest(http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+
+	var response struct {
+		Action DOAction `json:"action"`
+	}
+
+	if err := json.Unmarshal(responseBody, &response); err != nil {
+		return nil, fmt.Errorf("error parsing response: %v", err)
+	}
+
+	return &response.Action, nil
+}
+
+// GetAction retrieves an action by its ID
+func (c *Client) GetAction(actionID int) (*DOAction, error) {
+	url := fmt.Sprintf("%s/actions/%d", c.BaseURL, actionID)
+	responseBody, err := c.execRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var response struct {
+		Action DOAction `json:"action"`
+	}
+
+	if err := json.Unmarshal(responseBody, &response); err != nil {
+		return nil, fmt.Errorf("error parsing response: %v", err)
+	}
+
+	return &response.Action, nil
+}
+
+// ListActions retrieves actions filtered by resource type.
+// The DigitalOcean /v2/actions API does not support resource_type as a query
+// parameter, so we fetch all recent actions and filter client-side.
+func (c *Client) ListActions(resourceType string) ([]DOAction, error) {
+	url := fmt.Sprintf("%s/actions?page=1&per_page=50", c.BaseURL)
+	responseBody, err := c.execRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var response struct {
+		Actions []DOAction `json:"actions"`
+	}
+
+	if err := json.Unmarshal(responseBody, &response); err != nil {
+		return nil, fmt.Errorf("error parsing response: %v", err)
+	}
+
+	filtered := make([]DOAction, 0, len(response.Actions))
+	for _, a := range response.Actions {
+		if a.ResourceType == resourceType {
+			filtered = append(filtered, a)
+		}
+	}
+
+	return filtered, nil
+}
+
+// Domain represents a DigitalOcean domain
+type Domain struct {
+	Name string `json:"name"`
+}
+
+// ListDomains retrieves all domains in the account
+func (c *Client) ListDomains() ([]Domain, error) {
+	url := fmt.Sprintf("%s/domains?per_page=200", c.BaseURL)
+	responseBody, err := c.execRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var response struct {
+		Domains []Domain `json:"domains"`
+	}
+
+	if err := json.Unmarshal(responseBody, &response); err != nil {
+		return nil, fmt.Errorf("error parsing response: %v", err)
+	}
+
+	return response.Domains, nil
+}
+
+// DNSRecord represents a DigitalOcean DNS record
+type DNSRecord struct {
+	ID       int    `json:"id"`
+	Type     string `json:"type"`
+	Name     string `json:"name"`
+	Data     string `json:"data"`
+	Priority *int   `json:"priority"`
+	Port     *int   `json:"port"`
+	TTL      int    `json:"ttl"`
+	Weight   *int   `json:"weight"`
+}
+
+// DNSRecordRequest is the payload for creating or updating a DNS record
+type DNSRecordRequest struct {
+	Type     string `json:"type"`
+	Name     string `json:"name"`
+	Data     string `json:"data"`
+	TTL      int    `json:"ttl,omitempty"`
+	Priority *int   `json:"priority,omitempty"`
+	Port     *int   `json:"port,omitempty"`
+	Weight   *int   `json:"weight,omitempty"`
+}
+
+// CreateDNSRecord creates a new DNS record for a domain
+func (c *Client) CreateDNSRecord(domain string, req DNSRecordRequest) (*DNSRecord, error) {
+	url := fmt.Sprintf("%s/domains/%s/records", c.BaseURL, domain)
+
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling request: %v", err)
+	}
+
+	responseBody, err := c.execRequest(http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+
+	var response struct {
+		DomainRecord DNSRecord `json:"domain_record"`
+	}
+
+	if err := json.Unmarshal(responseBody, &response); err != nil {
+		return nil, fmt.Errorf("error parsing response: %v", err)
+	}
+
+	return &response.DomainRecord, nil
+}
+
+// DeleteDNSRecord deletes a DNS record by its ID
+func (c *Client) DeleteDNSRecord(domain string, recordID int) error {
+	url := fmt.Sprintf("%s/domains/%s/records/%d", c.BaseURL, domain, recordID)
+	_, err := c.execRequest(http.MethodDelete, url, nil)
+	return err
+}
+
+// ListDNSRecords retrieves all DNS records for a domain
+func (c *Client) ListDNSRecords(domain string) ([]DNSRecord, error) {
+	url := fmt.Sprintf("%s/domains/%s/records?per_page=200", c.BaseURL, domain)
+	responseBody, err := c.execRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var response struct {
+		DomainRecords []DNSRecord `json:"domain_records"`
+	}
+
+	if err := json.Unmarshal(responseBody, &response); err != nil {
+		return nil, fmt.Errorf("error parsing response: %v", err)
+	}
+
+	return response.DomainRecords, nil
+}
+
+// UpdateDNSRecord updates an existing DNS record
+func (c *Client) UpdateDNSRecord(domain string, recordID int, req DNSRecordRequest) (*DNSRecord, error) {
+	url := fmt.Sprintf("%s/domains/%s/records/%d", c.BaseURL, domain, recordID)
+
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling request: %v", err)
+	}
+
+	responseBody, err := c.execRequest(http.MethodPatch, url, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+
+	var response struct {
+		DomainRecord DNSRecord `json:"domain_record"`
+	}
+
+	if err := json.Unmarshal(responseBody, &response); err != nil {
+		return nil, fmt.Errorf("error parsing response: %v", err)
+	}
+
+	return &response.DomainRecord, nil
+}
+
+// LoadBalancer represents a DigitalOcean load balancer
+type LoadBalancer struct {
+	ID              string           `json:"id"`
+	Name            string           `json:"name"`
+	IP              string           `json:"ip"`
+	Status          string           `json:"status"`
+	Algorithm       string           `json:"algorithm"`
+	Region          DropletRegion    `json:"region"`
+	ForwardingRules []ForwardingRule `json:"forwarding_rules"`
+	DropletIDs      []int            `json:"droplet_ids"`
+	Tag             string           `json:"tag"`
+	CreatedAt       string           `json:"created_at"`
+}
+
+// ForwardingRule defines a load balancer forwarding rule
+type ForwardingRule struct {
+	EntryProtocol  string `json:"entry_protocol"`
+	EntryPort      int    `json:"entry_port"`
+	TargetProtocol string `json:"target_protocol"`
+	TargetPort     int    `json:"target_port"`
+	TLSPassthrough bool   `json:"tls_passthrough,omitempty"`
+}
+
+// CreateLoadBalancerRequest is the payload for creating a load balancer
+type CreateLoadBalancerRequest struct {
+	Name            string           `json:"name"`
+	Region          string           `json:"region"`
+	ForwardingRules []ForwardingRule `json:"forwarding_rules"`
+	DropletIDs      []int            `json:"droplet_ids,omitempty"`
+	Tag             string           `json:"tag,omitempty"`
+}
+
+// CreateLoadBalancer creates a new load balancer
+func (c *Client) CreateLoadBalancer(req CreateLoadBalancerRequest) (*LoadBalancer, error) {
+	url := fmt.Sprintf("%s/load_balancers", c.BaseURL)
+
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling request: %v", err)
+	}
+
+	responseBody, err := c.execRequest(http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+
+	var response struct {
+		LoadBalancer LoadBalancer `json:"load_balancer"`
+	}
+
+	if err := json.Unmarshal(responseBody, &response); err != nil {
+		return nil, fmt.Errorf("error parsing response: %v", err)
+	}
+
+	return &response.LoadBalancer, nil
+}
+
+// GetLoadBalancer retrieves a load balancer by its ID
+func (c *Client) GetLoadBalancer(lbID string) (*LoadBalancer, error) {
+	url := fmt.Sprintf("%s/load_balancers/%s", c.BaseURL, lbID)
+	responseBody, err := c.execRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var response struct {
+		LoadBalancer LoadBalancer `json:"load_balancer"`
+	}
+
+	if err := json.Unmarshal(responseBody, &response); err != nil {
+		return nil, fmt.Errorf("error parsing response: %v", err)
+	}
+
+	return &response.LoadBalancer, nil
+}
+
+// DeleteLoadBalancer deletes a load balancer by its ID
+func (c *Client) DeleteLoadBalancer(lbID string) error {
+	url := fmt.Sprintf("%s/load_balancers/%s", c.BaseURL, lbID)
+	_, err := c.execRequest(http.MethodDelete, url, nil)
+	return err
+}
+
+// ListLoadBalancers retrieves all load balancers in the account
+func (c *Client) ListLoadBalancers() ([]LoadBalancer, error) {
+	url := fmt.Sprintf("%s/load_balancers?per_page=200", c.BaseURL)
+	responseBody, err := c.execRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var response struct {
+		LoadBalancers []LoadBalancer `json:"load_balancers"`
+	}
+
+	if err := json.Unmarshal(responseBody, &response); err != nil {
+		return nil, fmt.Errorf("error parsing response: %v", err)
+	}
+
+	return response.LoadBalancers, nil
+}
+
+// ReservedIP represents a DigitalOcean reserved IP
+type ReservedIP struct {
+	IP         string `json:"ip"`
+	RegionSlug string `json:"region_slug"`
+	Locked     bool   `json:"locked"`
+}
+
+// ListReservedIPs retrieves all reserved IPs in the account
+func (c *Client) ListReservedIPs() ([]ReservedIP, error) {
+	url := fmt.Sprintf("%s/reserved_ips?per_page=200", c.BaseURL)
+	responseBody, err := c.execRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var response struct {
+		ReservedIPs []ReservedIP `json:"reserved_ips"`
+	}
+
+	if err := json.Unmarshal(responseBody, &response); err != nil {
+		return nil, fmt.Errorf("error parsing response: %v", err)
+	}
+
+	return response.ReservedIPs, nil
+}
+
+// PostReservedIPAction initiates an assign or unassign action for a reserved IP
+func (c *Client) PostReservedIPAction(reservedIP, actionType string, dropletID *int) (*DOAction, error) {
+	url := fmt.Sprintf("%s/reserved_ips/%s/actions", c.BaseURL, reservedIP)
+
+	payload := map[string]any{"type": actionType}
+	if dropletID != nil {
+		payload["droplet_id"] = *dropletID
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling request: %v", err)
+	}
+
+	responseBody, err := c.execRequest(http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+
+	var response struct {
+		Action DOAction `json:"action"`
+	}
+
+	if err := json.Unmarshal(responseBody, &response); err != nil {
+		return nil, fmt.Errorf("error parsing response: %v", err)
+	}
+
+	return &response.Action, nil
+}
+
+// LBNodeMetadata stores metadata about a load balancer for display in the UI
+type LBNodeMetadata struct {
+	LBID   string `json:"lbId" mapstructure:"lbId"`
+	LBName string `json:"lbName" mapstructure:"lbName"`
+}
+
+// resolveLBMetadata fetches the load balancer name from the API and stores it in metadata
+func resolveLBMetadata(ctx core.SetupContext, lbID string) error {
+	if strings.Contains(lbID, "{{") {
+		return ctx.Metadata.Set(LBNodeMetadata{
+			LBName: lbID,
+		})
+	}
+
+	var existing LBNodeMetadata
+	err := mapstructure.Decode(ctx.Metadata.Get(), &existing)
+	if err == nil && existing.LBID == lbID && existing.LBName != "" {
+		return nil
+	}
+
+	client, err := NewClient(ctx.HTTP, ctx.Integration)
+	if err != nil {
+		return fmt.Errorf("failed to create client for metadata resolution: %w", err)
+	}
+
+	lb, err := client.GetLoadBalancer(lbID)
+	if err != nil {
+		return fmt.Errorf("failed to fetch load balancer %s for metadata: %w", lbID, err)
+	}
+
+	return ctx.Metadata.Set(LBNodeMetadata{
+		LBID:   lbID,
+		LBName: lb.Name,
+	})
+}
+
+// DropletNodeMetadata stores metadata about a droplet for display in the UI
+type DropletNodeMetadata struct {
+	DropletID   int    `json:"dropletId" mapstructure:"dropletId"`
+	DropletName string `json:"dropletName" mapstructure:"dropletName"`
+}
+
+// DNSRecordNodeMetadata stores metadata about a DNS record for display in the UI
+type DNSRecordNodeMetadata struct {
+	RecordID   int    `json:"recordId" mapstructure:"recordId"`
+	RecordName string `json:"recordName" mapstructure:"recordName"`
+}
+
+// resolveDNSRecordMetadata fetches the DNS record name from the API and stores it in metadata
+// This allows the UI to display the record name instead of just the ID
+func resolveDNSRecordMetadata(ctx core.SetupContext, domain, recordIDStr string) error {
+	// If the record ID is an expression placeholder, skip metadata resolution
+	if strings.Contains(recordIDStr, "{{") {
+		return ctx.Metadata.Set(DNSRecordNodeMetadata{
+			RecordName: recordIDStr,
+		})
+	}
+
+	recordID, err := strconv.Atoi(recordIDStr)
+	if err != nil {
+		return fmt.Errorf("invalid record ID %q: must be a number", recordIDStr)
+	}
+
+	// If metadata is already set for the same record, skip the API call
+	var existing DNSRecordNodeMetadata
+	err = mapstructure.Decode(ctx.Metadata.Get(), &existing)
+	if err == nil && existing.RecordID == recordID && existing.RecordName != "" {
+		return nil
+	}
+
+	client, err := NewClient(ctx.HTTP, ctx.Integration)
+	if err != nil {
+		return fmt.Errorf("failed to create client for metadata resolution: %w", err)
+	}
+
+	records, err := client.ListDNSRecords(domain)
+	if err != nil {
+		return fmt.Errorf("failed to list DNS records for metadata: %w", err)
+	}
+
+	for _, record := range records {
+		if record.ID == recordID {
+			return ctx.Metadata.Set(DNSRecordNodeMetadata{
+				RecordID:   recordID,
+				RecordName: fmt.Sprintf("%s (%s)", record.Name, record.Type),
+			})
+		}
+	}
+
+	// Record not found — store the ID as the name as a fallback
+	return ctx.Metadata.Set(DNSRecordNodeMetadata{
+		RecordID:   recordID,
+		RecordName: recordIDStr,
+	})
+}
+
+// resolveDropletMetadata fetches the droplet name from the API and stores it in metadata
+// This allows the UI to display the droplet name instead of just the ID
+func resolveDropletMetadata(ctx core.SetupContext, dropletStr string) error {
+	// If the droplet ID is an expression placeholder, skip metadata resolution
+	if strings.Contains(dropletStr, "{{") {
+		return ctx.Metadata.Set(DropletNodeMetadata{
+			DropletName: dropletStr,
+		})
+	}
+	dropletID, err := strconv.Atoi(dropletStr)
+	if err != nil {
+		return fmt.Errorf("invalid droplet ID %q: must be a number", dropletStr)
+	}
+
+	// If metadata is already set for the same droplet, skip the API call
+	var existing DropletNodeMetadata
+	err = mapstructure.Decode(ctx.Metadata.Get(), &existing)
+	if err == nil && existing.DropletID == dropletID && existing.DropletName != "" {
+		return nil
+	}
+
+	client, err := NewClient(ctx.HTTP, ctx.Integration)
+	if err != nil {
+		return fmt.Errorf("failed to create client for metadata resolution: %w", err)
+	}
+
+	droplet, err := client.GetDroplet(dropletID)
+	if err != nil {
+		return fmt.Errorf("failed to fetch droplet %d for metadata: %w", dropletID, err)
+	}
+
+	return ctx.Metadata.Set(DropletNodeMetadata{
+		DropletID:   dropletID,
+		DropletName: droplet.Name,
+	})
+}
+
+// SnapshotNodeMetadata stores metadata about a snapshot for display in the UI
+type SnapshotNodeMetadata struct {
+	SnapshotID   string `json:"snapshotId" mapstructure:"snapshotId"`
+	SnapshotName string `json:"snapshotName" mapstructure:"snapshotName"`
+}
+
+// resolveSnapshotMetadata fetches the snapshot name from the API and stores it in metadata
+// This allows the UI to display the snapshot name instead of just the ID
+func resolveSnapshotMetadata(ctx core.SetupContext, snapshotStr string) error {
+	// If the snapshot ID is an expression placeholder, skip metadata resolution
+	if strings.Contains(snapshotStr, "{{") {
+		return ctx.Metadata.Set(SnapshotNodeMetadata{
+			SnapshotName: snapshotStr,
+		})
+	}
+
+	// If metadata is already set for the same snapshot, skip the API call
+	var existing SnapshotNodeMetadata
+	err := mapstructure.Decode(ctx.Metadata.Get(), &existing)
+	if err == nil && existing.SnapshotID == snapshotStr && existing.SnapshotName != "" {
+		return nil
+	}
+
+	client, err := NewClient(ctx.HTTP, ctx.Integration)
+	if err != nil {
+		return fmt.Errorf("failed to create client for metadata resolution: %w", err)
+	}
+
+	snapshot, err := client.GetSnapshot(snapshotStr)
+	if err != nil {
+		return fmt.Errorf("failed to fetch snapshot %s for metadata: %w", snapshotStr, err)
+	}
+
+	return ctx.Metadata.Set(SnapshotNodeMetadata{
+		SnapshotID:   snapshotStr,
+		SnapshotName: snapshot.Name,
+	})
+}
+
+// CreateDropletSnapshot creates a snapshot of a droplet
+func (c *Client) CreateDropletSnapshot(dropletID int, name string) (*DOAction, error) {
+	url := fmt.Sprintf("%s/droplets/%d/actions", c.BaseURL, dropletID)
+
+	body, err := json.Marshal(map[string]string{
+		"type": "snapshot",
+		"name": name,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling request: %v", err)
+	}
+
+	responseBody, err := c.execRequest(http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+
+	var response struct {
+		Action DOAction `json:"action"`
+	}
+
+	if err := json.Unmarshal(responseBody, &response); err != nil {
+		return nil, fmt.Errorf("error parsing response: %v", err)
+	}
+
+	return &response.Action, nil
+}
+
+// Snapshot represents a DigitalOcean snapshot
+type Snapshot struct {
+	ID            json.Number `json:"id"`
+	Name          string      `json:"name"`
+	CreatedAt     string      `json:"created_at"`
+	ResourceID    string      `json:"resource_id"`
+	ResourceType  string      `json:"resource_type"`
+	Regions       []string    `json:"regions"`
+	MinDiskSize   int         `json:"min_disk_size"`
+	SizeGigabytes float64     `json:"size_gigabytes"`
+}
+
+// GetDropletSnapshots lists snapshots for a given droplet
+func (c *Client) GetDropletSnapshots(dropletID int) ([]Snapshot, error) {
+	url := fmt.Sprintf("%s/droplets/%d/snapshots", c.BaseURL, dropletID)
+	responseBody, err := c.execRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var response struct {
+		Snapshots []Snapshot `json:"snapshots"`
+	}
+
+	if err := json.Unmarshal(responseBody, &response); err != nil {
+		return nil, fmt.Errorf("error parsing response: %v", err)
+	}
+	for i := range response.Snapshots {
+		response.Snapshots[i].ResourceID = strconv.Itoa(dropletID)
+		response.Snapshots[i].ResourceType = "droplet"
+	}
+
+	return response.Snapshots, nil
+}
+
+// GetSnapshot retrieves a single snapshot by ID
+func (c *Client) GetSnapshot(snapshotID string) (*Snapshot, error) {
+	url := fmt.Sprintf("%s/snapshots/%s", c.BaseURL, snapshotID)
+	responseBody, err := c.execRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var response struct {
+		Snapshot Snapshot `json:"snapshot"`
+	}
+
+	if err := json.Unmarshal(responseBody, &response); err != nil {
+		return nil, fmt.Errorf("error parsing response: %v", err)
+	}
+
+	return &response.Snapshot, nil
+}
+
+// DeleteSnapshot deletes a snapshot by ID
+func (c *Client) DeleteSnapshot(snapshotID string) error {
+	url := fmt.Sprintf("%s/snapshots/%s", c.BaseURL, snapshotID)
+	_, err := c.execRequest(http.MethodDelete, url, nil)
+	return err
+}
+
+// ListSnapshots retrieves all droplet snapshots
+func (c *Client) ListSnapshots() ([]Snapshot, error) {
+	url := fmt.Sprintf("%s/snapshots?resource_type=droplet&per_page=200", c.BaseURL)
+	responseBody, err := c.execRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var response struct {
+		Snapshots []Snapshot `json:"snapshots"`
+	}
+
+	if err := json.Unmarshal(responseBody, &response); err != nil {
+		return nil, fmt.Errorf("error parsing response: %v", err)
+	}
+
+	return response.Snapshots, nil
+}
+
+// AlertPolicySlackDetails represents a Slack notification channel for an alert policy
+type AlertPolicySlackDetails struct {
+	URL     string `json:"url"`
+	Channel string `json:"channel"`
+}
+
+// AlertPolicyAlerts represents the notification channels configured on an alert policy
+type AlertPolicyAlerts struct {
+	Slack []AlertPolicySlackDetails `json:"slack,omitempty"`
+	Email []string                  `json:"email,omitempty"`
+}
+
+// AlertPolicy represents a DigitalOcean monitoring alert policy
+type AlertPolicy struct {
+	UUID        string            `json:"uuid"`
+	Type        string            `json:"type"`
+	Description string            `json:"description"`
+	Compare     string            `json:"compare"`
+	Value       float64           `json:"value"`
+	Window      string            `json:"window"`
+	Entities    []string          `json:"entities"`
+	Tags        []string          `json:"tags"`
+	Alerts      AlertPolicyAlerts `json:"alerts"`
+	Enabled     bool              `json:"enabled"`
+}
+
+// CreateAlertPolicyRequest is the payload for creating a monitoring alert policy
+type CreateAlertPolicyRequest struct {
+	Type        string            `json:"type"`
+	Description string            `json:"description"`
+	Compare     string            `json:"compare"`
+	Value       float64           `json:"value"`
+	Window      string            `json:"window"`
+	Entities    []string          `json:"entities,omitempty"`
+	Tags        []string          `json:"tags,omitempty"`
+	Alerts      AlertPolicyAlerts `json:"alerts"`
+	Enabled     bool              `json:"enabled"`
+}
+
+// UpdateAlertPolicyRequest is the payload for updating a monitoring alert policy
+type UpdateAlertPolicyRequest struct {
+	Type        string            `json:"type"`
+	Description string            `json:"description"`
+	Compare     string            `json:"compare"`
+	Value       float64           `json:"value"`
+	Window      string            `json:"window"`
+	Entities    []string          `json:"entities,omitempty"`
+	Tags        []string          `json:"tags,omitempty"`
+	Alerts      AlertPolicyAlerts `json:"alerts"`
+	Enabled     bool              `json:"enabled"`
+}
+
+// CreateAlertPolicy creates a new monitoring alert policy
+func (c *Client) CreateAlertPolicy(req CreateAlertPolicyRequest) (*AlertPolicy, error) {
+	url := fmt.Sprintf("%s/monitoring/alerts", c.BaseURL)
+
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling request: %v", err)
+	}
+
+	responseBody, err := c.execRequest(http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+
+	var response struct {
+		Policy AlertPolicy `json:"policy"`
+	}
+
+	if err := json.Unmarshal(responseBody, &response); err != nil {
+		return nil, fmt.Errorf("error parsing response: %v", err)
+	}
+
+	return &response.Policy, nil
+}
+
+// UpdateAlertPolicy updates an existing monitoring alert policy
+func (c *Client) UpdateAlertPolicy(policyID string, req UpdateAlertPolicyRequest) (*AlertPolicy, error) {
+	url := fmt.Sprintf("%s/monitoring/alerts/%s", c.BaseURL, policyID)
+
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling request: %v", err)
+	}
+
+	responseBody, err := c.execRequest(http.MethodPut, url, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+
+	var response struct {
+		Policy AlertPolicy `json:"policy"`
+	}
+
+	if err := json.Unmarshal(responseBody, &response); err != nil {
+		return nil, fmt.Errorf("error parsing response: %v", err)
+	}
+
+	return &response.Policy, nil
+}
+
+// GetAlertPolicy retrieves a monitoring alert policy by its UUID
+func (c *Client) GetAlertPolicy(policyID string) (*AlertPolicy, error) {
+	url := fmt.Sprintf("%s/monitoring/alerts/%s", c.BaseURL, policyID)
+	responseBody, err := c.execRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var response struct {
+		Policy AlertPolicy `json:"policy"`
+	}
+
+	if err := json.Unmarshal(responseBody, &response); err != nil {
+		return nil, fmt.Errorf("error parsing response: %v", err)
+	}
+
+	return &response.Policy, nil
+}
+
+// DeleteAlertPolicy deletes a monitoring alert policy by its UUID
+func (c *Client) DeleteAlertPolicy(policyID string) error {
+	url := fmt.Sprintf("%s/monitoring/alerts/%s", c.BaseURL, policyID)
+	_, err := c.execRequest(http.MethodDelete, url, nil)
+	return err
+}
+
+// ListAlertPolicies retrieves all monitoring alert policies in the account
+func (c *Client) ListAlertPolicies() ([]AlertPolicy, error) {
+	url := fmt.Sprintf("%s/monitoring/alerts?per_page=200", c.BaseURL)
+	responseBody, err := c.execRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var response struct {
+		Policies []AlertPolicy `json:"policies"`
+	}
+
+	if err := json.Unmarshal(responseBody, &response); err != nil {
+		return nil, fmt.Errorf("error parsing response: %v", err)
+	}
+
+	return response.Policies, nil
+}
+
+// AlertPolicyNodeMetadata stores metadata about an alert policy for display in the UI
+type AlertPolicyNodeMetadata struct {
+	PolicyID       string                             `json:"policyUuid" mapstructure:"policyUuid"`
+	PolicyDesc     string                             `json:"policyDesc" mapstructure:"policyDesc"`
+	ScopedDroplets []AlertPolicyScopedDropletMetadata `json:"scopedDroplets,omitempty" mapstructure:"scopedDroplets"`
+}
+
+// resolveAlertPolicyMetadata fetches the alert policy description from the API and stores it in metadata
+func resolveAlertPolicyMetadata(ctx core.SetupContext, policyID string) error {
+	var existing AlertPolicyNodeMetadata
+	err := mapstructure.Decode(ctx.Metadata.Get(), &existing)
+	if strings.Contains(policyID, "{{") {
+		existing.PolicyID = ""
+		existing.PolicyDesc = policyID
+		return ctx.Metadata.Set(existing)
+	}
+	if err == nil && existing.PolicyID == policyID && existing.PolicyDesc != "" {
+		return nil
+	}
+
+	client, err := NewClient(ctx.HTTP, ctx.Integration)
+	if err != nil {
+		return fmt.Errorf("failed to create client for metadata resolution: %w", err)
+	}
+
+	policy, err := client.GetAlertPolicy(policyID)
+	if err != nil {
+		return fmt.Errorf("failed to fetch alert policy %s for metadata: %w", policyID, err)
+	}
+
+	existing.PolicyID = policyID
+	existing.PolicyDesc = policy.Description
+	return ctx.Metadata.Set(existing)
+}
+
+// AlertPolicyScopedDropletMetadata stores the selected scope droplets for alert policy components.
+type AlertPolicyScopedDropletMetadata struct {
+	DropletID   string `json:"dropletId" mapstructure:"dropletId"`
+	DropletName string `json:"dropletName" mapstructure:"dropletName"`
+}
+
+// resolveAlertPolicyEntitiesMetadata validates configured droplets and stores their labels in metadata.
+func resolveAlertPolicyEntitiesMetadata(ctx core.SetupContext, dropletIDs []string) error {
+	var existing AlertPolicyNodeMetadata
+	_ = mapstructure.Decode(ctx.Metadata.Get(), &existing)
+
+	scopedDroplets := make([]AlertPolicyScopedDropletMetadata, 0, len(dropletIDs))
+
+	var client *Client
+	for _, dropletID := range dropletIDs {
+		if strings.Contains(dropletID, "{{") {
+			scopedDroplets = append(scopedDroplets, AlertPolicyScopedDropletMetadata{
+				DropletID:   dropletID,
+				DropletName: dropletID,
+			})
+			continue
+		}
+
+		id, err := strconv.Atoi(dropletID)
+		if err != nil {
+			return fmt.Errorf("invalid droplet ID %q: must be a number", dropletID)
+		}
+
+		if client == nil {
+			client, err = NewClient(ctx.HTTP, ctx.Integration)
+			if err != nil {
+				return fmt.Errorf("failed to create client for metadata resolution: %w", err)
+			}
+		}
+
+		droplet, err := client.GetDroplet(id)
+		if err != nil {
+			return fmt.Errorf("failed to fetch droplet %s for metadata: %w", dropletID, err)
+		}
+
+		scopedDroplets = append(scopedDroplets, AlertPolicyScopedDropletMetadata{
+			DropletID:   dropletID,
+			DropletName: droplet.Name,
+		})
+	}
+
+	existing.ScopedDroplets = scopedDroplets
+	return ctx.Metadata.Set(existing)
+}
+
+// MetricsValue represents a single data point in a metric series: [unix_timestamp, string_value]
+type MetricsValue []any
+
+// MetricsResult represents a single labeled metric time series
+type MetricsResult struct {
+	Metric map[string]string `json:"metric"`
+	Values []MetricsValue    `json:"values"`
+}
+
+// MetricsData is the data envelope returned by the monitoring metrics API
+type MetricsData struct {
+	ResultType string          `json:"resultType"`
+	Result     []MetricsResult `json:"result"`
+}
+
+// MetricsResponse is the top-level response from the monitoring metrics API
+type MetricsResponse struct {
+	Status string      `json:"status"`
+	Data   MetricsData `json:"data"`
+}
+
+// GetDropletCPUMetrics fetches CPU usage percentage metrics for a droplet
+func (c *Client) GetDropletCPUMetrics(dropletID string, start, end int64) (*MetricsResponse, error) {
+	url := fmt.Sprintf("%s/monitoring/metrics/droplet/cpu?host_id=%s&start=%d&end=%d", c.BaseURL, dropletID, start, end)
+	responseBody, err := c.execRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var response MetricsResponse
+	if err := json.Unmarshal(responseBody, &response); err != nil {
+		return nil, fmt.Errorf("error parsing response: %v", err)
+	}
+
+	return &response, nil
+}
+
+// GetDropletMemoryAvailableMetrics fetches available memory metrics for a droplet.
+// Available memory includes free memory and reclaimable cache, matching what
+// DigitalOcean's dashboard reports as memory utilization.
+func (c *Client) GetDropletMemoryAvailableMetrics(dropletID string, start, end int64) (*MetricsResponse, error) {
+	url := fmt.Sprintf("%s/monitoring/metrics/droplet/memory_available?host_id=%s&start=%d&end=%d", c.BaseURL, dropletID, start, end)
+	responseBody, err := c.execRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var response MetricsResponse
+	if err := json.Unmarshal(responseBody, &response); err != nil {
+		return nil, fmt.Errorf("error parsing response: %v", err)
+	}
+
+	return &response, nil
+}
+
+// GetDropletMemoryTotalMetrics fetches total memory metrics for a droplet
+func (c *Client) GetDropletMemoryTotalMetrics(dropletID string, start, end int64) (*MetricsResponse, error) {
+	url := fmt.Sprintf("%s/monitoring/metrics/droplet/memory_total?host_id=%s&start=%d&end=%d", c.BaseURL, dropletID, start, end)
+	responseBody, err := c.execRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var response MetricsResponse
+	if err := json.Unmarshal(responseBody, &response); err != nil {
+		return nil, fmt.Errorf("error parsing response: %v", err)
+	}
+
+	return &response, nil
+}
+
+// GetDropletBandwidthMetrics fetches network bandwidth metrics for a droplet.
+func (c *Client) GetDropletBandwidthMetrics(dropletID, iface, direction string, start, end int64) (*MetricsResponse, error) {
+	url := fmt.Sprintf("%s/monitoring/metrics/droplet/bandwidth?host_id=%s&interface=%s&direction=%s&start=%d&end=%d", c.BaseURL, dropletID, iface, direction, start, end)
+	responseBody, err := c.execRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var response MetricsResponse
+	if err := json.Unmarshal(responseBody, &response); err != nil {
+		return nil, fmt.Errorf("error parsing response: %v", err)
+	}
+
+	return &response, nil
+}
+
+// VPC represents a DigitalOcean VPC
+type VPC struct {
+	ID          string `json:"id"`
+	URN         string `json:"urn"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	RegionSlug  string `json:"region"`
+	IPRange     string `json:"ip_range"`
+	CreatedAt   string `json:"created_at"`
+	Default     bool   `json:"default"`
+}
+
+// SpacesClient handles S3-compatible requests to DigitalOcean Spaces.
+// It uses AWS Signature Version 4 for authentication.
+type SpacesClient struct {
+	AccessKey string
+	SecretKey string
+	Region    string
+	http      core.HTTPContext
+}
+
+// NewSpacesClient creates a new SpacesClient using credentials from the integration configuration.
+func NewSpacesClient(httpCtx core.HTTPContext, ctx core.IntegrationContext, region string) (*SpacesClient, error) {
+	accessKey, err := ctx.GetConfig("spacesAccessKey")
+	if err != nil || string(accessKey) == "" {
+		return nil, fmt.Errorf("spaces access key is required — set it in the DigitalOcean integration configuration")
+	}
+
+	secretKey, err := ctx.GetConfig("spacesSecretKey")
+	if err != nil || string(secretKey) == "" {
+		return nil, fmt.Errorf("spaces secret key is required — set it in the DigitalOcean integration configuration")
+	}
+
+	return &SpacesClient{
+		AccessKey: string(accessKey),
+		SecretKey: string(secretKey),
+		Region:    region,
+		http:      httpCtx,
+	}, nil
+}
+
+// execSpacesRequest signs and executes an HTTP request to the Spaces S3-compatible API.
+// If bucket is empty, a region-level request is made (e.g. ListBuckets).
+// queryString is already encoded, e.g. "" or "tagging=".
+func (c *SpacesClient) execSpacesRequest(method, bucket, key, queryString string) (*http.Response, error) {
+	return c.execSpacesRequestFull(method, bucket, key, queryString, nil, nil)
+}
+
+// execSpacesRequestFull signs and executes an HTTP request to the Spaces S3-compatible API
+// with optional body and extra headers (e.g. Content-Type, x-amz-acl, x-amz-tagging).
+func (c *SpacesClient) execSpacesRequestFull(method, bucket, key, queryString string, body []byte, extraHeaders map[string]string) (*http.Response, error) {
+	var host, endpoint string
+	if bucket == "" {
+		host = fmt.Sprintf("%s.digitaloceanspaces.com", c.Region)
+		endpoint = fmt.Sprintf("https://%s/", host)
+	} else {
+		host = fmt.Sprintf("%s.%s.digitaloceanspaces.com", bucket, c.Region)
+		endpoint = fmt.Sprintf("https://%s/%s", host, key)
+	}
+
+	if queryString != "" {
+		endpoint += "?" + queryString
+	}
+
+	now := time.Now().UTC()
+	dateStamp := now.Format("20060102")
+	amzDate := now.Format("20060102T150405Z")
+
+	var payloadHash string
+	if len(body) > 0 {
+		h := sha256.Sum256(body)
+		payloadHash = fmt.Sprintf("%x", h)
+	} else {
+		payloadHash = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+	}
+
+	// SigV4 requires that any headers included in the request (especially x-amz-*)
+	// that are part of the signature be present in both CanonicalHeaders and SignedHeaders.
+	// We sign all headers we set on the request to avoid SignatureDoesNotMatch errors.
+	headersToSign := map[string]string{
+		"host":                 host,
+		"x-amz-content-sha256": payloadHash,
+		"x-amz-date":           amzDate,
+	}
+	for k, v := range extraHeaders {
+		lower := strings.ToLower(strings.TrimSpace(k))
+		if lower == "" {
+			continue
+		}
+		// Per SigV4 canonicalization rules, leading/trailing spaces are trimmed and
+		// sequential spaces are collapsed to a single space.
+		cleanValue := strings.Join(strings.Fields(v), " ")
+		headersToSign[lower] = cleanValue
+	}
+
+	headerKeys := make([]string, 0, len(headersToSign))
+	for k := range headersToSign {
+		headerKeys = append(headerKeys, k)
+	}
+	sort.Strings(headerKeys)
+
+	var canonicalHeadersBuilder strings.Builder
+	for _, k := range headerKeys {
+		canonicalHeadersBuilder.WriteString(k)
+		canonicalHeadersBuilder.WriteString(":")
+		canonicalHeadersBuilder.WriteString(headersToSign[k])
+		canonicalHeadersBuilder.WriteString("\n")
+	}
+	canonicalHeaders := canonicalHeadersBuilder.String()
+	signedHeaders := strings.Join(headerKeys, ";")
+
+	path := "/"
+	if key != "" {
+		path = "/" + key
+	}
+
+	canonicalRequest := strings.Join([]string{
+		method,
+		path,
+		queryString,
+		canonicalHeaders,
+		signedHeaders,
+		payloadHash,
+	}, "\n")
+
+	credentialScope := fmt.Sprintf("%s/%s/s3/aws4_request", dateStamp, c.Region)
+	stringToSign := strings.Join([]string{
+		"AWS4-HMAC-SHA256",
+		amzDate,
+		credentialScope,
+		fmt.Sprintf("%x", sha256.Sum256([]byte(canonicalRequest))),
+	}, "\n")
+
+	signingKey := hmacSHA256(
+		hmacSHA256(
+			hmacSHA256(
+				hmacSHA256([]byte("AWS4"+c.SecretKey), dateStamp),
+				c.Region,
+			),
+			"s3",
+		),
+		"aws4_request",
+	)
+
+	signature := fmt.Sprintf("%x", hmacSHA256(signingKey, stringToSign))
+
+	authHeader := fmt.Sprintf(
+		"AWS4-HMAC-SHA256 Credential=%s/%s,SignedHeaders=%s,Signature=%s",
+		c.AccessKey, credentialScope, signedHeaders, signature,
+	)
+
+	var bodyReader io.Reader
+	if len(body) > 0 {
+		bodyReader = bytes.NewReader(body)
+	}
+
+	req, err := http.NewRequest(method, endpoint, bodyReader)
+	if err != nil {
+		return nil, fmt.Errorf("error building request: %v", err)
+	}
+
+	// Set all headers that were signed.
+	// (Go will canonicalize the header names on the wire; signing used lowercase names.)
+	for k, v := range headersToSign {
+		req.Header.Set(k, v)
+	}
+	req.Header.Set("Authorization", authHeader)
+
+	if len(body) > 0 {
+		req.Header.Set("Content-Length", strconv.Itoa(len(body)))
+	}
+
+	res, err := c.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("error executing request: %v", err)
+	}
+
+	return res, nil
+}
+
+// ObjectResult holds the response from a GetObject call.
+type ObjectResult struct {
+	ContentType   string
+	ContentLength int64
+	LastModified  string
+	ETag          string
+	Metadata      map[string]string
+	Body          []byte
+	NotFound      bool
+}
+
+// GetObject retrieves an object (and optionally its body) from a Spaces bucket.
+func (c *SpacesClient) GetObject(bucket, key string, includeBody bool) (*ObjectResult, error) {
+	method := http.MethodGet
+	if !includeBody {
+		method = http.MethodHead
+	}
+
+	res, err := c.execSpacesRequest(method, bucket, key, "")
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode == http.StatusNotFound {
+		return &ObjectResult{NotFound: true}, nil
+	}
+
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		bodyBytes, _ := io.ReadAll(res.Body)
+		return nil, fmt.Errorf("request got %d code: %s", res.StatusCode, string(bodyBytes))
+	}
+
+	result := &ObjectResult{
+		ContentType:  res.Header.Get("Content-Type"),
+		LastModified: res.Header.Get("Last-Modified"),
+		ETag:         strings.Trim(res.Header.Get("ETag"), `"`),
+		Metadata:     map[string]string{},
+	}
+
+	if cl := res.Header.Get("Content-Length"); cl != "" {
+		if n, err := strconv.ParseInt(cl, 10, 64); err == nil {
+			result.ContentLength = n
+		}
+	}
+
+	for k, v := range res.Header {
+		lower := strings.ToLower(k)
+		if strings.HasPrefix(lower, "x-amz-meta-") {
+			metaKey := strings.TrimPrefix(lower, "x-amz-meta-")
+			if len(v) > 0 {
+				result.Metadata[metaKey] = v[0]
+			}
+		}
+	}
+
+	if includeBody && isReadableContentType(result.ContentType) {
+		bodyBytes, err := io.ReadAll(res.Body)
+		if err != nil {
+			return nil, fmt.Errorf("error reading body: %v", err)
+		}
+		result.Body = bodyBytes
+	}
+
+	return result, nil
+}
+
+// ListBuckets returns all Spaces buckets in the client's region.
+func (c *SpacesClient) ListBuckets() ([]string, error) {
+	res, err := c.execSpacesRequest(http.MethodGet, "", "", "")
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		bodyBytes, _ := io.ReadAll(res.Body)
+		return nil, fmt.Errorf("request got %d code: %s", res.StatusCode, string(bodyBytes))
+	}
+
+	bodyBytes, err := io.ReadAll(res.Body)
+	if err != nil {
+		return nil, fmt.Errorf("error reading list buckets response: %v", err)
+	}
+
+	var result struct {
+		Buckets struct {
+			Buckets []struct {
+				Name string `xml:"Name"`
+			} `xml:"Bucket"`
+		} `xml:"Buckets"`
+	}
+
+	if err := xml.Unmarshal(bodyBytes, &result); err != nil {
+		return nil, fmt.Errorf("error parsing list buckets response: %v", err)
+	}
+
+	names := make([]string, 0, len(result.Buckets.Buckets))
+	for _, b := range result.Buckets.Buckets {
+		names = append(names, b.Name)
+	}
+
+	return names, nil
+}
+
+// GetObjectTagging retrieves the tags applied to an object in a Spaces bucket.
+func (c *SpacesClient) GetObjectTagging(bucket, key string) (map[string]string, error) {
+	res, err := c.execSpacesRequest(http.MethodGet, bucket, key, "tagging=")
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		bodyBytes, _ := io.ReadAll(res.Body)
+		return nil, fmt.Errorf("request got %d code: %s", res.StatusCode, string(bodyBytes))
+	}
+
+	bodyBytes, err := io.ReadAll(res.Body)
+	if err != nil {
+		return nil, fmt.Errorf("error reading tagging response: %v", err)
+	}
+
+	var tagging struct {
+		TagSet struct {
+			Tags []struct {
+				Key   string `xml:"Key"`
+				Value string `xml:"Value"`
+			} `xml:"Tag"`
+		} `xml:"TagSet"`
+	}
+
+	if err := xml.Unmarshal(bodyBytes, &tagging); err != nil {
+		return nil, fmt.Errorf("error parsing tagging response: %v", err)
+	}
+
+	tags := make(map[string]string, len(tagging.TagSet.Tags))
+	for _, tag := range tagging.TagSet.Tags {
+		tags[tag.Key] = tag.Value
+	}
+
+	return tags, nil
+}
+
+// FormatSize converts a byte count to a human-readable string (KiB, MiB, GiB).
+func FormatSize(bytes int64) string {
+	const (
+		kib = 1024
+		mib = 1024 * kib
+		gib = 1024 * mib
+	)
+
+	switch {
+	case bytes >= gib:
+		return fmt.Sprintf("%.2f GiB", float64(bytes)/float64(gib))
+	case bytes >= mib:
+		return fmt.Sprintf("%.2f MiB", float64(bytes)/float64(mib))
+	case bytes >= kib:
+		return fmt.Sprintf("%.2f KiB", float64(bytes)/float64(kib))
+	default:
+		return fmt.Sprintf("%d B", bytes)
+	}
+}
+
+// isReadableContentType returns true if the content type is human-readable text.
+func isReadableContentType(contentType string) bool {
+	ct := strings.ToLower(strings.Split(contentType, ";")[0])
+	readable := []string{
+		"text/",
+		"application/json",
+		"application/xml",
+		"application/yaml",
+		"application/x-yaml",
+		"application/javascript",
+		"application/toml",
+		"application/x-www-form-urlencoded",
+	}
+	for _, r := range readable {
+		if strings.HasPrefix(ct, r) {
+			return true
+		}
+	}
+	return false
+}
+
+// PutObject uploads an object to a Spaces bucket.
+// It returns the ETag of the uploaded object.
+func (c *SpacesClient) PutObject(bucket, key, body, contentType, acl string, metadata, tags map[string]string) (string, error) {
+	extraHeaders := map[string]string{}
+
+	if contentType != "" {
+		extraHeaders["Content-Type"] = contentType
+	}
+
+	if acl != "" {
+		extraHeaders["x-amz-acl"] = acl
+	}
+
+	if len(tags) > 0 {
+		parts := make([]string, 0, len(tags))
+		for k, v := range tags {
+			parts = append(parts, url.QueryEscape(k)+"="+url.QueryEscape(v))
+		}
+		extraHeaders["x-amz-tagging"] = strings.Join(parts, "&")
+	}
+
+	for k, v := range metadata {
+		extraHeaders["x-amz-meta-"+k] = v
+	}
+
+	res, err := c.execSpacesRequestFull(http.MethodPut, bucket, key, "", []byte(body), extraHeaders)
+	if err != nil {
+		return "", err
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		bodyBytes, _ := io.ReadAll(res.Body)
+		return "", fmt.Errorf("request got %d code: %s", res.StatusCode, string(bodyBytes))
+	}
+
+	return strings.Trim(res.Header.Get("ETag"), `"`), nil
+}
+
+// contentTypeFromPath detects the MIME type from a file path extension.
+// Falls back to application/octet-stream for unknown or missing extensions.
+func contentTypeFromPath(filePath string) string {
+	if strings.Contains(filePath, "{{") {
+		return "application/octet-stream"
+	}
+
+	ext := strings.ToLower(path.Ext(filePath))
+	switch ext {
+	case ".json":
+		return "application/json"
+	case ".csv":
+		return "text/csv"
+	case ".txt":
+		return "text/plain"
+	case ".yaml", ".yml":
+		return "application/yaml"
+	case ".xml":
+		return "application/xml"
+	case ".html", ".htm":
+		return "text/html"
+	case ".md":
+		return "text/markdown"
+	case ".toml":
+		return "application/toml"
+	case ".js":
+		return "application/javascript"
+	case ".css":
+		return "text/css"
+	case ".pdf":
+		return "application/pdf"
+	case ".png":
+		return "image/png"
+	case ".jpg", ".jpeg":
+		return "image/jpeg"
+	case ".gif":
+		return "image/gif"
+	case ".svg":
+		return "image/svg+xml"
+	default:
+		return "application/octet-stream"
+	}
+}
+
+// CopyObject copies an object from one location to another within Spaces.
+// The x-amz-copy-source header is included in the signed headers as required by AWS SigV4.
+func (c *SpacesClient) CopyObject(sourceBucket, sourceKey, destBucket, destKey, acl string) (string, error) {
+	copySource := "/" + sourceBucket + "/" + sourceKey
+
+	extraHeaders := map[string]string{
+		"x-amz-copy-source": copySource,
+	}
+	if acl != "" {
+		extraHeaders["x-amz-acl"] = acl
+	}
+
+	res, err := c.execSpacesRequestFull(http.MethodPut, destBucket, destKey, "", nil, extraHeaders)
+	if err != nil {
+		return "", err
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		bodyBytes, _ := io.ReadAll(res.Body)
+		return "", fmt.Errorf("request got %d code: %s", res.StatusCode, string(bodyBytes))
+	}
+
+	bodyBytes, err := io.ReadAll(res.Body)
+	if err != nil {
+		return "", fmt.Errorf("error reading copy object response: %w", err)
+	}
+
+	// The S3 CopyObject API can return HTTP 200 with an <Error> XML body.
+	var apiError struct {
+		Code      string `xml:"Code"`
+		Message   string `xml:"Message"`
+		RequestID string `xml:"RequestId"`
+		HostID    string `xml:"HostId"`
+	}
+	if err := xml.Unmarshal(bodyBytes, &apiError); err == nil && strings.TrimSpace(apiError.Code) != "" {
+		if strings.TrimSpace(apiError.Message) != "" {
+			return "", fmt.Errorf("copy object failed: %s: %s", apiError.Code, apiError.Message)
+		}
+		return "", fmt.Errorf("copy object failed: %s", apiError.Code)
+	}
+
+	var result struct {
+		ETag string `xml:"ETag"`
+	}
+	if err := xml.Unmarshal(bodyBytes, &result); err != nil {
+		return "", fmt.Errorf("error parsing copy object response: %w: %s", err, string(bodyBytes))
+	}
+
+	eTag := strings.TrimSpace(strings.Trim(result.ETag, `"`))
+	if eTag == "" {
+		return "", fmt.Errorf("copy object response missing ETag: %s", string(bodyBytes))
+	}
+
+	return eTag, nil
+}
+
+// DeleteObject removes an object from a Spaces bucket.
+// The Spaces API always returns 204 No Content, even if the object does not exist.
+func (c *SpacesClient) DeleteObject(bucket, key string) error {
+	res, err := c.execSpacesRequest(http.MethodDelete, bucket, key, "")
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		bodyBytes, _ := io.ReadAll(res.Body)
+		return fmt.Errorf("request got %d code: %s", res.StatusCode, string(bodyBytes))
+	}
+
+	return nil
+}
+
+// toStringMap converts map[string]any to map[string]string.
+func toStringMap(m map[string]any) map[string]string {
+	result := make(map[string]string, len(m))
+	for k, v := range m {
+		result[k] = fmt.Sprintf("%v", v)
+	}
+	return result
+}
+
+// hmacSHA256 computes HMAC-SHA256 of data with key.
+func hmacSHA256(key []byte, data string) []byte {
+	h := hmac.New(sha256.New, key)
+	h.Write([]byte(data))
+	return h.Sum(nil)
+}
+
+// ListVPCs retrieves all VPCs in the account
+func (c *Client) ListVPCs() ([]VPC, error) {
+	url := fmt.Sprintf("%s/vpcs?per_page=200", c.BaseURL)
+	responseBody, err := c.execRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var response struct {
+		VPCs []VPC `json:"vpcs"`
+	}
+
+	if err := json.Unmarshal(responseBody, &response); err != nil {
+		return nil, fmt.Errorf("error parsing response: %v", err)
+	}
+
+	return response.VPCs, nil
+}
+
+// App represents a DigitalOcean App Platform application
+type App struct {
+	ID                      string            `json:"id"`
+	Spec                    *AppSpec          `json:"spec"`
+	DefaultIngress          string            `json:"default_ingress,omitempty"`
+	LiveURL                 string            `json:"live_url,omitempty"`
+	LiveURLBase             string            `json:"live_url_base,omitempty"`
+	LiveDomain              string            `json:"live_domain,omitempty"`
+	ActiveDeployment        *Deployment       `json:"active_deployment,omitempty"`
+	InProgressDeployment    *Deployment       `json:"in_progress_deployment,omitempty"`
+	LastDeploymentCreatedAt string            `json:"last_deployment_created_at,omitempty"`
+	CreatedAt               string            `json:"created_at"`
+	UpdatedAt               string            `json:"updated_at"`
+	Region                  *AppRegion        `json:"region,omitempty"`
+	PendingDeployment       PendingDeployment `json:"pending_deployment,omitempty"`
+}
+
+// AppSpec defines the specification for an App Platform application
+type AppSpec struct {
+	Name        string           `json:"name"`
+	Region      string           `json:"region,omitempty"`
+	Services    []*AppService    `json:"services,omitempty"`
+	Workers     []*AppWorker     `json:"workers,omitempty"`
+	Jobs        []*AppJob        `json:"jobs,omitempty"`
+	StaticSites []*AppStaticSite `json:"static_sites,omitempty"`
+	Databases   []*AppDatabase   `json:"databases,omitempty"`
+	Domains     []*AppDomain     `json:"domains,omitempty"`
+	Ingress     *AppIngress      `json:"ingress,omitempty"`
+	VPC         *AppVPC          `json:"vpc,omitempty"`
+}
+
+// AppIngress defines ingress rules for an app
+type AppIngress struct {
+	Rules []*AppIngressRule `json:"rules,omitempty"`
+}
+
+// AppIngressRule defines a single ingress rule
+type AppIngressRule struct {
+	Match     *AppIngressRuleMatch     `json:"match,omitempty"`
+	Component *AppIngressRuleComponent `json:"component,omitempty"`
+	CORS      *AppCORS                 `json:"cors,omitempty"`
+}
+
+// AppIngressRuleMatch defines the match criteria for an ingress rule
+type AppIngressRuleMatch struct {
+	Path *AppIngressRuleMatchPath `json:"path,omitempty"`
+}
+
+// AppIngressRuleMatchPath defines path matching for an ingress rule
+type AppIngressRuleMatchPath struct {
+	Prefix string `json:"prefix,omitempty"`
+}
+
+// AppIngressRuleComponent references a component in an ingress rule
+type AppIngressRuleComponent struct {
+	Name               string `json:"name"`
+	PreservePathPrefix bool   `json:"preserve_path_prefix,omitempty"`
+}
+
+// AppCORS defines Cross-Origin Resource Sharing configuration
+type AppCORS struct {
+	AllowOrigins     []*AppCORSAllowOrigin `json:"allow_origins,omitempty"`
+	AllowMethods     []string              `json:"allow_methods,omitempty"`
+	AllowHeaders     []string              `json:"allow_headers,omitempty"`
+	ExposeHeaders    []string              `json:"expose_headers,omitempty"`
+	MaxAge           string                `json:"max_age,omitempty"`
+	AllowCredentials bool                  `json:"allow_credentials,omitempty"`
+}
+
+// AppCORSAllowOrigin defines an allowed origin for CORS
+type AppCORSAllowOrigin struct {
+	Exact  string `json:"exact,omitempty"`
+	Prefix string `json:"prefix,omitempty"`
+	Regex  string `json:"regex,omitempty"`
+}
+
+// AppService represents a service component in an app
+type AppService struct {
+	Name             string           `json:"name"`
+	GitHub           *GitHubSource    `json:"github,omitempty"`
+	GitLab           *GitLabSource    `json:"gitlab,omitempty"`
+	Bitbucket        *BitbucketSource `json:"bitbucket,omitempty"`
+	Git              *GitSource       `json:"git,omitempty"`
+	Image            *ImageSource     `json:"image,omitempty"`
+	EnvironmentSlug  string           `json:"environment_slug,omitempty"`
+	EnvVariables     []*AppEnvVar     `json:"envs,omitempty"`
+	InstanceCount    int64            `json:"instance_count,omitempty"`
+	InstanceSizeSlug string           `json:"instance_size_slug,omitempty"`
+	Routes           []*AppRoute      `json:"routes,omitempty"`
+	HealthCheck      *HealthCheck     `json:"health_check,omitempty"`
+	HTTPPort         int64            `json:"http_port,omitempty"`
+	RunCommand       string           `json:"run_command,omitempty"`
+	BuildCommand     string           `json:"build_command,omitempty"`
+	SourceDir        string           `json:"source_dir,omitempty"`
+}
+
+// AppWorker represents a worker component in an app
+type AppWorker struct {
+	Name             string           `json:"name"`
+	GitHub           *GitHubSource    `json:"github,omitempty"`
+	GitLab           *GitLabSource    `json:"gitlab,omitempty"`
+	Bitbucket        *BitbucketSource `json:"bitbucket,omitempty"`
+	Git              *GitSource       `json:"git,omitempty"`
+	Image            *ImageSource     `json:"image,omitempty"`
+	EnvironmentSlug  string           `json:"environment_slug,omitempty"`
+	EnvVariables     []*AppEnvVar     `json:"envs,omitempty"`
+	InstanceCount    int64            `json:"instance_count,omitempty"`
+	InstanceSizeSlug string           `json:"instance_size_slug,omitempty"`
+	RunCommand       string           `json:"run_command,omitempty"`
+	BuildCommand     string           `json:"build_command,omitempty"`
+	SourceDir        string           `json:"source_dir,omitempty"`
+}
+
+// AppJob represents a job component in an app
+type AppJob struct {
+	Name             string           `json:"name"`
+	GitHub           *GitHubSource    `json:"github,omitempty"`
+	GitLab           *GitLabSource    `json:"gitlab,omitempty"`
+	Bitbucket        *BitbucketSource `json:"bitbucket,omitempty"`
+	Git              *GitSource       `json:"git,omitempty"`
+	Image            *ImageSource     `json:"image,omitempty"`
+	EnvironmentSlug  string           `json:"environment_slug,omitempty"`
+	EnvVariables     []*AppEnvVar     `json:"envs,omitempty"`
+	InstanceCount    int64            `json:"instance_count,omitempty"`
+	InstanceSizeSlug string           `json:"instance_size_slug,omitempty"`
+	Kind             string           `json:"kind,omitempty"`
+	RunCommand       string           `json:"run_command,omitempty"`
+	BuildCommand     string           `json:"build_command,omitempty"`
+	SourceDir        string           `json:"source_dir,omitempty"`
+}
+
+// AppStaticSite represents a static site component in an app
+type AppStaticSite struct {
+	Name             string           `json:"name"`
+	GitHub           *GitHubSource    `json:"github,omitempty"`
+	GitLab           *GitLabSource    `json:"gitlab,omitempty"`
+	Bitbucket        *BitbucketSource `json:"bitbucket,omitempty"`
+	Git              *GitSource       `json:"git,omitempty"`
+	EnvironmentSlug  string           `json:"environment_slug,omitempty"`
+	EnvVariables     []*AppEnvVar     `json:"envs,omitempty"`
+	BuildCommand     string           `json:"build_command,omitempty"`
+	OutputDir        string           `json:"output_dir,omitempty"`
+	SourceDir        string           `json:"source_dir,omitempty"`
+	IndexDocument    string           `json:"index_document,omitempty"`
+	ErrorDocument    string           `json:"error_document,omitempty"`
+	CatchallDocument string           `json:"catchall_document,omitempty"`
+	Routes           []*AppRoute      `json:"routes,omitempty"`
+}
+
+// AppDatabase represents a database component in an app
+type AppDatabase struct {
+	Name        string `json:"name"`
+	Engine      string `json:"engine,omitempty"`
+	Version     string `json:"version,omitempty"`
+	Production  bool   `json:"production,omitempty"`
+	ClusterName string `json:"cluster_name,omitempty"`
+	DBName      string `json:"db_name,omitempty"`
+	DBUser      string `json:"db_user,omitempty"`
+}
+
+// AppDomain represents a custom domain for an app
+type AppDomain struct {
+	Domain   string `json:"domain"`
+	Type     string `json:"type,omitempty"`
+	Wildcard bool   `json:"wildcard,omitempty"`
+	Zone     string `json:"zone,omitempty"`
+}
+
+// AppVPC represents a VPC configuration for an app
+type AppVPC struct {
+	ID string `json:"id"`
+}
+
+// GitHubSource represents a GitHub repository source
+type GitHubSource struct {
+	Repo         string `json:"repo"`
+	Branch       string `json:"branch,omitempty"`
+	DeployOnPush bool   `json:"deploy_on_push"`
+}
+
+// GitLabSource represents a GitLab repository source
+type GitLabSource struct {
+	Repo         string `json:"repo"`
+	Branch       string `json:"branch,omitempty"`
+	DeployOnPush bool   `json:"deploy_on_push"`
+}
+
+// BitbucketSource represents a Bitbucket repository source
+type BitbucketSource struct {
+	Repo         string `json:"repo"`
+	Branch       string `json:"branch,omitempty"`
+	DeployOnPush bool   `json:"deploy_on_push"`
+}
+
+// GitSource represents a generic Git repository source
+type GitSource struct {
+	RepoCloneURL string `json:"repo_clone_url"`
+	Branch       string `json:"branch,omitempty"`
+}
+
+// ImageSource represents a container image source
+type ImageSource struct {
+	RegistryType string `json:"registry_type"`
+	Registry     string `json:"registry,omitempty"`
+	Repository   string `json:"repository"`
+	Tag          string `json:"tag,omitempty"`
+}
+
+// AppEnvVar represents an environment variable
+type AppEnvVar struct {
+	Key   string `json:"key"`
+	Value string `json:"value,omitempty"`
+	Scope string `json:"scope,omitempty"`
+	Type  string `json:"type,omitempty"`
+}
+
+// AppRoute represents a route configuration for a service
+type AppRoute struct {
+	Path               string `json:"path,omitempty"`
+	PreservePathPrefix bool   `json:"preserve_path_prefix,omitempty"`
+}
+
+// HealthCheck represents health check configuration
+type HealthCheck struct {
+	HTTPPath            string `json:"http_path,omitempty"`
+	InitialDelaySeconds int32  `json:"initial_delay_seconds,omitempty"`
+	PeriodSeconds       int32  `json:"period_seconds,omitempty"`
+	TimeoutSeconds      int32  `json:"timeout_seconds,omitempty"`
+	SuccessThreshold    int32  `json:"success_threshold,omitempty"`
+	FailureThreshold    int32  `json:"failure_threshold,omitempty"`
+}
+
+// Deployment represents an app deployment
+type Deployment struct {
+	ID          string                  `json:"id"`
+	Spec        *AppSpec                `json:"spec,omitempty"`
+	Services    []*DeploymentService    `json:"services,omitempty"`
+	Workers     []*DeploymentWorker     `json:"workers,omitempty"`
+	Jobs        []*DeploymentJob        `json:"jobs,omitempty"`
+	StaticSites []*DeploymentStaticSite `json:"static_sites,omitempty"`
+	Phase       string                  `json:"phase,omitempty"`
+	Progress    *DeploymentProgress     `json:"progress,omitempty"`
+	CreatedAt   string                  `json:"created_at"`
+	UpdatedAt   string                  `json:"updated_at"`
+	Cause       string                  `json:"cause,omitempty"`
+}
+
+// DeploymentService represents a deployed service
+type DeploymentService struct {
+	Name             string `json:"name"`
+	SourceCommitHash string `json:"source_commit_hash,omitempty"`
+}
+
+// DeploymentWorker represents a deployed worker
+type DeploymentWorker struct {
+	Name             string `json:"name"`
+	SourceCommitHash string `json:"source_commit_hash,omitempty"`
+}
+
+// DeploymentJob represents a deployed job
+type DeploymentJob struct {
+	Name             string `json:"name"`
+	SourceCommitHash string `json:"source_commit_hash,omitempty"`
+}
+
+// DeploymentStaticSite represents a deployed static site
+type DeploymentStaticSite struct {
+	Name             string `json:"name"`
+	SourceCommitHash string `json:"source_commit_hash,omitempty"`
+}
+
+// DeploymentProgress tracks deployment progress
+type DeploymentProgress struct {
+	PendingSteps int32                     `json:"pending_steps,omitempty"`
+	RunningSteps int32                     `json:"running_steps,omitempty"`
+	SuccessSteps int32                     `json:"success_steps,omitempty"`
+	ErrorSteps   int32                     `json:"error_steps,omitempty"`
+	TotalSteps   int32                     `json:"total_steps,omitempty"`
+	Steps        []*DeploymentProgressStep `json:"steps,omitempty"`
+}
+
+// DeploymentProgressStep represents a single deployment step
+type DeploymentProgressStep struct {
+	Name      string                    `json:"name"`
+	Status    string                    `json:"status"`
+	Steps     []*DeploymentProgressStep `json:"steps,omitempty"`
+	StartedAt string                    `json:"started_at,omitempty"`
+	EndedAt   string                    `json:"ended_at,omitempty"`
+}
+
+// AppRegion represents the region where an app is deployed
+type AppRegion struct {
+	Slug        string   `json:"slug"`
+	Label       string   `json:"label"`
+	Flag        string   `json:"flag"`
+	Continent   string   `json:"continent"`
+	DataCenters []string `json:"data_centers,omitempty"`
+}
+
+type PendingDeployment struct {
+	ID string `json:"id"`
+}
+
+// CreateAppRequest is the payload for creating an app
+type CreateAppRequest struct {
+	Spec *AppSpec `json:"spec"`
+}
+
+// UpdateAppRequest is the payload for updating an app
+type UpdateAppRequest struct {
+	Spec *AppSpec `json:"spec"`
+}
+
+// CreateApp creates a new App Platform application
+func (c *Client) CreateApp(req CreateAppRequest) (*App, error) {
+	url := fmt.Sprintf("%s/apps", c.BaseURL)
+
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling request: %v", err)
+	}
+
+	responseBody, err := c.execRequest(http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+
+	var response struct {
+		App App `json:"app"`
+	}
+
+	if err := json.Unmarshal(responseBody, &response); err != nil {
+		return nil, fmt.Errorf("error parsing response: %v", err)
+	}
+
+	return &response.App, nil
+}
+
+// GetApp retrieves an app by its ID
+func (c *Client) GetApp(appID string) (*App, error) {
+	url := fmt.Sprintf("%s/apps/%s", c.BaseURL, appID)
+	responseBody, err := c.execRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var response struct {
+		App App `json:"app"`
+	}
+
+	if err := json.Unmarshal(responseBody, &response); err != nil {
+		return nil, fmt.Errorf("error parsing response: %v", err)
+	}
+
+	return &response.App, nil
+}
+
+// UpdateApp updates an existing app
+func (c *Client) UpdateApp(appID string, req UpdateAppRequest) (*App, error) {
+	url := fmt.Sprintf("%s/apps/%s", c.BaseURL, appID)
+
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling request: %v", err)
+	}
+
+	responseBody, err := c.execRequest(http.MethodPut, url, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+
+	var response struct {
+		App App `json:"app"`
+	}
+
+	if err := json.Unmarshal(responseBody, &response); err != nil {
+		return nil, fmt.Errorf("error parsing response: %v", err)
+	}
+
+	return &response.App, nil
+}
+
+// DeleteApp deletes an app by its ID
+func (c *Client) DeleteApp(appID string) error {
+	url := fmt.Sprintf("%s/apps/%s", c.BaseURL, appID)
+	_, err := c.execRequest(http.MethodDelete, url, nil)
+	return err
+}
+
+// GetDeployment retrieves a specific deployment for an app
+func (c *Client) GetDeployment(appID, deploymentID string) (*Deployment, error) {
+	url := fmt.Sprintf("%s/apps/%s/deployments/%s", c.BaseURL, appID, deploymentID)
+	responseBody, err := c.execRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var response struct {
+		Deployment Deployment `json:"deployment"`
+	}
+
+	if err := json.Unmarshal(responseBody, &response); err != nil {
+		return nil, fmt.Errorf("error parsing response: %v", err)
+	}
+
+	return &response.Deployment, nil
+}
+
+// ListApps retrieves all apps in the account
+func (c *Client) ListApps() ([]App, error) {
+	url := fmt.Sprintf("%s/apps?per_page=200", c.BaseURL)
+	responseBody, err := c.execRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var response struct {
+		Apps []App `json:"apps"`
+	}
+
+	if err := json.Unmarshal(responseBody, &response); err != nil {
+		return nil, fmt.Errorf("error parsing response: %v", err)
+	}
+
+	return response.Apps, nil
+}
+
+type DatabaseClusterConnection struct {
+	Host     string `json:"host,omitempty"`
+	Port     int    `json:"port,omitempty"`
+	User     string `json:"user,omitempty"`
+	Database string `json:"database,omitempty"`
+	URI      string `json:"uri,omitempty"`
+	SSL      bool   `json:"ssl,omitempty"`
+}
+
+type DatabaseOptionLayout struct {
+	NumNodes int      `json:"num_nodes"`
+	Sizes    []string `json:"sizes"`
+}
+
+type DatabaseEngineOptions struct {
+	Regions        []string               `json:"regions"`
+	Versions       []string               `json:"versions"`
+	Layouts        []DatabaseOptionLayout `json:"layouts"`
+	DefaultVersion string                 `json:"default_version,omitempty"`
+}
+
+type DatabaseCluster struct {
+	ID                 string                     `json:"id"`
+	Name               string                     `json:"name"`
+	Engine             string                     `json:"engine,omitempty"`
+	Version            string                     `json:"version,omitempty"`
+	Region             string                     `json:"region,omitempty"`
+	Size               string                     `json:"size,omitempty"`
+	NumNodes           int                        `json:"num_nodes,omitempty"`
+	Status             string                     `json:"status,omitempty"`
+	CreatedAt          string                     `json:"created_at,omitempty"`
+	PrivateNetworkUUID string                     `json:"private_network_uuid,omitempty"`
+	Connection         *DatabaseClusterConnection `json:"connection,omitempty"`
+	PrivateConnection  *DatabaseClusterConnection `json:"private_connection,omitempty"`
+}
+
+type CreateDatabaseClusterRequest struct {
+	Name     string `json:"name"`
+	Engine   string `json:"engine"`
+	Version  string `json:"version"`
+	Region   string `json:"region"`
+	Size     string `json:"size"`
+	NumNodes int    `json:"num_nodes"`
+}
+
+func (c *Client) GetDatabaseOptions() (map[string]DatabaseEngineOptions, error) {
+	url := fmt.Sprintf("%s/databases/options", c.BaseURL)
+	responseBody, err := c.execRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var response struct {
+		Options map[string]DatabaseEngineOptions `json:"options"`
+	}
+
+	if err := json.Unmarshal(responseBody, &response); err != nil {
+		return nil, fmt.Errorf("error parsing response: %v", err)
+	}
+
+	if response.Options == nil {
+		return map[string]DatabaseEngineOptions{}, nil
+	}
+
+	return response.Options, nil
+}
+
+func (c *Client) ListDatabaseClusters() ([]DatabaseCluster, error) {
+	url := fmt.Sprintf("%s/databases?per_page=200", c.BaseURL)
+	responseBody, err := c.execRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var response struct {
+		Databases []DatabaseCluster `json:"databases"`
+	}
+
+	if err := json.Unmarshal(responseBody, &response); err != nil {
+		return nil, fmt.Errorf("error parsing response: %v", err)
+	}
+
+	if response.Databases == nil {
+		return []DatabaseCluster{}, nil
+	}
+
+	return response.Databases, nil
+}
+
+func (c *Client) CreateDatabaseCluster(req CreateDatabaseClusterRequest) (*DatabaseCluster, error) {
+	url := fmt.Sprintf("%s/databases", c.BaseURL)
+
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling request: %v", err)
+	}
+
+	responseBody, err := c.execRequest(http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+
+	var response struct {
+		Database DatabaseCluster `json:"database"`
+	}
+
+	if err := json.Unmarshal(responseBody, &response); err != nil {
+		return nil, fmt.Errorf("error parsing response: %v", err)
+	}
+
+	return &response.Database, nil
+}
+
+func (c *Client) GetDatabaseCluster(clusterID string) (*DatabaseCluster, error) {
+	url := fmt.Sprintf("%s/databases/%s", c.BaseURL, clusterID)
+	responseBody, err := c.execRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var response struct {
+		Database DatabaseCluster `json:"database"`
+	}
+
+	if err := json.Unmarshal(responseBody, &response); err != nil {
+		return nil, fmt.Errorf("error parsing response: %v", err)
+	}
+
+	return &response.Database, nil
+}
+
+// EmbeddingModel represents a DigitalOcean Gradient AI embedding model
+type EmbeddingModel struct {
+	UUID               string `json:"uuid"`
+	Name               string `json:"name"`
+	Description        string `json:"description"`
+	KBMinChunkSize     int    `json:"kb_min_chunk_size"`
+	KBMaxChunkSize     int    `json:"kb_max_chunk_size"`
+	KBDefaultChunkSize int    `json:"kb_default_chunk_size"`
+}
+
+// ListEmbeddingModels retrieves all embedding models available for knowledge base vectorization
+func (c *Client) ListEmbeddingModels() ([]EmbeddingModel, error) {
+	url := fmt.Sprintf("%s/gen-ai/models?usecases=MODEL_USECASE_KNOWLEDGEBASE&per_page=200", c.BaseURL)
+	responseBody, err := c.execRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var response struct {
+		Models []EmbeddingModel `json:"models"`
+	}
+
+	if err := json.Unmarshal(responseBody, &response); err != nil {
+		return nil, fmt.Errorf("error parsing response: %v", err)
+	}
+
+	return response.Models, nil
+}
+
+// Project represents a DigitalOcean project
+type Project struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Purpose     string `json:"purpose"`
+	Environment string `json:"environment"`
+	IsDefault   bool   `json:"is_default"`
+}
+
+// ListProjects retrieves all projects in the account
+func (c *Client) ListProjects() ([]Project, error) {
+	url := fmt.Sprintf("%s/projects?per_page=200", c.BaseURL)
+	responseBody, err := c.execRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var response struct {
+		Projects []Project `json:"projects"`
+	}
+
+	if err := json.Unmarshal(responseBody, &response); err != nil {
+		return nil, fmt.Errorf("error parsing response: %v", err)
+	}
+
+	return response.Projects, nil
+}
+
+// Database represents a DigitalOcean managed database cluster
+type Database struct {
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Engine string `json:"engine"`
+	Status string `json:"status"`
+}
+
+// ListDatabasesByEngine retrieves all managed database clusters filtered by engine
+func (c *Client) ListDatabasesByEngine(engine string) ([]Database, error) {
+	url := fmt.Sprintf("%s/databases?engine=%s&per_page=200", c.BaseURL, engine)
+	responseBody, err := c.execRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var response struct {
+		Databases []Database `json:"databases"`
+	}
+
+	if err := json.Unmarshal(responseBody, &response); err != nil {
+		return nil, fmt.Errorf("error parsing response: %v", err)
+	}
+
+	return response.Databases, nil
+}
+
+type ClusterDatabase struct {
+	Name string `json:"name"`
+}
+
+type CreateClusterDatabaseRequest struct {
+	Name string `json:"name"`
+}
+
+// KnowledgeBase represents a DigitalOcean Gradient AI knowledge base
+type KnowledgeBase struct {
+	UUID               string    `json:"uuid"`
+	Name               string    `json:"name"`
+	EmbeddingModelUUID string    `json:"embedding_model_uuid"`
+	Region             string    `json:"region"`
+	ProjectID          string    `json:"project_id"`
+	Tags               []string  `json:"tags"`
+	DatabaseID         string    `json:"database_id"`
+	Status             string    `json:"status"`
+	LastIndexingJob    *IndexJob `json:"last_indexing_job"`
+	CreatedAt          string    `json:"created_at"`
+	UpdatedAt          string    `json:"updated_at"`
+
+	// DatabaseStatus is a sibling field in the API response (not inside knowledge_base).
+	// It is populated by GetKnowledgeBase after parsing the response.
+	DatabaseStatus string `json:"-"`
+}
+
+// GetKnowledgeBase retrieves a knowledge base by its UUID
+func (c *Client) GetKnowledgeBase(kbUUID string) (*KnowledgeBase, error) {
+	url := fmt.Sprintf("%s/gen-ai/knowledge_bases/%s", c.BaseURL, kbUUID)
+	responseBody, err := c.execRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var response struct {
+		KnowledgeBase  KnowledgeBase `json:"knowledge_base"`
+		DatabaseStatus string        `json:"database_status"`
+	}
+
+	if err := json.Unmarshal(responseBody, &response); err != nil {
+		return nil, fmt.Errorf("error parsing response: %v", err)
+	}
+
+	response.KnowledgeBase.DatabaseStatus = response.DatabaseStatus
+	return &response.KnowledgeBase, nil
+}
+
+// KBSpacesDataSource defines a Spaces bucket data source for a knowledge base
+type KBSpacesDataSource struct {
+	BucketName string `json:"bucket_name"`
+	Region     string `json:"region"`
+}
+
+// KBWebCrawlerDataSource defines a web crawler data source for a knowledge base
+type KBWebCrawlerDataSource struct {
+	BaseURL        string   `json:"base_url"`
+	CrawlingOption string   `json:"crawling_option,omitempty"`
+	EmbedMedia     bool     `json:"embed_media"`
+	ExcludeTags    []string `json:"exclude_tags,omitempty"`
+}
+
+// KBChunkingOptions defines chunking configuration for a knowledge base data source
+type KBChunkingOptions struct {
+	MaxChunkSize      int     `json:"max_chunk_size,omitempty"`
+	SemanticThreshold float64 `json:"semantic_threshold,omitempty"`
+	ParentChunkSize   int     `json:"parent_chunk_size,omitempty"`
+	ChildChunkSize    int     `json:"child_chunk_size,omitempty"`
+}
+
+// KBDataSource represents a single data source in a knowledge base
+type KBDataSource struct {
+	SpacesDataSource     *KBSpacesDataSource     `json:"spaces_data_source,omitempty"`
+	WebCrawlerDataSource *KBWebCrawlerDataSource `json:"web_crawler_data_source,omitempty"`
+	ChunkingAlgorithm    string                  `json:"chunking_algorithm,omitempty"`
+	ChunkingOptions      *KBChunkingOptions      `json:"chunking_options,omitempty"`
+}
+
+// CreateKnowledgeBaseRequest is the payload for POST /v2/gen-ai/knowledge_bases
+type CreateKnowledgeBaseRequest struct {
+	Name               string         `json:"name"`
+	EmbeddingModelUUID string         `json:"embedding_model_uuid"`
+	Region             string         `json:"region,omitempty"`
+	ProjectID          string         `json:"project_id"`
+	Tags               []string       `json:"tags,omitempty"`
+	DatabaseID         string         `json:"database_id,omitempty"`
+	DataSources        []KBDataSource `json:"datasources,omitempty"`
+}
+
+// CreateKnowledgeBase creates a new Gradient AI knowledge base
+func (c *Client) CreateKnowledgeBase(req CreateKnowledgeBaseRequest) (*KnowledgeBase, error) {
+	url := fmt.Sprintf("%s/gen-ai/knowledge_bases", c.BaseURL)
+
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling request: %v", err)
+	}
+
+	responseBody, err := c.execRequest(http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+
+	var response struct {
+		KnowledgeBase KnowledgeBase `json:"knowledge_base"`
+	}
+
+	if err := json.Unmarshal(responseBody, &response); err != nil {
+		return nil, fmt.Errorf("error parsing response: %v", err)
+	}
+
+	return &response.KnowledgeBase, nil
+}
+
+func (c *Client) CreateClusterDatabase(clusterID string, req CreateClusterDatabaseRequest) (*ClusterDatabase, error) {
+	url := fmt.Sprintf("%s/databases/%s/dbs", c.BaseURL, clusterID)
+
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling request: %v", err)
+	}
+
+	responseBody, err := c.execRequest(http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+
+	var response struct {
+		Database ClusterDatabase `json:"db"`
+	}
+
+	if err := json.Unmarshal(responseBody, &response); err != nil {
+		return nil, fmt.Errorf("error parsing response: %v", err)
+	}
+
+	return &response.Database, nil
+}
+
+// IndexJob represents a DigitalOcean Gradient AI knowledge base indexing job
+type IndexJob struct {
+	UUID                 string `json:"uuid"`
+	Status               string `json:"status"`
+	Phase                string `json:"phase"`
+	Tokens               int    `json:"tokens"`
+	TotalTokens          string `json:"total_tokens"`
+	CompletedDataSources int    `json:"completed_datasources"`
+	TotalDataSources     int    `json:"total_datasources"`
+	StartedAt            string `json:"started_at"`
+	FinishedAt           string `json:"finished_at"`
+	CreatedAt            string `json:"created_at"`
+	UpdatedAt            string `json:"updated_at"`
+	IsReportAvailable    bool   `json:"is_report_available"`
+	KnowledgeBaseUUID    string `json:"knowledge_base_uuid"`
+}
+
+// GetIndexingJob retrieves an indexing job by its UUID.
+func (c *Client) GetIndexingJob(jobUUID string) (*IndexJob, error) {
+	url := fmt.Sprintf("%s/gen-ai/indexing_jobs/%s", c.BaseURL, jobUUID)
+	responseBody, err := c.execRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var response struct {
+		Job IndexJob `json:"job"`
+	}
+
+	if err := json.Unmarshal(responseBody, &response); err != nil {
+		return nil, fmt.Errorf("error parsing response: %v", err)
+	}
+
+	if strings.TrimSpace(response.Job.UUID) == "" {
+		return nil, fmt.Errorf("error parsing response: missing job uuid")
+	}
+
+	return &response.Job, nil
+}
+
+// StartIndexingJob triggers a new indexing job for a knowledge base.
+// If dataSourceUUIDs are provided, only those data sources will be indexed.
+// If none are provided, all data sources in the knowledge base will be indexed.
+func (c *Client) StartIndexingJob(kbUUID string, dataSourceUUIDs ...string) (*IndexJob, error) {
+	url := fmt.Sprintf("%s/gen-ai/indexing_jobs", c.BaseURL)
+
+	payload := map[string]any{"knowledge_base_uuid": kbUUID}
+	if len(dataSourceUUIDs) > 0 {
+		payload["data_source_uuids"] = dataSourceUUIDs
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling request: %v", err)
+	}
+
+	responseBody, err := c.execRequest(http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+
+	var response struct {
+		Job IndexJob `json:"job"`
+	}
+
+	if err := json.Unmarshal(responseBody, &response); err != nil {
+		return nil, fmt.Errorf("error parsing response: %v", err)
+	}
+
+	if strings.TrimSpace(response.Job.UUID) == "" {
+		return nil, fmt.Errorf("error parsing response: missing job uuid")
+	}
+
+	return &response.Job, nil
+}
+
+// DeleteKBDataSource removes a data source from a knowledge base
+func (c *Client) DeleteKBDataSource(kbUUID, dsUUID string) error {
+	url := fmt.Sprintf("%s/gen-ai/knowledge_bases/%s/data_sources/%s", c.BaseURL, kbUUID, dsUUID)
+	_, err := c.execRequest(http.MethodDelete, url, nil)
+	return err
+}
+
+// AddKBDataSource adds a data source to an existing knowledge base
+func (c *Client) AddKBDataSource(kbUUID string, ds KBDataSource) (*KBDataSourceInfo, error) {
+	url := fmt.Sprintf("%s/gen-ai/knowledge_bases/%s/data_sources", c.BaseURL, kbUUID)
+
+	body, err := json.Marshal(ds)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling request: %v", err)
+	}
+
+	responseBody, err := c.execRequest(http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+
+	var response struct {
+		DataSource KBDataSourceInfo `json:"knowledge_base_data_source"`
+	}
+
+	if err := json.Unmarshal(responseBody, &response); err != nil {
+		return nil, fmt.Errorf("error parsing response: %v", err)
+	}
+
+	return &response.DataSource, nil
+}
+
+// KBDataSourceInfo represents a data source returned by the list data sources endpoint.
+// Spaces sources use flat fields (bucket_name, region, item_path).
+// Web sources use a nested web_crawler_data_source object.
+type KBDataSourceInfo struct {
+	UUID                 string                  `json:"uuid"`
+	BucketName           string                  `json:"bucket_name,omitempty"`
+	Region               string                  `json:"region,omitempty"`
+	ItemPath             string                  `json:"item_path,omitempty"`
+	WebCrawlerDataSource *KBWebCrawlerDataSource `json:"web_crawler_data_source,omitempty"`
+	ChunkingAlgorithm    string                  `json:"chunking_algorithm,omitempty"`
+	CreatedAt            string                  `json:"created_at,omitempty"`
+	UpdatedAt            string                  `json:"updated_at,omitempty"`
+}
+
+// ListKBDataSources retrieves all data sources for a knowledge base
+func (c *Client) ListKBDataSources(kbUUID string) ([]KBDataSourceInfo, error) {
+	url := fmt.Sprintf("%s/gen-ai/knowledge_bases/%s/data_sources?per_page=200", c.BaseURL, kbUUID)
+	responseBody, err := c.execRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var response struct {
+		DataSources []KBDataSourceInfo `json:"knowledge_base_data_sources"`
+	}
+
+	if err := json.Unmarshal(responseBody, &response); err != nil {
+		return nil, fmt.Errorf("error parsing response: %v", err)
+	}
+
+	return response.DataSources, nil
+}
+
+// AgentKnowledgeBase represents a knowledge base attached to a GradientAI agent
+type AgentKnowledgeBase struct {
+	UUID string `json:"uuid"`
+	Name string `json:"name"`
+}
+
+// AgentWorkspace represents the workspace an agent belongs to
+type AgentWorkspace struct {
+	UUID string `json:"uuid"`
+}
+
+// Agent represents a DigitalOcean GradientAI agent
+type Agent struct {
+	UUID           string               `json:"uuid"`
+	Name           string               `json:"name"`
+	KnowledgeBases []AgentKnowledgeBase `json:"knowledge_bases"`
+	Workspace      *AgentWorkspace      `json:"workspace"`
+}
+
+// GetAgent retrieves a GradientAI agent by its UUID
+func (c *Client) GetAgent(agentUUID string) (*Agent, error) {
+	url := fmt.Sprintf("%s/gen-ai/agents/%s", c.BaseURL, agentUUID)
+	responseBody, err := c.execRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var response struct {
+		Agent Agent `json:"agent"`
+	}
+
+	if err := json.Unmarshal(responseBody, &response); err != nil {
+		return nil, fmt.Errorf("error parsing response: %v", err)
+	}
+
+	return &response.Agent, nil
+}
+
+// ListAgents retrieves all GradientAI agents in the account
+func (c *Client) ListAgents() ([]Agent, error) {
+	url := fmt.Sprintf("%s/gen-ai/agents?per_page=200", c.BaseURL)
+	responseBody, err := c.execRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var response struct {
+		Agents []Agent `json:"agents"`
+	}
+
+	if err := json.Unmarshal(responseBody, &response); err != nil {
+		return nil, fmt.Errorf("error parsing response: %v", err)
+	}
+
+	return response.Agents, nil
+}
+
+// ListKnowledgeBases retrieves all GradientAI knowledge bases in the account
+func (c *Client) ListKnowledgeBases() ([]KnowledgeBase, error) {
+	url := fmt.Sprintf("%s/gen-ai/knowledge_bases?per_page=200", c.BaseURL)
+	responseBody, err := c.execRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var response struct {
+		KnowledgeBases []KnowledgeBase `json:"knowledge_bases"`
+	}
+
+	if err := json.Unmarshal(responseBody, &response); err != nil {
+		return nil, fmt.Errorf("error parsing response: %v", err)
+	}
+
+	return response.KnowledgeBases, nil
+}
+
+// AttachKnowledgeBase attaches a knowledge base to a GradientAI agent.
+// Uses POST /v2/gen-ai/agents/{agent_uuid}/knowledge_bases/{knowledge_base_uuid}
+func (c *Client) AttachKnowledgeBase(agentUUID, kbUUID string) error {
+	url := fmt.Sprintf("%s/gen-ai/agents/%s/knowledge_bases/%s", c.BaseURL, agentUUID, kbUUID)
+
+	body, err := json.Marshal(map[string]string{
+		"agent_uuid":          agentUUID,
+		"knowledge_base_uuid": kbUUID,
+	})
+	if err != nil {
+		return fmt.Errorf("error marshaling request: %v", err)
+	}
+
+	_, err = c.execRequest(http.MethodPost, url, bytes.NewReader(body))
+	return err
+}
+
+// DetachKnowledgeBase detaches a knowledge base from a GradientAI agent
+func (c *Client) DetachKnowledgeBase(agentUUID, kbUUID string) error {
+	url := fmt.Sprintf("%s/gen-ai/agents/%s/knowledge_bases/%s", c.BaseURL, agentUUID, kbUUID)
+	_, err := c.execRequest(http.MethodDelete, url, nil)
+	return err
+}
+
+// DeleteKnowledgeBase deletes a knowledge base by its UUID
+func (c *Client) DeleteKnowledgeBase(kbUUID string) error {
+	url := fmt.Sprintf("%s/gen-ai/knowledge_bases/%s", c.BaseURL, kbUUID)
+	_, err := c.execRequest(http.MethodDelete, url, nil)
+	return err
+}
+
+// DeleteDatabase deletes a managed database cluster by its ID
+func (c *Client) DeleteDatabase(databaseID string) error {
+	url := fmt.Sprintf("%s/databases/%s", c.BaseURL, databaseID)
+	_, err := c.execRequest(http.MethodDelete, url, nil)
+	return err
+}
+
+func (c *Client) DeleteClusterDatabase(clusterID, name string) error {
+	url := fmt.Sprintf("%s/databases/%s/dbs/%s", c.BaseURL, clusterID, url.PathEscape(name))
+	_, err := c.execRequest(http.MethodDelete, url, nil)
+	return err
+}
+
+func (c *Client) GetDatabaseClusterConfig(clusterID string) (map[string]any, error) {
+	url := fmt.Sprintf("%s/databases/%s/config", c.BaseURL, clusterID)
+	responseBody, err := c.execRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var response struct {
+		Config map[string]any `json:"config"`
+	}
+
+	if err := json.Unmarshal(responseBody, &response); err != nil {
+		return nil, fmt.Errorf("error parsing response: %v", err)
+	}
+
+	if response.Config == nil {
+		return map[string]any{}, nil
+	}
+
+	return response.Config, nil
+}
+
+// ListDatabases lists logical databases within a managed database cluster.
+func (c *Client) ListDatabases(clusterID string) ([]Database, error) {
+	url := fmt.Sprintf("%s/databases/%s/dbs", c.BaseURL, clusterID)
+	responseBody, err := c.execRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var response struct {
+		Databases []Database `json:"dbs"`
+	}
+
+	if err := json.Unmarshal(responseBody, &response); err != nil {
+		return nil, fmt.Errorf("error parsing response: %v", err)
+	}
+
+	return response.Databases, nil
+}
+
+func (c *Client) GetDatabase(clusterID, databaseName string) (map[string]any, error) {
+	url := fmt.Sprintf("%s/databases/%s/dbs/%s", c.BaseURL, clusterID, url.PathEscape(databaseName))
+	responseBody, err := c.execRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var response struct {
+		Database map[string]any `json:"db"`
+	}
+
+	if err := json.Unmarshal(responseBody, &response); err != nil {
+		return nil, fmt.Errorf("error parsing response: %v", err)
+	}
+
+	if response.Database == nil {
+		return map[string]any{}, nil
+	}
+
+	return response.Database, nil
+}
+
+// EvaluationTestCase represents a Gradient AI evaluation test case
+type EvaluationTestCase struct {
+	UUID          string `json:"test_case_uuid"`
+	Name          string `json:"name"`
+	Description   string `json:"description"`
+	WorkspaceUUID string `json:"workspace_uuid"`
+}
+
+// EvaluationMetricResult represents a single metric score in an evaluation run
+type EvaluationMetricResult struct {
+	MetricName       string  `json:"metric_name"`
+	MetricValueType  string  `json:"metric_value_type"`
+	NumberValue      float64 `json:"number_value"`
+	StringValue      string  `json:"string_value"`
+	Reasoning        string  `json:"reasoning"`
+	ErrorDescription string  `json:"error_description"`
+}
+
+// EvaluationRun represents a Gradient AI evaluation run
+type EvaluationRun struct {
+	UUID                string                   `json:"evaluation_run_uuid"`
+	Status              string                   `json:"status"`
+	PassStatus          bool                     `json:"pass_status"`
+	AgentUUID           string                   `json:"agent_uuid"`
+	AgentName           string                   `json:"agent_name"`
+	TestCaseUUID        string                   `json:"test_case_uuid"`
+	TestCaseName        string                   `json:"test_case_name"`
+	TestCaseDescription string                   `json:"test_case_description"`
+	RunName             string                   `json:"run_name"`
+	StarMetricResult    *EvaluationMetricResult  `json:"star_metric_result"`
+	RunLevelMetrics     []EvaluationMetricResult `json:"run_level_metric_results"`
+	ErrorDescription    string                   `json:"error_description"`
+	QueuedAt            string                   `json:"queued_at"`
+	StartedAt           string                   `json:"started_at"`
+	FinishedAt          string                   `json:"finished_at"`
+}
+
+// EvaluationPrompt represents a single prompt and its results in an evaluation run
+type EvaluationPrompt struct {
+	PromptID     int                      `json:"prompt_id"`
+	Input        string                   `json:"input"`
+	Output       string                   `json:"output"`
+	GroundTruth  string                   `json:"ground_truth"`
+	InputTokens  string                   `json:"input_tokens"`
+	OutputTokens string                   `json:"output_tokens"`
+	Metrics      []EvaluationMetricResult `json:"prompt_level_metric_results"`
+}
+
+// EvaluationRunResults contains the full evaluation run results including per-prompt details
+type EvaluationRunResults struct {
+	EvaluationRun EvaluationRun      `json:"evaluation_run"`
+	Prompts       []EvaluationPrompt `json:"prompts"`
+}
+
+// ListEvaluationTestCases retrieves all evaluation test cases
+func (c *Client) ListEvaluationTestCases() ([]EvaluationTestCase, error) {
+	url := fmt.Sprintf("%s/gen-ai/evaluation_test_cases?per_page=200", c.BaseURL)
+	responseBody, err := c.execRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var response struct {
+		EvaluationTestCases []EvaluationTestCase `json:"evaluation_test_cases"`
+	}
+
+	if err := json.Unmarshal(responseBody, &response); err != nil {
+		return nil, fmt.Errorf("error parsing response: %v", err)
+	}
+
+	return response.EvaluationTestCases, nil
+}
+
+// RunEvaluation starts an evaluation run for a test case against the specified agents.
+// The API returns only the UUIDs of the created runs, not the full run objects.
+func (c *Client) RunEvaluation(testCaseUUID string, agentUUIDs []string, runName string) (string, error) {
+	url := fmt.Sprintf("%s/gen-ai/evaluation_runs", c.BaseURL)
+
+	body, err := json.Marshal(map[string]any{
+		"test_case_uuid": testCaseUUID,
+		"agent_uuids":    agentUUIDs,
+		"run_name":       runName,
+	})
+	if err != nil {
+		return "", fmt.Errorf("error marshaling request: %v", err)
+	}
+
+	responseBody, err := c.execRequest(http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+
+	var response struct {
+		EvaluationRunUUIDs []string `json:"evaluation_run_uuids"`
+	}
+
+	if err := json.Unmarshal(responseBody, &response); err != nil {
+		return "", fmt.Errorf("error parsing response: %v", err)
+	}
+
+	if len(response.EvaluationRunUUIDs) == 0 {
+		return "", fmt.Errorf("no evaluation run UUIDs returned")
+	}
+
+	return response.EvaluationRunUUIDs[0], nil
+}
+
+// GetEvaluationRun retrieves the status of an evaluation run
+func (c *Client) GetEvaluationRun(runUUID string) (*EvaluationRun, error) {
+	url := fmt.Sprintf("%s/gen-ai/evaluation_runs/%s", c.BaseURL, runUUID)
+	responseBody, err := c.execRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var response struct {
+		EvaluationRun EvaluationRun `json:"evaluation_run"`
+	}
+
+	if err := json.Unmarshal(responseBody, &response); err != nil {
+		return nil, fmt.Errorf("error parsing response: %v", err)
+	}
+
+	return &response.EvaluationRun, nil
+}
+
+// GetEvaluationRunResults retrieves the full results of an evaluation run including per-prompt details
+func (c *Client) GetEvaluationRunResults(runUUID string) (*EvaluationRunResults, error) {
+	url := fmt.Sprintf("%s/gen-ai/evaluation_runs/%s/results", c.BaseURL, runUUID)
+	responseBody, err := c.execRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var response EvaluationRunResults
+	if err := json.Unmarshal(responseBody, &response); err != nil {
+		return nil, fmt.Errorf("error parsing response: %v", err)
+	}
+
+	return &response, nil
+}
+
+// AppNodeMetadata stores metadata about an app for display in the UI
+type AppNodeMetadata struct {
+	AppID   string `json:"appId" mapstructure:"appId"`
+	AppName string `json:"appName" mapstructure:"appName"`
+}
+
+// resolveAppMetadata fetches the app name from the API and stores it in metadata
+func resolveAppMetadata(ctx core.SetupContext, appID string) error {
+	// Handle expression placeholders
+	if strings.Contains(appID, "{{") {
+		return ctx.Metadata.Set(AppNodeMetadata{
+			AppName: appID,
+		})
+	}
+
+	// Check if already cached
+	var existing AppNodeMetadata
+	err := mapstructure.Decode(ctx.Metadata.Get(), &existing)
+	if err == nil && existing.AppID == appID && existing.AppName != "" {
+		return nil
+	}
+
+	client, err := NewClient(ctx.HTTP, ctx.Integration)
+	if err != nil {
+		return fmt.Errorf("failed to create client: %w", err)
+	}
+
+	app, err := client.GetApp(appID)
+	if err != nil {
+		return fmt.Errorf("failed to fetch app %q: %w", appID, err)
+	}
+
+	appName := appID
+	if app.Spec != nil {
+		appName = app.Spec.Name
+	}
+
+	return ctx.Metadata.Set(AppNodeMetadata{
+		AppID:   appID,
+		AppName: appName,
+	})
+}
+
+// ListGPUSizes returns only GPU-specific droplet sizes
+func (c *Client) ListGPUSizes() ([]Size, error) {
+	sizes, err := c.ListSizes()
+	if err != nil {
+		return nil, err
+	}
+
+	gpuSizes := make([]Size, 0)
+	for _, size := range sizes {
+		if !size.Available {
+			continue
+		}
+		if strings.HasPrefix(size.Slug, "gpu-") {
+			gpuSizes = append(gpuSizes, size)
+		}
+	}
+
+	return gpuSizes, nil
+}
+
+// ListGPURegions returns only regions that support GPU droplets
+func (c *Client) ListGPURegions() ([]Region, error) {
+	regions, err := c.ListRegions()
+	if err != nil {
+		return nil, err
+	}
+
+	gpuRegions := make([]Region, 0)
+	for _, region := range regions {
+		if !region.Available {
+			continue
+		}
+
+		for _, size := range region.Sizes {
+			if strings.HasPrefix(size, "gpu-") {
+				gpuRegions = append(gpuRegions, region)
+				break
+			}
+		}
+	}
+
+	return gpuRegions, nil
+}
+
+// ListGPUDroplets returns only GPU droplets (droplets using GPU sizes)
+func (c *Client) ListGPUDroplets() ([]Droplet, error) {
+	droplets, err := c.ListDroplets()
+	if err != nil {
+		return nil, err
+	}
+
+	gpuDroplets := make([]Droplet, 0)
+	for _, droplet := range droplets {
+		if strings.HasPrefix(droplet.SizeSlug, "gpu-") {
+			gpuDroplets = append(gpuDroplets, droplet)
+		}
+	}
+
+	return gpuDroplets, nil
+}
+
+// ListGPUImagesApplication returns only GPU-related one-click/marketplace application images.
+func (c *Client) ListGPUImagesApplication() ([]Image, error) {
+	appImages, err := c.ListImages("application")
+	if err != nil {
+		return nil, err
+	}
+
+	gpuImages := make([]Image, 0)
+	for _, image := range appImages {
+		if isGPURelatedImage(image) {
+			gpuImages = append(gpuImages, image)
+		}
+	}
+
+	return gpuImages, nil
+}
+
+// ListGPUImagesDistribution returns only GPU-compatible base OS distribution images.
+func (c *Client) ListGPUImagesDistribution() ([]Image, error) {
+	distImages, err := c.ListImages("distribution")
+	if err != nil {
+		return nil, err
+	}
+
+	gpuImages := make([]Image, 0)
+	for _, image := range distImages {
+		if isGPUSupportedDistribution(image) {
+			gpuImages = append(gpuImages, image)
+		}
+	}
+
+	return gpuImages, nil
+}
+
+// isGPURelatedImage checks if an image is GPU-related based on keywords in name/slug
+func isGPURelatedImage(image Image) bool {
+	// Use more specific keywords to avoid false positives like "rails", "portainer", "phpmyadmin"
+	gpuKeywords := []string{
+		"gpu", "cuda", "nvidia", "ml-in-a-box", "pytorch", "tensorflow",
+		"machine learning", "deep learning", "machine-learning", "deep-learning",
+	}
+
+	lowerName := strings.ToLower(image.Name)
+	lowerSlug := strings.ToLower(image.Slug)
+
+	for _, keyword := range gpuKeywords {
+		if strings.Contains(lowerName, keyword) || strings.Contains(lowerSlug, keyword) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// gpuMinVersions defines the minimum OS version (major*100+minor) required for GPU droplet
+// support per distribution slug prefix. New versions released by DigitalOcean will automatically
+// be included once they meet or exceed these minimums.
+// All versions are encoded as major*100+minor (e.g. 22.04 → 2204, 11.x → 1100).
+var gpuMinVersions = map[string]int{
+	"ubuntu":     2204, // Ubuntu 22.04+
+	"fedora":     4200, // Fedora 42+
+	"debian":     1100, // Debian 11+
+	"rockylinux": 800,  // Rocky Linux 8+
+}
+
+// isGPUSupportedDistribution checks if a distribution image meets the minimum version
+// required for DigitalOcean GPU droplet support.
+// Slug format for distributions is: <distro>-<major>-<minor>-<arch> (e.g. ubuntu-22-04-x64)
+func isGPUSupportedDistribution(image Image) bool {
+	slug := image.Slug
+	if slug == "" {
+		return false
+	}
+
+	for prefix, minVersion := range gpuMinVersions {
+		if !strings.HasPrefix(slug, prefix+"-") {
+			continue
+		}
+
+		// Strip the prefix and parse version parts.
+		// Version is always encoded as major*100+minor (minor defaults to 0 if absent).
+		rest := strings.TrimPrefix(slug, prefix+"-")
+		parts := strings.SplitN(rest, "-", 3)
+
+		major, err := strconv.Atoi(parts[0])
+		if err != nil {
+			continue
+		}
+
+		minor := 0
+		if len(parts) >= 2 {
+			if m, err := strconv.Atoi(parts[1]); err == nil {
+				minor = m
+			}
+		}
+
+		version := major*100 + minor
+		if version >= minVersion {
+			return true
+		}
+	}
+
+	return false
+}
+func (c *Client) RenameDroplet(dropletID int, name string) (*DOAction, error) {
+	url := fmt.Sprintf("%s/droplets/%d/actions", c.BaseURL, dropletID)
+
+	body, err := json.Marshal(map[string]string{
+		"type": "rename",
+		"name": name,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling request: %v", err)
+	}
+
+	responseBody, err := c.execRequest(http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+
+	var response struct {
+		Action DOAction `json:"action"`
+	}
+
+	if err := json.Unmarshal(responseBody, &response); err != nil {
+		return nil, fmt.Errorf("error parsing response: %v", err)
+	}
+
+	return &response.Action, nil
+}
+
+// ResizeDroplet resizes a droplet to a new size (only supports upsizing)
+func (c *Client) ResizeDroplet(dropletID int, size string, resizeDisk bool) (*DOAction, error) {
+	url := fmt.Sprintf("%s/droplets/%d/actions", c.BaseURL, dropletID)
+
+	body, err := json.Marshal(map[string]any{
+		"type": "resize",
+		"size": size,
+		"disk": resizeDisk,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling request: %v", err)
+	}
+
+	responseBody, err := c.execRequest(http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+
+	var response struct {
+		Action DOAction `json:"action"`
+	}
+
+	if err := json.Unmarshal(responseBody, &response); err != nil {
+		return nil, fmt.Errorf("error parsing response: %v", err)
+	}
+
+	return &response.Action, nil
+}

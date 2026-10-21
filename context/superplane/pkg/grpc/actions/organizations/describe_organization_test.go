@@ -1,0 +1,50 @@
+package organizations
+
+import (
+	"context"
+	"testing"
+
+	uuid "github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/superplanehq/superplane/pkg/grpc/errors"
+	"github.com/superplanehq/superplane/test/support"
+	"google.golang.org/grpc/codes"
+)
+
+func Test__DescribeOrganization(t *testing.T) {
+	r := support.Setup(t)
+
+	t.Run("organization does not exist -> error", func(t *testing.T) {
+		_, err := DescribeOrganization(context.Background(), uuid.New().String())
+		code, msg, ok := grpcerrors.HandlerStatus(err)
+		assert.True(t, ok)
+		assert.Equal(t, codes.NotFound, code)
+		assert.Equal(t, "organization not found", msg)
+	})
+
+	t.Run("describe organization by ID", func(t *testing.T) {
+		response, err := DescribeOrganization(context.Background(), r.Organization.ID.String())
+		require.NoError(t, err)
+		require.NotNil(t, response)
+		require.NotNil(t, response.Organization)
+		require.NotNil(t, response.Organization.Metadata)
+		assert.Equal(t, r.Organization.ID.String(), response.Organization.Metadata.Id)
+		assert.Equal(t, r.Organization.Name, response.Organization.Metadata.Name)
+		assert.Equal(t, r.Organization.Slug, response.Organization.Metadata.Slug)
+		assert.Equal(t, r.Organization.Description, response.Organization.Metadata.Description)
+		assert.Equal(t, *r.Organization.CreatedAt, response.Organization.Metadata.CreatedAt.AsTime())
+		assert.Equal(t, *r.Organization.UpdatedAt, response.Organization.Metadata.UpdatedAt.AsTime())
+		require.NotNil(t, response.Organization.Spec)
+	})
+
+	t.Run("describe organization by slug", func(t *testing.T) {
+		response, err := DescribeOrganization(context.Background(), r.Organization.Slug)
+		require.NoError(t, err)
+		require.NotNil(t, response)
+		require.NotNil(t, response.Organization)
+		require.NotNil(t, response.Organization.Metadata)
+		assert.Equal(t, r.Organization.ID.String(), response.Organization.Metadata.Id)
+		assert.Equal(t, r.Organization.Slug, response.Organization.Metadata.Slug)
+	})
+}

@@ -1,0 +1,150 @@
+import type {
+  ComponentBaseContext,
+  ComponentBaseMapper,
+  ExecutionDetailsContext,
+  ExecutionInfo,
+  NodeInfo,
+  SubtitleContext,
+} from "../types";
+import type { ComponentBaseProps, ComponentBaseSpec, EventSection } from "@/ui/componentBase";
+import type React from "react";
+import { getBackgroundColorClass, getColorClass } from "@/lib/colors";
+import { getState, getStateMap, getTriggerRenderer } from "../mapperLookup";
+import type { MetadataItem } from "@/ui/metadataList";
+import SemaphoreLogo from "@/assets/semaphore-logo-sign-black.svg";
+import { renderTimeAgo } from "@/components/TimeAgo";
+
+interface GetPipelineConfiguration {
+  pipelineId?: string;
+}
+
+type GetPipelinePayload = {
+  ppl_id?: string;
+  name?: string;
+  wf_id?: string;
+  state?: string;
+  result?: string;
+  result_reason?: string;
+  branch_name?: string;
+  commit_sha?: string;
+  commit_message?: string;
+  yaml_file_name?: string;
+  working_directory?: string;
+  project_id?: string;
+  created_at?: string;
+  done_at?: string;
+  running_at?: string;
+  error_description?: string;
+};
+
+export const getPipelineMapper: ComponentBaseMapper = {
+  props(context: ComponentBaseContext): ComponentBaseProps {
+    const lastExecution = context.lastExecutions.length > 0 ? context.lastExecutions[0] : null;
+    const componentName = context.componentDefinition.name || "semaphore.getPipeline";
+
+    return {
+      title:
+        context.node.name ||
+        context.componentDefinition.label ||
+        context.componentDefinition.name ||
+        "Unnamed component",
+      iconSrc: SemaphoreLogo,
+      iconSlug: context.componentDefinition.icon || "workflow",
+      iconColor: getColorClass(context.componentDefinition?.color || "gray"),
+      collapsed: context.node.isCollapsed,
+      collapsedBackground: getBackgroundColorClass("white"),
+      includeEmptyState: !lastExecution,
+      metadata: getPipelineMetadataList(context.node),
+      specs: getPipelineSpecs(context.node),
+      eventSections: lastExecution ? getPipelineEventSections(context.nodes, lastExecution, componentName) : undefined,
+      eventStateMap: getStateMap(componentName),
+    };
+  },
+  subtitle(context: SubtitleContext): string | React.ReactNode {
+    const timestamp = context.execution.updatedAt || context.execution.createdAt;
+    return timestamp ? renderTimeAgo(new Date(timestamp)) : "";
+  },
+  getExecutionDetails(context: ExecutionDetailsContext): Record<string, unknown> {
+    const details: Record<string, unknown> = {};
+    const outputs = context.execution.outputs as { default?: { data?: unknown }[] } | undefined;
+    const payload = outputs?.default?.[0]?.data as GetPipelinePayload | undefined;
+
+    if (!payload || typeof payload !== "object") {
+      return details;
+    }
+
+    const addDetail = (key: string, value?: string) => {
+      if (value) {
+        details[key] = value;
+      }
+    };
+
+    addDetail("Pipeline ID", payload.ppl_id);
+    addDetail("Pipeline Name", payload.name);
+    addDetail("Workflow ID", payload.wf_id);
+    addDetail("State", payload.state);
+    addDetail("Result", payload.result);
+    addDetail("Result Reason", payload.result_reason);
+    addDetail("Branch", payload.branch_name);
+    addDetail("Commit SHA", payload.commit_sha);
+    addDetail("Commit Message", payload.commit_message);
+    addDetail("YAML File", payload.yaml_file_name);
+    addDetail("Working Directory", payload.working_directory);
+    addDetail("Project ID", payload.project_id);
+    addDetail("Created At", payload.created_at);
+    addDetail("Done At", payload.done_at);
+    addDetail("Running At", payload.running_at);
+    addDetail("Error", payload.error_description);
+
+    return details;
+  },
+};
+
+function getPipelineMetadataList(node: NodeInfo): MetadataItem[] {
+  const metadata: MetadataItem[] = [];
+  const configuration = node.configuration as GetPipelineConfiguration | undefined;
+
+  if (configuration?.pipelineId) {
+    metadata.push({ icon: "hash", label: configuration.pipelineId });
+  }
+
+  return metadata;
+}
+
+function getPipelineSpecs(_node: NodeInfo): ComponentBaseSpec[] {
+  return [];
+}
+
+function getPipelineEventSections(
+  nodes: NodeInfo[],
+  execution: ExecutionInfo,
+  componentName: string,
+): EventSection[] | undefined {
+  // Return undefined if no root event
+  if (!execution.rootEvent || !execution.rootEvent.id) {
+    return undefined;
+  }
+
+  const rootTriggerNode = nodes.find((n) => n.id === execution.rootEvent?.nodeId);
+  const rootTriggerRenderer = getTriggerRenderer(rootTriggerNode?.componentName || "");
+  const { title } = rootTriggerRenderer.getTitleAndSubtitle({
+    event: execution.rootEvent,
+  });
+
+  // Get state using the component-specific state function
+  const executionState = getState(componentName)(execution);
+
+  // Use updatedAt for subtitle when execution is complete, createdAt when running
+  const subtitleTimestamp =
+    executionState === "running" ? execution.createdAt : execution.updatedAt || execution.createdAt;
+
+  return [
+    {
+      receivedAt: new Date(execution.createdAt!),
+      eventTitle: title,
+      eventSubtitle: subtitleTimestamp ? renderTimeAgo(new Date(subtitleTimestamp)) : "",
+      eventState: executionState,
+      eventId: execution.rootEvent.id,
+    },
+  ];
+}

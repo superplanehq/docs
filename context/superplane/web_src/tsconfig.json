@@ -1,0 +1,14 @@
+{
+  "files": [],
+  "compilerOptions": {
+    "paths": {
+      "@/*": ["./src/*"],
+      "@factory-templates/*": ["../pkg/grpc/actions/factories/templates/*"],
+      "@runner/hosted_video_hosts.json": ["../pkg/components/runner/hosted_video_hosts.json"]
+    }
+  },
+  "references": [
+    { "path": "./tsconfig.app.json" },
+    { "path": "./tsconfig.node.json" }
+  ]
+}

@@ -1,0 +1,441 @@
+import type { SuperplaneComponentsNode as ComponentsNode } from "@/api-client";
+import type { CanvasesCanvas, CanvasesCanvasEvent, CanvasesCanvasNodeExecution } from "@/api-client";
+import type { ActionsAction, TriggersTrigger } from "@/api-client";
+
+export type AutocompleteAppExample = {
+  id: string;
+  name: string;
+  description?: string;
+};
+
+export function buildAutocompleteAppExample(
+  canvas: CanvasesCanvas | null | undefined,
+): AutocompleteAppExample | undefined {
+  const id = canvas?.metadata?.id;
+  if (!id) {
+    return undefined;
+  }
+
+  return {
+    id,
+    name: canvas?.metadata?.name ?? "",
+    description: canvas?.metadata?.description ?? "",
+  };
+}
+
+export type AutocompleteExampleContext = {
+  canvasNodes: ComponentsNode[];
+  canvasNodesById: Map<string, ComponentsNode>;
+  incomingNodeIdsByTargetId: Map<string, string[]>;
+  visibleNodeExecutionsMap: Record<string, CanvasesCanvasNodeExecution[]>;
+  visibleNodeEventsMap: Record<string, CanvasesCanvasEvent[]>;
+  allComponentsByName: Map<string | undefined, ActionsAction>;
+  allTriggersByName: Map<string | undefined, TriggersTrigger>;
+  app?: AutocompleteAppExample;
+};
+
+// Representative run id used purely to preview the shape of run() in the editor;
+// the real id is only known at runtime.
+const EXAMPLE_RUN_ID = "f47ac10b-58cc-4372-a567-0e02b2c3d479";
+
+function currentAppPath(): { origin: string; appPath: string } | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const { origin, pathname } = window.location;
+  const appPath = pathname.match(/^\/[^/]+\/apps\/[^/]+/)?.[0] ?? pathname;
+  return { origin, appPath };
+}
+
+// buildAppExample mirrors the server's app() payload so the autocomplete can
+// surface app().id / app().name / app().description / app().url.
+function buildAppExample(app?: AutocompleteAppExample): Record<string, unknown> {
+  const location = currentAppPath();
+  const id = app?.id || location?.appPath.split("/").pop() || "";
+  const url = location ? `${location.origin}${location.appPath}` : "";
+
+  return {
+    id,
+    name: app?.name ?? "Example App",
+    description: app?.description ?? "",
+    url,
+  };
+}
+
+// buildRunExample mirrors the server's run() payload so the autocomplete can
+// surface run().id / run().url / run().started_at and show a representative preview.
+// The example url is derived from the current app page location
+// (`/{org}/apps/{appId}`), which matches the real run link format.
+function buildRunExample(): Record<string, unknown> {
+  const location = currentAppPath();
+  const url = location ? `${location.origin}${location.appPath}?run=${EXAMPLE_RUN_ID}` : "";
+
+  return {
+    id: EXAMPLE_RUN_ID,
+    url,
+    started_at: new Date().toISOString(),
+  };
+}
+
+// Representative work-order shape for order() autocomplete / preview.
+// Real values come from the factory execution at runtime; this is only a stub.
+const EXAMPLE_ORDER_ID = "a1b2c3d4-e5f6-7890-abcd-ef1234567890";
+const EXAMPLE_FACTORY_ID = "b2c3d4e5-f6a7-8901-bcde-f12345678901";
+const EXAMPLE_ORDER_NUMBER = 12;
+
+// Task permalinks are workspace-scoped
+// (`/{org}/workspaces/{workspaceKey}/task/{number}`), so the example is
+// only meaningful on a workspace app page, where order() also resolves.
+function exampleOrderUrl(): string {
+  if (typeof window === "undefined") {
+    return "";
+  }
+
+  const { origin, pathname } = window.location;
+  const workspacePath = pathname.match(/^\/[^/]+\/workspaces\/[^/]+/)?.[0];
+  return workspacePath ? `${origin}${workspacePath}/task/${EXAMPLE_ORDER_NUMBER}` : "";
+}
+
+function buildOrderExample(): Record<string, unknown> {
+  return {
+    id: EXAMPLE_ORDER_ID,
+    title: "Ship feature",
+    description: "Implement and open PR",
+    factory_id: EXAMPLE_FACTORY_ID,
+    state: "open",
+    result: "",
+    repository: "acme/service",
+    repository_url: "https://github.com/acme/service.git",
+    default_branch: "main",
+    url: exampleOrderUrl(),
+    source: {
+      issue: { number: 42, title: "Fix login" },
+    },
+    artifacts: [
+      {
+        id: "c3d4e5f6-a7b8-9012-cdef-123456789012",
+        type: "pr",
+        data: { url: "https://github.com/org/repo/pull/7", number: 7 },
+      },
+    ],
+    comments: [
+      {
+        id: "d4e5f6a7-b8c9-0123-defa-234567890123",
+        body: "Looks good, merging.",
+        author: { kind: "user", user_id: "e5f6a7b8-c9d0-1234-efab-345678901234" },
+        created_at: "2024-01-01T00:00:00Z",
+      },
+    ],
+  };
+}
+
+function buildWorkspaceExample(): Record<string, unknown> {
+  return {
+    id: EXAMPLE_FACTORY_ID,
+    key: "SP",
+    name: "Example workspace",
+    repository: "acme/service",
+    backlog_repository: "acme/service",
+    default_branch: "main",
+  };
+}
+
+function collectChainNodeIds(
+  nodeId: string,
+  currentNode: ComponentsNode | undefined,
+  incomingNodeIdsByTargetId: Map<string, string[]>,
+): Set<string> {
+  const chainNodeIds = new Set<string>();
+  if (currentNode?.type === "TYPE_TRIGGER") {
+    chainNodeIds.add(nodeId);
+  }
+
+  const stack = [...(incomingNodeIdsByTargetId.get(nodeId) || [])];
+  while (stack.length > 0) {
+    const nextId = stack.pop();
+    if (!nextId || chainNodeIds.has(nextId)) continue;
+    chainNodeIds.add(nextId);
+    incomingNodeIdsByTargetId.get(nextId)?.forEach((sourceId) => stack.push(sourceId));
+  }
+
+  return chainNodeIds;
+}
+
+function buildChainNodeExamples(
+  chainNodeIds: Set<string>,
+  context: AutocompleteExampleContext,
+  nodeNamesById: Record<string, string>,
+  nodeMetadata: Record<string, { name?: string; componentType: string; description?: string }>,
+): Record<string, unknown> {
+  const exampleObj: Record<string, unknown> = {};
+
+  chainNodeIds.forEach((chainNodeId) => {
+    const chainNode = context.canvasNodesById.get(chainNodeId);
+    if (!chainNode) return;
+
+    const nodeName = (chainNode.name || "").trim();
+    if (nodeName) {
+      nodeNamesById[chainNodeId] = nodeName;
+    }
+
+    if (chainNode.type === "TYPE_TRIGGER") {
+      const triggerMetadata = context.allTriggersByName.get(chainNode.component);
+      nodeMetadata[chainNodeId] = {
+        name: nodeName || undefined,
+        componentType: triggerMetadata?.label || "Trigger",
+        description: triggerMetadata?.description,
+      };
+
+      const latestEvent = context.visibleNodeEventsMap[chainNodeId]?.[0];
+      if (latestEvent?.data) {
+        exampleObj[chainNodeId] = { ...(latestEvent.data || {}) } as Record<string, unknown>;
+      }
+      if (exampleObj[chainNodeId]) {
+        return;
+      }
+
+      const exampleData = triggerMetadata?.exampleData;
+      if (exampleData && typeof exampleData === "object") {
+        exampleObj[chainNodeId] = Array.isArray(exampleData)
+          ? [...exampleData]
+          : ({ ...exampleData } as Record<string, unknown>);
+      }
+      return;
+    }
+
+    const componentMetadata = context.allComponentsByName.get(chainNode.component);
+    nodeMetadata[chainNodeId] = {
+      name: nodeName || undefined,
+      componentType: componentMetadata?.label || "Component",
+      description: componentMetadata?.description,
+    };
+
+    const latestExecution = context.visibleNodeExecutionsMap[chainNodeId]?.find(
+      (execution) => execution.state === "STATE_FINISHED" && execution.resultReason !== "RESULT_REASON_ERROR",
+    );
+    if (!latestExecution?.outputs) {
+      const exampleOutput = componentMetadata?.exampleOutput;
+      if (exampleOutput && typeof exampleOutput === "object") {
+        exampleObj[chainNodeId] = Array.isArray(exampleOutput)
+          ? [...exampleOutput]
+          : ({ ...exampleOutput } as Record<string, unknown>);
+      }
+      return;
+    }
+
+    const outputData: unknown[] = Object.values(latestExecution.outputs)?.find((output) => {
+      return Array.isArray(output) && output.length > 0;
+    }) as unknown[];
+
+    if (outputData?.length > 0) {
+      exampleObj[chainNodeId] = { ...(outputData?.[0] || {}) } as Record<string, unknown>;
+      return;
+    }
+
+    const exampleOutput = componentMetadata?.exampleOutput;
+    if (exampleOutput && typeof exampleOutput === "object" && Object.keys(exampleOutput).length > 0) {
+      exampleObj[chainNodeId] = { ...exampleOutput } as Record<string, unknown>;
+    }
+  });
+
+  return exampleObj;
+}
+
+function injectConfigIntoExamples(
+  chainNodeIds: Set<string>,
+  exampleObj: Record<string, unknown>,
+  context: AutocompleteExampleContext,
+): void {
+  chainNodeIds.forEach((chainNodeId) => {
+    const chainNode = context.canvasNodesById.get(chainNodeId);
+    if (!chainNode || chainNode.type !== "TYPE_ACTION") return;
+
+    const obj = exampleObj[chainNodeId];
+    if (!obj || typeof obj !== "object" || Array.isArray(obj)) return;
+
+    const latestExecution = context.visibleNodeExecutionsMap[chainNodeId]?.find(
+      (execution) => execution.state === "STATE_FINISHED" && execution.resultReason !== "RESULT_REASON_ERROR",
+    );
+    if ("config" in (obj as Record<string, unknown>)) return;
+
+    const configData = latestExecution?.configuration || chainNode.configuration;
+    if (configData && typeof configData === "object" && Object.keys(configData).length > 0) {
+      (obj as Record<string, unknown>).config = configData;
+    }
+  });
+}
+
+function buildPreviousByDepth(
+  nodeId: string,
+  exampleObj: Record<string, unknown>,
+  incomingNodeIdsByTargetId: Map<string, string[]>,
+): Record<string, unknown> {
+  const previousByDepth: Record<string, unknown> = {};
+  let frontier = [nodeId];
+  const visited = new Set<string>([nodeId]);
+  let depth = 0;
+
+  while (frontier.length > 0) {
+    const next: string[] = [];
+    frontier.forEach((current) => {
+      (incomingNodeIdsByTargetId.get(current) || []).forEach((sourceId) => {
+        if (visited.has(sourceId)) return;
+        visited.add(sourceId);
+        next.push(sourceId);
+      });
+    });
+
+    if (next.length === 0) {
+      break;
+    }
+
+    depth += 1;
+    const firstAtDepth = next[0];
+    if (firstAtDepth && exampleObj[firstAtDepth]) {
+      previousByDepth[String(depth)] = exampleObj[firstAtDepth];
+    }
+
+    frontier = next;
+  }
+
+  return previousByDepth;
+}
+
+type BuildNamedExampleObjInput = {
+  currentNode: ComponentsNode | undefined;
+  chainNodeIds: Set<string>;
+  exampleObj: Record<string, unknown>;
+  nodeNamesById: Record<string, string>;
+  nodeMetadata: Record<string, { name?: string; componentType: string; description?: string }>;
+  previousByDepth: Record<string, unknown>;
+  canvasNodes: ComponentsNode[];
+  incomingNodeIdsByTargetId: Map<string, string[]>;
+  appExample: Record<string, unknown>;
+  runExample: Record<string, unknown>;
+  orderExample: Record<string, unknown>;
+  workspaceExample: Record<string, unknown>;
+};
+
+function buildNamedExampleObj({
+  currentNode,
+  chainNodeIds,
+  exampleObj,
+  nodeNamesById,
+  nodeMetadata,
+  previousByDepth,
+  canvasNodes,
+  incomingNodeIdsByTargetId,
+  appExample,
+  runExample,
+  orderExample,
+  workspaceExample,
+}: BuildNamedExampleObjInput): Record<string, unknown> | null {
+  const rootNodeId = canvasNodes.find((node) => {
+    if (!node.id || !chainNodeIds.has(node.id)) return false;
+    return !(incomingNodeIdsByTargetId.get(node.id) || []).some((sourceId) => chainNodeIds.has(sourceId));
+  })?.id;
+
+  if (rootNodeId && exampleObj[rootNodeId]) {
+    exampleObj.__root = exampleObj[rootNodeId];
+  }
+
+  if (Object.keys(previousByDepth).length > 0) {
+    exampleObj.__previousByDepth = previousByDepth;
+  }
+
+  const nameToNodeId = new Map<string, string>();
+  for (const [nId, nodeName] of Object.entries(nodeNamesById)) {
+    if (!nodeName || nodeName === "__nodeNames") {
+      continue;
+    }
+
+    if (!nameToNodeId.has(nodeName)) {
+      nameToNodeId.set(nodeName, nId);
+    }
+  }
+
+  const namedExampleObj: Record<string, unknown> = {};
+  for (const [nodeName, namedNodeId] of nameToNodeId.entries()) {
+    if (nodeName === namedNodeId || namedExampleObj[nodeName] !== undefined) {
+      continue;
+    }
+
+    const value = exampleObj[namedNodeId];
+    if (value === undefined) {
+      continue;
+    }
+
+    namedExampleObj[nodeName] = value;
+  }
+
+  if (exampleObj.__root) {
+    namedExampleObj.__root = exampleObj.__root;
+  }
+
+  if (exampleObj.__previousByDepth) {
+    namedExampleObj.__previousByDepth = exampleObj.__previousByDepth;
+  }
+
+  namedExampleObj.__app = appExample;
+  namedExampleObj.__run = runExample;
+  namedExampleObj.__order = orderExample;
+  namedExampleObj.__workspace = workspaceExample;
+
+  const currentNodeName = currentNode?.name?.trim();
+  const currentNodeId = currentNode?.id;
+  if (currentNodeName) {
+    delete namedExampleObj[currentNodeName];
+  }
+  if (currentNodeId) {
+    delete nodeMetadata[currentNodeId];
+  }
+
+  if (Object.keys(namedExampleObj).length === 0) {
+    return null;
+  }
+
+  if (Object.keys(nodeMetadata).length > 0) {
+    namedExampleObj.__nodeNames = nodeMetadata;
+    Object.entries(nodeMetadata).forEach(([, metadata]) => {
+      const value = namedExampleObj[metadata.name ?? ""];
+      if (value && typeof value === "object" && !Array.isArray(value) && metadata.name) {
+        (value as Record<string, unknown>).__nodeName = metadata.name;
+      }
+    });
+  }
+
+  return namedExampleObj;
+}
+
+export function buildAutocompleteExampleObj(
+  nodeId: string,
+  context: AutocompleteExampleContext,
+): Record<string, unknown> | null {
+  const currentNode = context.canvasNodesById.get(nodeId);
+  const chainNodeIds = collectChainNodeIds(nodeId, currentNode, context.incomingNodeIdsByTargetId);
+  if (chainNodeIds.size === 0) {
+    return null;
+  }
+
+  const nodeMetadata: Record<string, { name?: string; componentType: string; description?: string }> = {};
+  const nodeNamesById: Record<string, string> = {};
+  const exampleObj = buildChainNodeExamples(chainNodeIds, context, nodeNamesById, nodeMetadata);
+  injectConfigIntoExamples(chainNodeIds, exampleObj, context);
+  const previousByDepth = buildPreviousByDepth(nodeId, exampleObj, context.incomingNodeIdsByTargetId);
+
+  return buildNamedExampleObj({
+    currentNode,
+    chainNodeIds,
+    exampleObj,
+    nodeNamesById,
+    nodeMetadata,
+    previousByDepth,
+    appExample: buildAppExample(context.app),
+    runExample: buildRunExample(),
+    orderExample: buildOrderExample(),
+    workspaceExample: buildWorkspaceExample(),
+    canvasNodes: context.canvasNodes,
+    incomingNodeIdsByTargetId: context.incomingNodeIdsByTargetId,
+  });
+}

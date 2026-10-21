@@ -1,0 +1,44 @@
+import type { EventState } from "@/ui/componentBase";
+import { DEFAULT_EVENT_STATE_MAP } from "@/ui/componentBase/eventState";
+import type { EventStateRegistry, ExecutionInfo, StateFunction } from "./types";
+
+/**
+ * Default state logic function used by most components
+ */
+export const defaultStateFunction: StateFunction = (execution: ExecutionInfo): EventState => {
+  if (!execution) return "neutral";
+
+  if (
+    execution.resultMessage &&
+    (execution.resultReason === "RESULT_REASON_ERROR" ||
+      (execution.result === "RESULT_FAILED" && execution.resultReason !== "RESULT_REASON_ERROR_RESOLVED"))
+  ) {
+    return "error";
+  }
+
+  if (execution.result === "RESULT_CANCELLED") {
+    return "cancelled";
+  }
+
+  if (execution.state === "STATE_CANCELLING") {
+    return "cancelling";
+  }
+
+  if (execution.state === "STATE_PENDING" || execution.state === "STATE_STARTED") {
+    return "running";
+  }
+
+  if (execution.state === "STATE_FINISHED" && execution.result === "RESULT_PASSED") {
+    return "success";
+  }
+
+  return "failed";
+};
+
+/**
+ * Default state registry used by most components
+ */
+export const DEFAULT_STATE_REGISTRY: EventStateRegistry = {
+  stateMap: DEFAULT_EVENT_STATE_MAP,
+  getState: defaultStateFunction,
+};

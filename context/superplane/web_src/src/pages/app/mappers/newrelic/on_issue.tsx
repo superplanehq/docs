@@ -1,0 +1,179 @@
+import type {
+  CustomFieldRenderer,
+  NodeInfo,
+  TriggerEventContext,
+  TriggerRenderer,
+  TriggerRendererContext,
+} from "../types";
+import React from "react";
+import type { TriggerProps } from "@/ui/trigger";
+import { getBackgroundColorClass, getColorClass } from "@/lib/colors";
+import { renderTimeAgo } from "@/components/TimeAgo";
+import newrelicIcon from "@/assets/icons/integrations/newrelic.svg";
+import type { NewRelicIssuePayload, OnIssueConfiguration } from "./types";
+
+const stateLabels: Record<string, string> = {
+  CREATED: "Created",
+  ACTIVATED: "Activated",
+  ACKNOWLEDGED: "Acknowledged",
+  CLOSED: "Closed",
+};
+
+const priorityLabels: Record<string, string> = {
+  CRITICAL: "Critical",
+  HIGH: "High",
+  MEDIUM: "Medium",
+  LOW: "Low",
+};
+
+export const onIssueTriggerRenderer: TriggerRenderer = {
+  getTitleAndSubtitle: (context: TriggerEventContext): { title: string; subtitle: string | React.ReactNode } => {
+    const eventData = context.event?.data as NewRelicIssuePayload;
+    const title = buildEventTitle(eventData);
+    const subtitle = buildEventSubtitle(eventData, context.event?.createdAt);
+
+    return {
+      title,
+      subtitle,
+    };
+  },
+
+  getRootEventValues: (context: TriggerEventContext): Record<string, string> => {
+    const eventData = context.event?.data as NewRelicIssuePayload;
+    return getDetailsForIssue(eventData);
+  },
+
+  getTriggerProps: (context: TriggerRendererContext): TriggerProps => {
+    const { node, definition, lastEvent } = context;
+    const configuration = node.configuration as OnIssueConfiguration | undefined;
+    const metadataItems = [];
+
+    if (configuration?.statuses && configuration.statuses.length > 0) {
+      const formattedStatuses = configuration.statuses
+        .map((status) => stateLabels[status] || status)
+        .filter((status, index, values) => values.indexOf(status) === index);
+
+      metadataItems.push({
+        icon: "funnel",
+        label: `Statuses: ${formattedStatuses.join(", ")}`,
+      });
+    }
+
+    if (configuration?.priorities && configuration.priorities.length > 0) {
+      const formattedPriorities = configuration.priorities
+        .map((priority) => priorityLabels[priority] || priority)
+        .filter((priority, index, values) => values.indexOf(priority) === index);
+
+      metadataItems.push({
+        icon: "flag",
+        label: `Priorities: ${formattedPriorities.join(", ")}`,
+      });
+    }
+
+    metadataItems.push({
+      icon: "link",
+      label: "Webhook auto-configured",
+    });
+
+    const props: TriggerProps = {
+      title: node.name || definition.label || "Unnamed trigger",
+      iconSrc: newrelicIcon,
+      iconColor: getColorClass(definition.color),
+      collapsedBackground: getBackgroundColorClass(definition.color),
+      metadata: metadataItems.slice(0, 3),
+    };
+
+    if (lastEvent) {
+      const eventData = lastEvent.data as NewRelicIssuePayload;
+      props.lastEventData = {
+        title: buildEventTitle(eventData),
+        subtitle: buildEventSubtitle(eventData, lastEvent.createdAt),
+        receivedAt: new Date(lastEvent.createdAt),
+        state: "triggered",
+        eventId: lastEvent.id,
+      };
+    }
+
+    return props;
+  },
+};
+
+export const onIssueCustomFieldRenderer: CustomFieldRenderer = {
+  render: (_node: NodeInfo) => {
+    return (
+      <div className="border-t-1 border-gray-200 pt-4">
+        <div className="space-y-3">
+          <div>
+            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">New Relic Webhook Setup</span>
+            <p className="text-xs text-gray-800 dark:text-gray-100 mt-2 border-1 border-gray-300 dark:border-gray-600 px-2.5 py-2 bg-gray-50 dark:bg-gray-800 rounded-md">
+              SuperPlane automatically creates a Webhook Notification Channel in your New Relic account. Just attach it
+              to your alert workflow to start receiving alerts.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  },
+};
+
+function buildEventTitle(eventData: NewRelicIssuePayload): string {
+  const title = eventData?.title || "Issue";
+  const state = eventData?.state ? stateLabels[eventData.state] || eventData.state : "";
+
+  if (state) {
+    return `${title} · ${state}`;
+  }
+
+  return title;
+}
+
+function buildEventSubtitle(eventData: NewRelicIssuePayload, createdAt?: string): string | React.ReactNode {
+  const parts: (string | React.ReactNode)[] = [];
+
+  if (eventData?.priority) {
+    parts.push(priorityLabels[eventData.priority] || eventData.priority);
+  }
+
+  if (createdAt) {
+    parts.push(renderTimeAgo(new Date(createdAt)));
+  }
+
+  return parts.join(" · ");
+}
+
+function getDetailsForIssue(eventData: NewRelicIssuePayload): Record<string, string> {
+  const details: Record<string, string> = {};
+
+  for (const [label, value] of issueDetailFields(eventData)) {
+    addDetailIfPresent(details, label, value);
+  }
+
+  return details;
+}
+
+function issueDetailFields(eventData: NewRelicIssuePayload): Array<[string, string | undefined]> {
+  return [
+    ["Issue ID", eventData?.issueId],
+    ["State", mappedLabel(eventData?.state, stateLabels)],
+    ["Priority", mappedLabel(eventData?.priority, priorityLabels)],
+    ["Policy", eventData?.policyName],
+    ["Condition", eventData?.conditionName],
+    ["Account ID", eventData?.accountId ? String(eventData.accountId) : undefined],
+    ["Created At", eventData?.createdAt ? new Date(eventData.createdAt).toLocaleString() : undefined],
+    ["Issue URL", eventData?.issueUrl],
+  ];
+}
+
+function mappedLabel(value: string | undefined, labels: Record<string, string>): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  return labels[value] || value;
+}
+
+function addDetailIfPresent(details: Record<string, string>, label: string, value?: string) {
+  if (value) {
+    details[label] = value;
+  }
+}

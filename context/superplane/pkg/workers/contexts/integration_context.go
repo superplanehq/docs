@@ -1,0 +1,726 @@
+package contexts
+
+import (
+	"bytes"
+	"context"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/superplanehq/superplane/pkg/configuration"
+	"github.com/superplanehq/superplane/pkg/core"
+	"github.com/superplanehq/superplane/pkg/crypto"
+	"github.com/superplanehq/superplane/pkg/integrations/github"
+	"github.com/superplanehq/superplane/pkg/logging"
+	"github.com/superplanehq/superplane/pkg/models"
+	"github.com/superplanehq/superplane/pkg/registry"
+	"github.com/superplanehq/superplane/pkg/telemetry"
+	"gorm.io/datatypes"
+	"gorm.io/gorm"
+)
+
+type IntegrationContext struct {
+	tx          *gorm.DB
+	node        *models.CanvasNode
+	integration *models.Integration
+	encryptor   crypto.Encryptor
+	registry    *registry.Registry
+	onNewEvents func([]models.CanvasEvent)
+
+	// loadedMetadata is the metadata snapshot from when this context was
+	// created. PersistMetadata uses it to write only keys the handler changed.
+	loadedMetadata map[string]any
+
+	//
+	// Lazily create a secret storage, when Secrets() used.
+	//
+	secretStorage *IntegrationSecretStorage
+}
+
+func NewIntegrationContext(
+	tx *gorm.DB,
+	node *models.CanvasNode,
+	integration *models.Integration,
+	encryptor crypto.Encryptor,
+	registry *registry.Registry,
+	onNewEvents func([]models.CanvasEvent),
+) *IntegrationContext {
+	ctx := &IntegrationContext{
+		tx:          tx,
+		node:        node,
+		integration: integration,
+		encryptor:   encryptor,
+		registry:    registry,
+		onNewEvents: onNewEvents,
+	}
+	if integration != nil {
+		ctx.loadedMetadata = cloneMetadataMap(integration.Metadata.Data())
+	}
+	return ctx
+}
+
+func (c *IntegrationContext) ID() uuid.UUID {
+	return c.integration.ID
+}
+
+func (c *IntegrationContext) RequestWebhook(configuration any) error {
+	handler, err := c.registry.GetWebhookHandler(c.integration.AppName)
+	if err != nil {
+		return err
+	}
+
+	if err := c.replaceMismatchedWebhook(configuration, handler); err != nil {
+		return err
+	}
+
+	webhooks, err := models.ListIntegrationWebhooks(c.tx, c.integration.ID)
+	if err != nil {
+		return fmt.Errorf("Failed to list webhooks: %v", err)
+	}
+
+	for _, hook := range webhooks {
+		ok, err := handler.CompareConfig(hook.Configuration.Data(), configuration)
+		if err != nil {
+			return err
+		}
+
+		if ok {
+			if err := c.mergeWebhookConfiguration(handler, &hook, configuration); err != nil {
+				return err
+			}
+
+			c.node.WebhookID = &hook.ID
+			return nil
+		}
+	}
+
+	return c.createWebhook(configuration)
+}
+
+func (c *IntegrationContext) replaceMismatchedWebhook(configuration any, handler core.WebhookHandler) error {
+	if c.node == nil || c.node.WebhookID == nil {
+		return nil
+	}
+
+	webhook, err := models.FindWebhookInTransaction(c.tx, *c.node.WebhookID)
+	if err != nil {
+		return err
+	}
+
+	matches, err := handler.CompareConfig(webhook.Configuration.Data(), configuration)
+	if err != nil {
+		return err
+	}
+
+	if matches {
+		return nil
+	}
+
+	c.node.WebhookID = nil
+
+	nodes, err := models.FindWebhookNodesInTransaction(c.tx, webhook.ID)
+	if err != nil {
+		return err
+	}
+
+	if len(nodes) > 1 {
+		return nil
+	}
+
+	return c.tx.Delete(webhook).Error
+}
+
+func (c *IntegrationContext) createWebhook(configuration any) error {
+	webhookID := uuid.New()
+	_, encryptedKey, err := crypto.NewRandomKey(context.Background(), c.encryptor, webhookID.String())
+	if err != nil {
+		return fmt.Errorf("error generating key for new webhook: %v", err)
+	}
+
+	now := time.Now()
+	webhook := models.Webhook{
+		ID:                webhookID,
+		State:             models.WebhookStatePending,
+		Secret:            encryptedKey,
+		Configuration:     datatypes.NewJSONType(configuration),
+		AppInstallationID: &c.integration.ID,
+		CreatedAt:         &now,
+	}
+
+	err = c.tx.Create(&webhook).Error
+	if err != nil {
+		return err
+	}
+
+	c.node.WebhookID = &webhookID
+	return nil
+}
+
+func (c *IntegrationContext) mergeWebhookConfiguration(
+	handler core.WebhookHandler,
+	webhook *models.Webhook,
+	configuration any,
+) error {
+	mergedConfiguration, changed, err := handler.Merge(webhook.Configuration.Data(), configuration)
+	if err != nil {
+		return err
+	}
+
+	// Always reset failed webhooks to pending so they can be re-provisioned,
+	// even if the configuration hasn't changed. This handles the case where
+	// a webhook failed during initial setup (e.g. provider not ready) and
+	// a subsequent trigger setup should retry provisioning.
+	if !changed && webhook.State != models.WebhookStateFailed {
+		return nil
+	}
+
+	webhook.Configuration = datatypes.NewJSONType(mergedConfiguration)
+	webhook.State = models.WebhookStatePending
+	webhook.RetryCount = 0
+
+	return c.tx.Model(webhook).Updates(map[string]any{
+		"configuration": webhook.Configuration,
+		"state":         webhook.State,
+		"retry_count":   webhook.RetryCount,
+		"updated_at":    time.Now(),
+	}).Error
+}
+
+func (c *IntegrationContext) ScheduleResync(interval time.Duration) error {
+	if interval < time.Second {
+		return fmt.Errorf("interval must be bigger than 1s")
+	}
+
+	err := c.completeCurrentRequestForInstallation()
+	if err != nil {
+		return err
+	}
+
+	runAt := time.Now().Add(interval)
+	return c.integration.CreateSyncRequest(c.tx, &runAt)
+}
+
+func (c *IntegrationContext) ScheduleActionCall(actionName string, parameters any, interval time.Duration) error {
+	if interval < time.Second {
+		return fmt.Errorf("interval must be bigger than 1s")
+	}
+
+	runAt := time.Now().Add(interval)
+
+	//
+	// Enforce at-most-one pending request per (installation, action, parameters).
+	// Completing the matching pending rows in the same transaction that creates
+	// the successor also completes the in-flight request when the worker is
+	// driving a self-rescheduling loop, and collapses any accumulated chains of
+	// the same action (#5386). Distinct parameters are preserved, so legitimately
+	// different calls (e.g. AWS provisionRule for different detail types) are not
+	// affected.
+	//
+	// The installation row is locked first to serialize concurrent scheduling for
+	// it. The worker processes due requests in parallel, so without this lock two
+	// simultaneous refresh requests would each complete-then-insert under their own
+	// READ COMMITTED snapshot, neither seeing the other's new successor - leaving
+	// multiple chains that share a run_at and never drain.
+	//
+	return c.tx.Transaction(func(tx *gorm.DB) error {
+		if err := c.integration.LockInTransaction(tx); err != nil {
+			return err
+		}
+
+		if err := models.CompletePendingActionRequestsInTransaction(tx, c.integration.ID, actionName, parameters); err != nil {
+			return err
+		}
+
+		return c.integration.CreateActionRequest(tx, actionName, parameters, &runAt)
+	})
+}
+
+func (c *IntegrationContext) completeCurrentRequestForInstallation() error {
+	request, err := models.FindPendingRequestForIntegration(c.tx, c.integration.ID)
+	if err == nil {
+		return request.Complete(c.tx)
+	}
+
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil
+	}
+
+	return err
+}
+
+func (c *IntegrationContext) GetConfig(name string) ([]byte, error) {
+	config := c.integration.Configuration.Data()
+	v, ok := config[name]
+	if !ok {
+		return nil, fmt.Errorf("config %s not found", name)
+	}
+
+	impl, err := c.registry.GetIntegration(c.integration.AppName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get integration %s: %w", c.integration.AppName, err)
+	}
+
+	configDef, err := findConfigDef(impl.Configuration(), name)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find config %s: %w", name, err)
+	}
+
+	if configDef.Type != configuration.FieldTypeString && configDef.Type != configuration.FieldTypeSelect && configDef.Type != configuration.FieldTypeText {
+		return nil, fmt.Errorf("config %s is not of type: [string, select, text]", name)
+	}
+
+	s, ok := v.(string)
+	if !ok {
+		return nil, fmt.Errorf("config %s is not a string", name)
+	}
+
+	if !configDef.Sensitive {
+		return []byte(s), nil
+	}
+
+	decoded, err := base64.StdEncoding.DecodeString(string(s))
+	if err != nil {
+		return nil, err
+	}
+
+	return c.encryptor.Decrypt(context.Background(), []byte(decoded), []byte(c.integration.ID.String()))
+}
+
+func (c *IntegrationContext) GetOptionalConfig(name string) ([]byte, error) {
+	config := c.integration.Configuration.Data()
+	_, ok := config[name]
+	if !ok {
+		impl, err := c.registry.GetIntegration(c.integration.AppName)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get integration %s: %w", c.integration.AppName, err)
+		}
+
+		configDef, err := findConfigDef(impl.Configuration(), name)
+		if err != nil {
+			return nil, fmt.Errorf("failed to find config %s: %w", name, err)
+		}
+
+		if !configDef.Required {
+			return nil, nil
+		}
+	}
+
+	return c.GetConfig(name)
+}
+
+func findConfigDef(configs []configuration.Field, name string) (configuration.Field, error) {
+	for _, config := range configs {
+		if config.Name == name {
+			return config, nil
+		}
+	}
+
+	return configuration.Field{}, fmt.Errorf("config %s not found", name)
+}
+
+func (c *IntegrationContext) GetMetadata() any {
+	return c.integration.Metadata.Data()
+}
+
+func (c *IntegrationContext) SetMetadata(value any) {
+	b, err := json.Marshal(value)
+	if err != nil {
+		return
+	}
+
+	var v map[string]any
+	err = json.Unmarshal(b, &v)
+	if err != nil {
+		return
+	}
+
+	c.integration.Metadata = datatypes.NewJSONType(v)
+}
+
+func (c *IntegrationContext) Persist() error {
+	if c.tx == nil || c.integration == nil {
+		return nil
+	}
+
+	return c.tx.Transaction(func(inner *gorm.DB) error {
+		if name, ok := github.GeneratedOwnerInstallationName(c.integration); ok {
+			if err := c.integration.AssignUniqueInstallationName(inner, name); err != nil {
+				return err
+			}
+		}
+		return inner.Save(c.integration).Error
+	})
+}
+
+// PersistMetadata writes only the metadata keys this context changed. Webhook
+// Setup and Cleanup mirror provider state onto the integration (Jira keeps the
+// registration id its refresh hook must extend), and those handlers run outside
+// any code path that saves the integration afterwards. The row is locked and
+// each changed key is applied only when the stored value still matches the
+// snapshot from load, so a sync running at the same time does not lose OAuth
+// expiration, user, or project data. A conflicting write returns an error so
+// webhook setup retries instead of reporting ready without a stored id.
+func (c *IntegrationContext) PersistMetadata() error {
+	if c.tx == nil || c.integration == nil {
+		return nil
+	}
+
+	current := cloneMetadataMap(c.integration.Metadata.Data())
+	if !metadataHasDelta(c.loadedMetadata, current) {
+		return nil
+	}
+
+	return c.tx.Transaction(func(tx *gorm.DB) error {
+		if err := c.integration.LockInTransaction(tx); err != nil {
+			return err
+		}
+
+		var latest models.Integration
+		if err := tx.Unscoped().Where("id = ?", c.integration.ID).First(&latest).Error; err != nil {
+			return err
+		}
+
+		merged := cloneMetadataMap(latest.Metadata.Data())
+		if applyMetadataDelta(merged, c.loadedMetadata, current) {
+			return errIntegrationMetadataConflict
+		}
+
+		// The column is NOT NULL, and a handler that clears every key leaves a
+		// nil map behind. Writing NULL would fail the caller's transaction.
+		if err := tx.Model(&latest).Update("metadata", merged).Error; err != nil {
+			return err
+		}
+
+		c.integration.Metadata = datatypes.NewJSONType(merged)
+		c.loadedMetadata = cloneMetadataMap(merged)
+		return nil
+	})
+}
+
+func (c *IntegrationContext) GetState() string {
+	return c.integration.State
+}
+
+func (c *IntegrationContext) Ready() {
+	c.integration.SetupState = nil
+	c.integration.State = models.IntegrationStateReady
+	c.integration.StateDescription = ""
+}
+
+func (c *IntegrationContext) Error(message string) {
+	c.integration.State = models.IntegrationStateError
+	c.integration.StateDescription = message
+}
+
+func (c *IntegrationContext) SetSecret(name string, value []byte) error {
+	now := time.Now()
+
+	// Encrypt the secret value using the installation ID as associated data
+	encryptedValue, err := c.encryptor.Encrypt(
+		context.Background(),
+		value,
+		[]byte(c.integration.ID.String()),
+	)
+	if err != nil {
+		return err
+	}
+
+	var secret models.IntegrationSecret
+	err = c.tx.
+		Where("installation_id = ?", c.integration.ID).
+		Where("name = ?", name).
+		First(&secret).
+		Error
+
+	if err != nil {
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+
+		secret = models.IntegrationSecret{
+			OrganizationID: c.integration.OrganizationID,
+			InstallationID: c.integration.ID,
+			Name:           name,
+			Value:          encryptedValue,
+			CreatedAt:      &now,
+			UpdatedAt:      &now,
+		}
+
+		if err := c.tx.Create(&secret).Error; err != nil {
+			return err
+		}
+
+		c.recordSecretWrite(name, telemetry.IntegrationSecretOperationCreate)
+		return nil
+	}
+
+	secret.Value = encryptedValue
+	secret.UpdatedAt = &now
+
+	if err := c.tx.Save(&secret).Error; err != nil {
+		return err
+	}
+
+	c.recordSecretWrite(name, telemetry.IntegrationSecretOperationUpdate)
+	return nil
+}
+
+// recordSecretWrite emits the metric and structured log for a write to
+// app_installation_secrets. The secret value is never logged.
+func (c *IntegrationContext) recordSecretWrite(name, operation string) {
+	telemetry.RecordIntegrationSecretWrite(
+		context.Background(),
+		c.integration.AppName,
+		operation,
+	)
+
+	logging.ForIntegration(*c.integration).WithFields(map[string]any{
+		"secret_name": name,
+		"operation":   operation,
+	}).Info("Integration secret write")
+}
+
+func (c *IntegrationContext) GetSecrets() ([]core.IntegrationSecret, error) {
+	var fromDB []models.IntegrationSecret
+	err := c.tx.
+		Where("installation_id = ?", c.integration.ID).
+		Find(&fromDB).
+		Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	var secrets []core.IntegrationSecret
+	for _, secret := range fromDB {
+		decryptedValue, err := c.encryptor.Decrypt(
+			context.Background(),
+			secret.Value,
+			[]byte(c.integration.ID.String()),
+		)
+
+		if err != nil {
+			return nil, err
+		}
+
+		secrets = append(secrets, core.IntegrationSecret{
+			Name:  secret.Name,
+			Value: decryptedValue,
+		})
+	}
+
+	return secrets, nil
+}
+
+func (c *IntegrationContext) NewBrowserAction(action core.BrowserAction) {
+	d := datatypes.NewJSONType(models.BrowserAction{
+		URL:         action.URL,
+		Method:      action.Method,
+		FormFields:  action.FormFields,
+		Description: action.Description,
+	})
+
+	c.integration.BrowserAction = &d
+}
+
+func (c *IntegrationContext) RemoveBrowserAction() {
+	c.integration.BrowserAction = nil
+}
+
+func (c *IntegrationContext) Subscribe(configuration any) (*uuid.UUID, error) {
+	subscription, err := models.CreateIntegrationSubscriptionInTransaction(c.tx, c.node, c.integration, configuration)
+	if err != nil {
+		return nil, err
+	}
+
+	return &subscription.ID, nil
+}
+
+func (c *IntegrationContext) ListNodeConfigurations() ([]any, error) {
+	if c.tx == nil || c.integration == nil || c.integration.ID == uuid.Nil {
+		return nil, nil
+	}
+
+	var rows []struct {
+		Configuration datatypes.JSONType[map[string]any]
+	}
+	err := c.tx.
+		Table("workflow_nodes").
+		Select("workflow_nodes.configuration").
+		Joins("JOIN workflows ON workflows.id = workflow_nodes.workflow_id AND workflows.deleted_at IS NULL").
+		Where("workflow_nodes.app_installation_id = ?", c.integration.ID).
+		Where("workflow_nodes.deleted_at IS NULL").
+		Scan(&rows).
+		Error
+	if err != nil {
+		return nil, err
+	}
+
+	configurations := make([]any, 0, len(rows))
+	for _, row := range rows {
+		configurations = append(configurations, row.Configuration.Data())
+	}
+	return configurations, nil
+}
+
+func (c *IntegrationContext) ListSubscriptions() ([]core.IntegrationSubscriptionContext, error) {
+	subscriptions, err := models.ListIntegrationSubscriptions(c.tx, c.integration.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	contexts := []core.IntegrationSubscriptionContext{}
+	for _, subscription := range subscriptions {
+		node, err := models.FindCanvasNode(c.tx, subscription.WorkflowID, subscription.NodeID)
+		if err != nil {
+			return nil, err
+		}
+
+		contexts = append(contexts, NewIntegrationSubscriptionContext(
+			c.tx,
+			c.registry,
+			&subscription,
+			node,
+			c.integration,
+			c,
+			c.onNewEvents,
+		))
+	}
+
+	return contexts, nil
+}
+
+// FindSubscription finds the first subscription matching the predicate.
+// Note: This loads all subscriptions via ListSubscriptions() and iterates through them.
+// For installations with many subscriptions, this may be inefficient. Consider adding
+// an index-based lookup if performance becomes an issue.
+func (c *IntegrationContext) FindSubscription(predicate func(core.IntegrationSubscriptionContext) bool) (core.IntegrationSubscriptionContext, error) {
+	subscriptions, err := c.ListSubscriptions()
+	if err != nil {
+		return nil, err
+	}
+
+	for _, subscription := range subscriptions {
+		if predicate(subscription) {
+			return subscription, nil
+		}
+	}
+
+	return nil, nil
+}
+
+func (c *IntegrationContext) LegacySetup() bool {
+	return c.integration.IsLegacy()
+}
+
+func (c *IntegrationContext) Properties() core.IntegrationPropertyStorage {
+	return NewIntegrationPropertyStorage(c.integration)
+}
+
+func (c *IntegrationContext) Secrets() core.IntegrationSecretStorage {
+	if c.secretStorage != nil {
+		return c.secretStorage
+	}
+
+	c.secretStorage = NewIntegrationSecretStorage(c.tx, c.encryptor, c.integration)
+	return c.secretStorage
+}
+
+var errIntegrationMetadataConflict = errors.New("integration metadata changed concurrently")
+
+func cloneMetadataMap(metadata map[string]any) map[string]any {
+	cloned := map[string]any{}
+	if len(metadata) == 0 {
+		return cloned
+	}
+
+	encoded, err := json.Marshal(metadata)
+	if err != nil {
+		return cloned
+	}
+	if err := json.Unmarshal(encoded, &cloned); err != nil || cloned == nil {
+		return map[string]any{}
+	}
+	return cloned
+}
+
+func metadataHasDelta(original, current map[string]any) bool {
+	keys := metadataKeyUnion(original, current)
+	for key := range keys {
+		originalValue, originalExists := original[key]
+		currentValue, currentExists := current[key]
+		if originalExists != currentExists || !metadataValuesEqual(originalValue, currentValue) {
+			return true
+		}
+	}
+	return false
+}
+
+func applyMetadataDelta(latest, original, current map[string]any) bool {
+	keys := metadataKeyUnion(original, current)
+	conflict := false
+	for key := range keys {
+		originalValue, originalExists := original[key]
+		currentValue, currentExists := current[key]
+		if originalExists == currentExists && metadataValuesEqual(originalValue, currentValue) {
+			continue
+		}
+
+		latestValue, latestExists := latest[key]
+		if latestExists != originalExists || !metadataValuesEqual(latestValue, originalValue) {
+			// A skipped delete leaves the newer value in place. A skipped write
+			// must fail so webhook setup retries instead of reporting ready.
+			if currentExists {
+				conflict = true
+			}
+			continue
+		}
+
+		if currentExists {
+			latest[key] = cloneMetadataValue(currentValue)
+			continue
+		}
+		delete(latest, key)
+	}
+	return conflict
+}
+
+func metadataKeyUnion(left, right map[string]any) map[string]struct{} {
+	keys := make(map[string]struct{}, len(left)+len(right))
+	for key := range left {
+		keys[key] = struct{}{}
+	}
+	for key := range right {
+		keys[key] = struct{}{}
+	}
+	return keys
+}
+
+func metadataValuesEqual(left, right any) bool {
+	if left == nil && right == nil {
+		return true
+	}
+
+	leftJSON, leftErr := json.Marshal(left)
+	rightJSON, rightErr := json.Marshal(right)
+	if leftErr != nil || rightErr != nil {
+		return false
+	}
+	return bytes.Equal(leftJSON, rightJSON)
+}
+
+func cloneMetadataValue(value any) any {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return value
+	}
+
+	var cloned any
+	if err := json.Unmarshal(encoded, &cloned); err != nil {
+		return value
+	}
+	return cloned
+}

@@ -1,0 +1,18 @@
+import { describe, expect, it } from "bun:test";
+import { getIntegrationTypeDisplayName } from "@/lib/integrationDisplayName";
+
+describe("integrationDisplayName", () => {
+  it("prefers known canonical display names", () => {
+    expect(getIntegrationTypeDisplayName(undefined, "github")).toBe("GitHub");
+    expect(getIntegrationTypeDisplayName(undefined, "openrouter")).toBe("OpenRouter");
+    expect(getIntegrationTypeDisplayName(undefined, "productive")).toBe("Productive");
+  });
+
+  it("uses the label when it is already properly capitalized", () => {
+    expect(getIntegrationTypeDisplayName("Linear", "linear")).toBe("Linear");
+  });
+
+  it("capitalizes unknown names when the label is missing", () => {
+    expect(getIntegrationTypeDisplayName(undefined, "customtool")).toBe("Customtool");
+  });
+});

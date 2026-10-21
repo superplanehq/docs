@@ -1,0 +1,210 @@
+:root {
+  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+a {
+  text-decoration: inherit;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+button {
+  cursor: pointer;
+}
+
+.react-flow.light {
+  --xy-background-pattern-dots-color-default: #96a0a6;
+  --xy-background-color-default: #f4f5f8;
+}
+
+.react-flow.dark {
+  --xy-background-pattern-dots-color-default: #374151;
+  --xy-background-color-default: #111827;
+}
+
+div.monaco-editor {
+  --vscode-focusBorder: transparent;
+  --vscode-editorLineHighlightBackground: rgb(248 250 252);
+  --vscode-editorLineHighlightBorder: transparent;
+}
+
+/* Current line: slate-50 background only, no top/bottom border */
+div.monaco-editor .margin-view-overlays .current-line,
+div.monaco-editor .view-overlays .current-line {
+  background-color: rgb(248 250 252) !important;
+  border: none !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+.workflow-file-editor-monaco .monaco-editor {
+  --vscode-scrollbarSlider-background: rgb(2 6 23 / 0.2);
+  --vscode-scrollbarSlider-hoverBackground: rgb(2 6 23 / 0.4);
+  --vscode-scrollbarSlider-activeBackground: rgb(2 6 23 / 0.45);
+  --vscode-editorStickyScroll-shadow: rgb(2 6 23 / 0.1);
+  --vscode-editorStickyScroll-border: rgb(2 6 23 / 0.2);
+}
+
+.workflow-file-editor-monaco .monaco-editor .sticky-widget {
+  box-shadow: 0 3px 0 rgb(2 6 23 / 0.1) !important;
+}
+
+.dark div.monaco-editor {
+  --vscode-focusBorder: transparent;
+  --vscode-editor-background: rgb(31 41 55);
+  --vscode-editorGutter-background: rgb(31 41 55);
+  --vscode-editor-foreground: rgb(243 244 246);
+  --vscode-editorLineHighlightBackground: rgb(31 41 55);
+  --vscode-editorLineHighlightBorder: transparent;
+}
+
+.dark div.monaco-editor .margin,
+.dark div.monaco-editor .monaco-editor-background {
+  background-color: rgb(31 41 55) !important;
+}
+
+.dark div.monaco-editor .margin-view-overlays .current-line,
+.dark div.monaco-editor .view-overlays .current-line {
+  background-color: rgb(31 41 55) !important;
+}
+
+.dark .workflow-file-editor-monaco .monaco-editor {
+  --vscode-scrollbarSlider-background: rgb(156 163 175 / 0.25);
+  --vscode-scrollbarSlider-hoverBackground: rgb(156 163 175 / 0.4);
+  --vscode-scrollbarSlider-activeBackground: rgb(156 163 175 / 0.5);
+  --vscode-editorStickyScroll-shadow: rgb(0 0 0 / 0.2);
+  --vscode-editorStickyScroll-border: rgb(75 85 99 / 0.5);
+}
+
+.dark .workflow-file-editor-monaco .monaco-editor .sticky-widget {
+  box-shadow: 0 3px 0 rgb(0 0 0 / 0.2) !important;
+}
+
+.canvas-conflict-current-line {
+  background: rgb(220 252 231 / 45%);
+}
+
+.canvas-conflict-incoming-line {
+  background: rgb(219 234 254 / 45%);
+}
+
+.canvas-conflict-marker-current {
+  background: rgb(22 163 74 / 18%);
+  font-weight: 600;
+}
+
+.canvas-conflict-marker-separator {
+  background: rgb(249 115 22 / 20%);
+  font-weight: 600;
+}
+
+.canvas-conflict-marker-incoming {
+  background: rgb(59 130 246 / 20%);
+  font-weight: 600;
+}
+
+.canvas-conflict-inline-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  padding: 2px 8px;
+  border-top: 1px solid #e2e8f0;
+  border-bottom: 1px solid #e2e8f0;
+  background: #f8fafc;
+  pointer-events: auto;
+  position: relative;
+  top: -6px;
+  z-index: 20;
+}
+
+.canvas-conflict-inline-actions__buttons {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.canvas-conflict-inline-action-button {
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  background: transparent;
+  font-size: 11px;
+  line-height: 18px;
+  color: #2563eb;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  pointer-events: auto;
+  position: relative;
+  z-index: 1;
+}
+
+.canvas-conflict-inline-action-button:hover {
+  color: #1d4ed8;
+}
+
+.canvas-conflict-inline-action-button:focus-visible {
+  outline: 1px solid #93c5fd;
+  outline-offset: 2px;
+}
+
+/* Reusable 1px 45deg diagonal line pattern (gray-950/10), 8px between lines */
+.bg-stripe-diagonal {
+  background-image: repeating-linear-gradient(
+    45deg,
+    rgb(3 7 18 / 0.1) 0,
+    rgb(3 7 18 / 0.1) 1px,
+    transparent 1px,
+    transparent 9px
+  );
+}
+
+@keyframes tool-glow {
+  0%, 100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.animate-tool-glow {
+  animation: tool-glow 1.4s ease-in-out infinite;
+}
+
+@keyframes rotate-border {
+  0% {
+    box-shadow: 2px 0 0 0 currentColor, 0 2px 0 0 transparent, -2px 0 0 0 transparent, 0 -2px 0 0 transparent;
+  }
+  25% {
+    box-shadow: 2px 0 0 0 transparent, 0 2px 0 0 currentColor, -2px 0 0 0 transparent, 0 -2px 0 0 transparent;
+  }
+  50% {
+    box-shadow: 2px 0 0 0 transparent, 0 2px 0 0 transparent, -2px 0 0 0 currentColor, 0 -2px 0 0 transparent;
+  }
+  75% {
+    box-shadow: 2px 0 0 0 transparent, 0 2px 0 0 transparent, -2px 0 0 0 transparent, 0 -2px 0 0 currentColor;
+  }
+  100% {
+    box-shadow: 2px 0 0 0 currentColor, 0 2px 0 0 transparent, -2px 0 0 0 transparent, 0 -2px 0 0 transparent;
+  }
+}
+
+.animate-pulse-border {
+  animation: rotate-border 1.2s linear infinite;
+}

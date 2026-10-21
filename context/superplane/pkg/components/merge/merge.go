@@ -1,0 +1,501 @@
+package merge
+
+import (
+	"fmt"
+	"net/http"
+	"slices"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/mitchellh/mapstructure"
+	"github.com/superplanehq/superplane/pkg/configuration"
+	"github.com/superplanehq/superplane/pkg/core"
+	"github.com/superplanehq/superplane/pkg/models"
+	"github.com/superplanehq/superplane/pkg/registry"
+)
+
+// Merge is a component that passes its input downstream on
+// different channels based on execution outcome. The queue/worker
+// layer is responsible for aggregating inputs from multiple parents.
+
+// Output channel names for Merge component
+const (
+	ChannelNameSuccess = "success"
+	ChannelNameTimeout = "timeout"
+	ChannelNameFail    = "fail"
+)
+
+func init() {
+	registry.RegisterAction("merge", &Merge{})
+}
+
+/*
+ * The execution metadata associated with a merge component
+ * holds information about the grouping of events.
+ */
+type ExecutionMetadata struct {
+	// GroupKey is a logical key used to correlate queue items into a single execution
+	GroupKey string `json:"groupKey,omitempty" mapstructure:"groupKey"`
+
+	// EventIDs collects upstream event ids that reached this merge
+	EventIDs []string `json:"eventIDs,omitempty" mapstructure:"eventIDs"`
+
+	// Sources collects distinct upstream source nodes that reached this merge
+	SourceNodes []SourceNode `json:"sourceNodes,omitempty" mapstructure:"sourceNodes"`
+
+	// StopEarly indicates the merge was short-circuited based on a stop condition
+	StopEarly bool `json:"stopEarly,omitempty" mapstructure:"stopEarly"`
+}
+
+func (m *ExecutionMetadata) HasReceivedAll() bool {
+	for _, s := range m.SourceNodes {
+		if s.ReceivedAt == nil {
+			return false
+		}
+	}
+
+	return true
+}
+
+func (m *ExecutionMetadata) UpdateSource(nodeID string) {
+	if m.SourceNodes == nil {
+		m.SourceNodes = []SourceNode{
+			{NodeID: nodeID},
+		}
+	}
+
+	i := slices.IndexFunc(m.SourceNodes, func(s SourceNode) bool {
+		return s.NodeID == nodeID
+	})
+
+	if i == -1 {
+		return
+	}
+
+	now := time.Now().Format(time.RFC3339)
+	m.SourceNodes[i].ReceivedAt = &now
+}
+
+type SourceNode struct {
+	NodeID     string  `json:"nodeId,omitempty" mapstructure:"nodeId"`
+	ReceivedAt *string `json:"receivedAt,omitempty" mapstructure:"receivedAt"`
+}
+
+type Merge struct{}
+
+func (m *Merge) Name() string        { return "merge" }
+func (m *Merge) Label() string       { return "Merge" }
+func (m *Merge) Description() string { return "Merge multiple upstream inputs and forward" }
+func (m *Merge) Documentation() string {
+	return `The Merge component waits for events from all upstream nodes before forwarding a combined result downstream.
+
+## Use Cases
+
+- **Parallel processing**: Wait for multiple parallel operations to complete
+- **Data aggregation**: Combine results from multiple sources
+- **Synchronization**: Synchronize multiple workflow branches
+- **Fan-in patterns**: Collect outputs from multiple upstream nodes
+
+## How It Works
+
+1. The Merge component waits for events from all distinct upstream source nodes
+2. Once all inputs are received, it emits the combined data to the Success channel
+3. Optional timeout and conditional stop features allow early completion
+
+## Configuration Options
+
+- **Enable Timeout**: Cancel merge after a specified time if not all inputs are received
+- **Enable Conditional Stop**: Stop waiting early when a condition is met (e.g., if one branch fails)
+
+## Output Channels
+
+- **Success**: Emitted when all upstream inputs are received
+- **Timeout**: Emitted if the timeout is reached before all inputs are received
+- **Fail**: Emitted if the conditional stop expression evaluates to true
+
+## Behavior
+
+- Tracks distinct source nodes (ignoring multiple channels from the same source)
+- Combines all received event data into the output
+- Supports timeout to prevent indefinite waiting
+- Supports conditional early stop based on expression evaluation`
+}
+func (m *Merge) Icon() string  { return "arrow-right-from-line" }
+func (m *Merge) Color() string { return "gray" }
+
+func (m *Merge) OutputChannels(configuration any) []core.OutputChannel {
+	return []core.OutputChannel{
+		{Name: ChannelNameSuccess, Label: "Success", Description: "All inputs received successfully"},
+		{Name: ChannelNameTimeout, Label: "Timeout", Description: "Timed out waiting for inputs"},
+		{Name: ChannelNameFail, Label: "Fail", Description: "Stopped early by condition"},
+	}
+}
+
+type Spec struct {
+	// EnableTimeout toggles the execution timeout feature
+	EnableTimeout bool `json:"enableTimeout" mapstructure:"enableTimeout"`
+
+	ExecutionTimeout struct {
+		Value int    `json:"value"`
+		Unit  string `json:"unit"`
+	} `json:"executionTimeout"`
+
+	// EnableStopIf toggles the conditional stop feature
+	EnableStopIf bool `json:"enableStopIf" mapstructure:"enableStopIf"`
+
+	// Optional expression to short-circuit waiting for all inputs.
+	// The expression is evaluated against the incoming event input using
+	// the Expr language with the input bound to the variable '$'.
+	// If it evaluates to true, the merge finishes immediately.
+	StopIfExpression string `json:"stopIfExpression" mapstructure:"stopIfExpression"`
+}
+
+func (m *Merge) Configuration() []configuration.Field {
+	return []configuration.Field{
+		{
+			Name:        "enableTimeout",
+			Label:       "Enable Timeout",
+			Type:        configuration.FieldTypeBool,
+			Description: "Cancel merge after a specified time if not all inputs are received.",
+			Required:    false,
+			Default:     false,
+		},
+		{
+			Name:     "executionTimeout",
+			Label:    "Execution Timeout",
+			Type:     configuration.FieldTypeObject,
+			Required: false,
+			VisibilityConditions: []configuration.VisibilityCondition{
+				{
+					Field:  "enableTimeout",
+					Values: []string{"true"},
+				},
+			},
+			TypeOptions: &configuration.TypeOptions{
+				Object: &configuration.ObjectTypeOptions{
+					Schema: []configuration.Field{
+						{
+							Name:     "value",
+							Label:    "Timeout",
+							Type:     configuration.FieldTypeNumber,
+							Required: true,
+							Default:  2,
+						},
+						{
+							Name:     "unit",
+							Label:    "Unit",
+							Type:     configuration.FieldTypeSelect,
+							Required: true,
+							Default:  "minutes",
+							TypeOptions: &configuration.TypeOptions{
+								Select: &configuration.SelectTypeOptions{
+									Options: []configuration.FieldOption{
+										{Label: "Minutes", Value: "minutes"},
+										{Label: "Hours", Value: "hours"},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			Name:        "enableStopIf",
+			Label:       "Enable Conditional Stop",
+			Type:        configuration.FieldTypeBool,
+			Description: "Stop waiting early when a condition is met.",
+			Required:    false,
+			Default:     false,
+		},
+		{
+			Name:        "stopIfExpression",
+			Label:       "Stop if",
+			Type:        configuration.FieldTypeExpression,
+			Description: "When true, stop waiting and finish immediately.",
+			Placeholder: "e.g. $['Node Name'].data.result == 'fail'",
+			Required:    false,
+			VisibilityConditions: []configuration.VisibilityCondition{
+				{
+					Field:  "enableStopIf",
+					Values: []string{"true"},
+				},
+			},
+		},
+	}
+}
+
+func (m *Merge) Hooks() []core.Hook {
+	return []core.Hook{
+		{
+			Name: "timeoutReached",
+			Type: core.HookTypeInternal,
+		},
+	}
+}
+
+func (m *Merge) Setup(ctx core.SetupContext) error {
+	return nil
+}
+
+func (m *Merge) ProcessQueueItem(ctx core.ProcessQueueContext) (*uuid.UUID, error) {
+	spec := &Spec{}
+	err := mapstructure.Decode(ctx.Configuration, &spec)
+	if err != nil {
+		return nil, fmt.Errorf("error decoding configuration: %v", err)
+	}
+
+	incomingSources, err := ctx.DistinctIncomingSources()
+	if err != nil {
+		return nil, fmt.Errorf("error counting distinct incoming sources: %v", err)
+	}
+
+	executionCtx, err := m.findOrCreateExecution(ctx, ctx.RootEventID, incomingSources)
+	if err != nil {
+		return nil, fmt.Errorf("error finding or creating execution: %v", err)
+	}
+
+	// If the execution is already finished (e.g., timed out or stopped early),
+	// dequeue the item but don't process it further
+	if executionCtx.ExecutionState.IsFinished() {
+		if err := ctx.DequeueItem(); err != nil {
+			return nil, fmt.Errorf("error dequeuing item: %v", err)
+		}
+		return nil, nil
+	}
+
+	if err := ctx.DequeueItem(); err != nil {
+		return nil, fmt.Errorf("error dequeuing item: %v", err)
+	}
+
+	if err := ctx.UpdateNodeState(models.CanvasNodeStateReady); err != nil {
+		return nil, fmt.Errorf("error updating node state: %v", err)
+	}
+
+	md, err := m.addEventToMetadata(ctx, executionCtx)
+	if err != nil {
+		return nil, fmt.Errorf("error adding event to metadata: %v", err)
+	}
+
+	//
+	// Check for optional stop expression
+	// If already short-circuited, do not finish again
+	//
+	if md.StopEarly {
+		return nil, nil
+	}
+
+	//
+	// Evaluate stop expression if provided.
+	// The EnableStopIf toggle controls visibility in the UI - when disabled,
+	// the field is hidden and won't have a value. For backward compatibility,
+	// configs created before the toggle will still work if they have an expression.
+	//
+	if spec.StopIfExpression != "" {
+		out, err := ctx.Expressions.Run(spec.StopIfExpression)
+		if err != nil {
+			return m.failStopExpression(executionCtx, md, err.Error())
+		}
+
+		//
+		// If the stop expression does not evaluate to a boolean value,
+		// we fail the execution and mark the merge as stopped early.
+		//
+		stopEarly, ok := out.(bool)
+		if !ok {
+			return m.failStopExpression(executionCtx, md, fmt.Sprintf("stop expression must evaluate to boolean, got %T: %v", out, out))
+		}
+
+		//
+		// If stopExpression is truthy,
+		// we mark metadata and emit to fail channel
+		//
+		if stopEarly {
+			md.StopEarly = true
+			err := executionCtx.Metadata.Set(md)
+			if err != nil {
+				return nil, err
+			}
+
+			return &executionCtx.ID, executionCtx.ExecutionState.Emit(
+				ChannelNameFail,
+				"merge.stopped",
+				[]any{md},
+			)
+		}
+	}
+
+	if md.HasReceivedAll() {
+		return &executionCtx.ID, executionCtx.ExecutionState.Emit(
+			ChannelNameSuccess,
+			"merge.finished",
+			[]any{md},
+		)
+	}
+
+	return &executionCtx.ID, nil
+}
+
+func (m *Merge) failStopExpression(executionCtx *core.ExecutionContext, md *ExecutionMetadata, message string) (*uuid.UUID, error) {
+	md.StopEarly = true
+	err := executionCtx.Metadata.Set(md)
+	if err != nil {
+		return nil, err
+	}
+
+	err = executionCtx.ExecutionState.Fail("error", message)
+	if err != nil {
+		return nil, err
+	}
+
+	return &executionCtx.ID, nil
+}
+
+func (m *Merge) findOrCreateExecution(ctx core.ProcessQueueContext, mergeGroup string, incomingSources []core.Node) (*core.ExecutionContext, error) {
+	executionCtx, err := ctx.FindExecutionByKV("merge_group", mergeGroup)
+	if err != nil {
+		return nil, err
+	}
+
+	//
+	// Execution already exists, just return it.
+	//
+	if executionCtx != nil {
+		return executionCtx, nil
+	}
+
+	//
+	// Execution does not exist yet, create it.
+	//
+	executionCtx, err = ctx.CreateExecution()
+	if err != nil {
+		return nil, err
+	}
+
+	err = executionCtx.ExecutionState.SetKV("merge_group", mergeGroup)
+	if err != nil {
+		return nil, err
+	}
+
+	sourceNodes := []SourceNode{}
+	for _, source := range incomingSources {
+		sourceNodes = append(sourceNodes, SourceNode{
+			NodeID:     source.ID,
+			ReceivedAt: nil,
+		})
+	}
+
+	md := &ExecutionMetadata{
+		GroupKey:    mergeGroup,
+		EventIDs:    []string{},
+		SourceNodes: sourceNodes,
+	}
+
+	err = executionCtx.Metadata.Set(md)
+	if err != nil {
+		return nil, err
+	}
+
+	return executionCtx, nil
+}
+
+func (m *Merge) addEventToMetadata(ctx core.ProcessQueueContext, executionCtx *core.ExecutionContext) (*ExecutionMetadata, error) {
+	md := &ExecutionMetadata{}
+	err := mapstructure.Decode(executionCtx.Metadata.Get(), md)
+	if err != nil {
+		return nil, err
+	}
+
+	md.EventIDs = append(md.EventIDs, ctx.EventID)
+
+	//
+	// Track distinct source nodes that reached this merge
+	//
+	if ctx.SourceNodeID != "" {
+		md.UpdateSource(ctx.SourceNodeID)
+	}
+
+	err = executionCtx.Metadata.Set(md)
+	if err != nil {
+		return nil, err
+	}
+
+	return md, nil
+}
+
+func (m *Merge) HandleHook(ctx core.ActionHookContext) error {
+	switch ctx.Name {
+	case "timeoutReached":
+		return m.HandleTimeout(ctx)
+	default:
+		return fmt.Errorf("merge does not support hook: %s", ctx.Name)
+	}
+}
+
+func (m *Merge) HandleTimeout(ctx core.ActionHookContext) error {
+	if ctx.ExecutionState.IsFinished() {
+		return nil
+	}
+
+	// Get current metadata to include in the timeout output
+	md := &ExecutionMetadata{}
+	if err := mapstructure.Decode(ctx.Metadata.Get(), md); err != nil {
+		// If we can't decode metadata, emit with empty object
+		return ctx.ExecutionState.Emit(
+			ChannelNameTimeout,
+			"merge.timeout",
+			[]any{map[string]any{}},
+		)
+	}
+
+	return ctx.ExecutionState.Emit(
+		ChannelNameTimeout,
+		"merge.timeout",
+		[]any{md},
+	)
+}
+
+func (m *Merge) Execute(ctx core.ExecutionContext) error {
+	spec := &Spec{}
+
+	if err := mapstructure.Decode(ctx.Configuration, &spec); err != nil {
+		return err
+	}
+
+	// Schedule timeout if executionTimeout has valid values.
+	// The EnableTimeout toggle controls visibility in the UI - when disabled,
+	// the timeout fields are hidden and won't have values.
+	// For backward compatibility, configs created before the toggle was added
+	// will still work because they have timeout values configured.
+	interval := durationFrom(spec.ExecutionTimeout.Value, spec.ExecutionTimeout.Unit)
+	if interval > 0 {
+		return ctx.Requests.ScheduleActionCall("timeoutReached", map[string]any{}, interval)
+	}
+
+	return nil
+}
+
+func (m *Merge) Cancel(ctx core.ExecutionContext) error {
+	return nil
+}
+
+func (m *Merge) HandleWebhook(ctx core.WebhookRequestContext) (int, *core.WebhookResponseBody, error) {
+	return http.StatusOK, nil, nil
+}
+
+func durationFrom(value int, unit string) time.Duration {
+	switch unit {
+	case "seconds":
+		return time.Duration(value) * time.Second
+	case "minutes":
+		return time.Duration(value) * time.Minute
+	case "hours":
+		return time.Duration(value) * time.Hour
+	default:
+		return 0
+	}
+}
+
+func (m *Merge) Cleanup(ctx core.SetupContext) error {
+	return nil
+}

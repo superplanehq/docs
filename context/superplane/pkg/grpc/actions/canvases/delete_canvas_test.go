@@ -1,0 +1,147 @@
+package canvases
+
+import (
+	"context"
+	"testing"
+
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/superplanehq/superplane/pkg/database"
+	"github.com/superplanehq/superplane/pkg/models"
+	"github.com/superplanehq/superplane/test/support"
+	"gorm.io/datatypes"
+	"gorm.io/gorm"
+)
+
+func Test__DeleteCanvas(t *testing.T) {
+	r := support.Setup(t)
+
+	t.Run("canvas is soft deleted, data remains until cleanup", func(t *testing.T) {
+		//
+		// Create a canvas with nodes, events, and executions
+		//
+		canvas, _ := support.CreateCanvas(
+			t,
+			r.Organization.ID,
+			r.User,
+			[]models.CanvasNode{
+				{
+					NodeID: "node-1",
+					Type:   models.NodeTypeComponent,
+					Ref: datatypes.NewJSONType(models.NodeRef{
+						Component: &models.ComponentRef{Name: "noop"},
+					}),
+				},
+				{
+					NodeID: "node-2",
+					Type:   models.NodeTypeComponent,
+					Ref: datatypes.NewJSONType(models.NodeRef{
+						Component: &models.ComponentRef{Name: "noop"},
+					}),
+				},
+			},
+			[]models.Edge{},
+		)
+
+		event1 := support.EmitCanvasEventForNode(t, canvas.ID, "node-1", "default", nil)
+		event2 := support.EmitCanvasEventForNode(t, canvas.ID, "node-2", "default", nil)
+		support.CreateCanvasNodeExecution(t, canvas.ID, "node-1", event1.ID, event2.ID)
+		support.CreateQueueItem(t, canvas.ID, "node-1", event1.ID, event2.ID)
+
+		//
+		// Verify canvas and all canvas data exist before deletion
+		//
+		_, err := models.FindCanvas(r.Organization.ID, canvas.ID)
+		require.NoError(t, err)
+		nodes, err := models.FindCanvasNodes(canvas.ID)
+		require.NoError(t, err)
+		assert.Len(t, nodes, 2)
+		support.VerifyCanvasEventsCount(t, canvas.ID, 2)
+		support.VerifyNodeExecutionsCount(t, canvas.ID, 1)
+		support.VerifyNodeQueueCount(t, canvas.ID, 1)
+
+		originalName := canvas.Name
+
+		//
+		// Delete the canvas (soft delete).
+		//
+		_, err = DeleteCanvas(context.Background(), database.DB(t.Context()), canvas)
+		require.NoError(t, err)
+
+		//
+		// Verify canvas is soft deleted but associated data still exists.
+		// The canvas should not be found via regular queries (soft delete).
+		//
+		_, err = models.FindCanvas(r.Organization.ID, canvas.ID)
+		assert.ErrorIs(t, err, gorm.ErrRecordNotFound)
+
+		// But the workflow should still exist when queried with Unscoped.
+		canvasUnscoped, err := models.FindUnscopedCanvas(canvas.ID)
+		require.NoError(t, err)
+		assert.NotNil(t, canvasUnscoped.DeletedAt)
+
+		// Verify the name has been updated with deleted timestamp suffix
+		assert.Contains(t, canvasUnscoped.Name, "(deleted-")
+		assert.NotEqual(t, originalName, canvasUnscoped.Name)
+
+		// Associated data should still exist (cleanup worker handles this)
+		nodes, err = models.FindCanvasNodes(canvas.ID)
+		require.NoError(t, err)
+		assert.Len(t, nodes, 2)
+		support.VerifyCanvasEventsCount(t, canvas.ID, 2)
+		support.VerifyNodeExecutionsCount(t, canvas.ID, 1)
+		support.VerifyNodeQueueCount(t, canvas.ID, 1)
+	})
+
+	t.Run("canvas node webhook remains until cleanup worker processes it", func(t *testing.T) {
+		//
+		// Create webhook
+		//
+		webhookID := uuid.New()
+		webhook := models.Webhook{
+			ID:     webhookID,
+			State:  models.WebhookStatePending,
+			Secret: []byte("secret"),
+		}
+
+		require.NoError(t, database.Conn().Create(&webhook).Error)
+
+		//
+		// Create a canvas with node that has webhook
+		//
+		canvas, _ := support.CreateCanvas(
+			t,
+			r.Organization.ID,
+			r.User,
+			[]models.CanvasNode{
+				{
+					NodeID: "node-1",
+					Type:   models.NodeTypeComponent,
+					Ref: datatypes.NewJSONType(models.NodeRef{
+						Component: &models.ComponentRef{Name: "noop"},
+					}),
+					WebhookID: &webhookID,
+				},
+			},
+			[]models.Edge{},
+		)
+
+		//
+		// Delete the canvas (soft delete).
+		//
+		_, err := DeleteCanvas(context.Background(), database.DB(t.Context()), canvas)
+		require.NoError(t, err)
+
+		//
+		// Verify canvas is soft deleted but webhook still exists.
+		// The cleanup worker will handle webhook deletion later.
+		//
+		_, err = models.FindCanvas(r.Organization.ID, canvas.ID)
+		assert.ErrorIs(t, err, gorm.ErrRecordNotFound)
+
+		// Webhook should still exist since cleanup worker hasn't run
+		_, err = models.FindWebhook(webhookID)
+		require.NoError(t, err)
+	})
+}

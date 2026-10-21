@@ -1,0 +1,308 @@
+package daytona
+
+import (
+	"fmt"
+	"net/http"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/mitchellh/mapstructure"
+	"github.com/superplanehq/superplane/pkg/configuration"
+	"github.com/superplanehq/superplane/pkg/core"
+)
+
+const (
+	ExecuteCodePayloadType          = "daytona.execute.response"
+	ExecuteCodePollInterval         = 5 * time.Second
+	ExecuteCodeOutputChannelSuccess = "success"
+	ExecuteCodeOutputChannelFailed  = "failed"
+)
+
+type ExecuteCode struct{}
+
+type ExecuteCodeSpec struct {
+	Sandbox  string `json:"sandbox"`
+	Code     string `json:"code"`
+	Language string `json:"language"`
+	Timeout  int    `json:"timeout,omitempty"`
+}
+
+type ExecuteCodeMetadata struct {
+	SandboxID string `json:"sandboxId" mapstructure:"sandboxId"`
+	SessionID string `json:"sessionId" mapstructure:"sessionId"`
+	CmdID     string `json:"cmdId" mapstructure:"cmdId"`
+	StartedAt int64  `json:"startedAt" mapstructure:"startedAt"`
+	Timeout   int    `json:"timeout" mapstructure:"timeout"`
+}
+
+func (e *ExecuteCode) Name() string {
+	return "daytona.executeCode"
+}
+
+func (e *ExecuteCode) Label() string {
+	return "Execute Code"
+}
+
+func (e *ExecuteCode) Description() string {
+	return "Execute code in a sandbox environment"
+}
+
+func (e *ExecuteCode) Documentation() string {
+	return `The Execute Code component runs code in an existing Daytona sandbox.
+
+## Use Cases
+
+- **AI code execution**: Run AI-generated code safely
+- **Code testing**: Execute untrusted code in isolation
+- **Script automation**: Run Python, TypeScript, or JavaScript scripts
+- **Data processing**: Execute data transformation scripts
+
+## Configuration
+
+- **Sandbox**: The sandbox ID to execute code in (from Create Sandbox or Create Repository Sandbox output). Supports expressions, e.g. ` + "`" + `{{ previous().data.id }}` + "`" + ` or ` + "`" + `{{ $["Create Repository Sandbox"].data.sandboxId }}` + "`" + `
+- **Code**: The code to execute (supports expressions)
+- **Language**: The programming language (python, typescript, javascript)
+- **Timeout**: Optional execution timeout in milliseconds
+
+## Output
+
+Returns the execution result including:
+- **exitCode**: The process exit code (0 for success)
+- **result**: The stdout/output from the code execution
+
+## Notes
+
+- The sandbox must be created first using createSandbox
+- Code output is captured from stdout
+- Non-zero exit codes indicate execution errors`
+}
+
+func (e *ExecuteCode) Icon() string {
+	return "daytona"
+}
+
+func (e *ExecuteCode) Color() string {
+	return "orange"
+}
+
+func (e *ExecuteCode) OutputChannels(configuration any) []core.OutputChannel {
+	return []core.OutputChannel{
+		{Name: ExecuteCodeOutputChannelSuccess, Label: "Success"},
+		{Name: ExecuteCodeOutputChannelFailed, Label: "Failed"},
+	}
+}
+
+func (e *ExecuteCode) Configuration() []configuration.Field {
+	return []configuration.Field{
+		{
+			Name:        "sandbox",
+			Label:       "Sandbox",
+			Type:        configuration.FieldTypeIntegrationResource,
+			Required:    true,
+			Description: "Sandbox to execute code in",
+			TypeOptions: &configuration.TypeOptions{
+				Resource: &configuration.ResourceTypeOptions{
+					Type: "sandbox",
+				},
+			},
+		},
+		{
+			Name:        "code",
+			Label:       "Code",
+			Type:        configuration.FieldTypeText,
+			Required:    true,
+			Description: "The code to execute",
+			Placeholder: "print('Hello, World!')",
+		},
+		{
+			Name:     "language",
+			Label:    "Language",
+			Type:     configuration.FieldTypeSelect,
+			Required: true,
+			Default:  "python",
+			TypeOptions: &configuration.TypeOptions{
+				Select: &configuration.SelectTypeOptions{
+					Options: []configuration.FieldOption{
+						{Label: "Python", Value: "python"},
+						{Label: "TypeScript", Value: "typescript"},
+						{Label: "JavaScript", Value: "javascript"},
+					},
+				},
+			},
+			Description: "The programming language of the code",
+		},
+		{
+			Name:        "timeout",
+			Label:       "Timeout",
+			Type:        configuration.FieldTypeNumber,
+			Required:    false,
+			Description: "Execution timeout in seconds",
+			Default:     30,
+		},
+	}
+}
+
+func (e *ExecuteCode) Setup(ctx core.SetupContext) error {
+	spec := ExecuteCodeSpec{}
+	if err := mapstructure.Decode(ctx.Configuration, &spec); err != nil {
+		return fmt.Errorf("failed to decode configuration: %v", err)
+	}
+
+	if spec.Sandbox == "" {
+		return fmt.Errorf("sandbox is required")
+	}
+
+	if spec.Code == "" {
+		return fmt.Errorf("code is required")
+	}
+
+	if spec.Language == "" {
+		return fmt.Errorf("language is required")
+	}
+
+	validLanguages := map[string]bool{
+		"python":     true,
+		"typescript": true,
+		"javascript": true,
+	}
+	if !validLanguages[spec.Language] {
+		return fmt.Errorf("invalid language: %s (must be python, typescript, or javascript)", spec.Language)
+	}
+
+	return nil
+}
+
+func (e *ExecuteCode) Execute(ctx core.ExecutionContext) error {
+	spec := ExecuteCodeSpec{}
+	if err := mapstructure.Decode(ctx.Configuration, &spec); err != nil {
+		return fmt.Errorf("failed to decode configuration: %v", err)
+	}
+
+	client, err := NewClient(ctx.HTTP, ctx.Integration)
+	if err != nil {
+		return fmt.Errorf("failed to create client: %v", err)
+	}
+
+	command := buildExecuteCodeCommand(spec.Language, spec.Code)
+	command = wrapCommandWithSandboxSecretEnv(command)
+
+	sessionID := uuid.New().String()
+	if err := client.CreateSession(spec.Sandbox, sessionID); err != nil {
+		return fmt.Errorf("failed to create session: %v", err)
+	}
+
+	response, err := client.ExecuteSessionCommand(spec.Sandbox, sessionID, command)
+	if err != nil {
+		return fmt.Errorf("failed to execute code: %v", err)
+	}
+
+	timeout := spec.Timeout
+	if timeout == 0 {
+		timeout = 30
+	}
+
+	metadata := ExecuteCodeMetadata{
+		SandboxID: spec.Sandbox,
+		SessionID: sessionID,
+		CmdID:     response.CmdID,
+		StartedAt: time.Now().Unix(),
+		Timeout:   timeout,
+	}
+
+	if err := ctx.Metadata.Set(metadata); err != nil {
+		return err
+	}
+
+	return ctx.Requests.ScheduleActionCall("poll", map[string]any{}, ExecuteCodePollInterval)
+}
+
+func (e *ExecuteCode) Cancel(ctx core.ExecutionContext) error {
+	return nil
+}
+
+func (e *ExecuteCode) Hooks() []core.Hook {
+	return []core.Hook{
+		{Name: "poll", Type: core.HookTypeInternal},
+	}
+}
+
+func (e *ExecuteCode) HandleHook(ctx core.ActionHookContext) error {
+	if ctx.Name == "poll" {
+		return e.poll(ctx)
+	}
+	return fmt.Errorf("unknown hook: %s", ctx.Name)
+}
+
+func (e *ExecuteCode) poll(ctx core.ActionHookContext) error {
+	if ctx.ExecutionState.IsFinished() {
+		return nil
+	}
+
+	var metadata ExecuteCodeMetadata
+	if err := mapstructure.Decode(ctx.Metadata.Get(), &metadata); err != nil {
+		return fmt.Errorf("failed to decode metadata: %v", err)
+	}
+
+	if time.Now().Unix()-metadata.StartedAt > int64(metadata.Timeout) {
+		return fmt.Errorf("code execution timed out after %d seconds", metadata.Timeout)
+	}
+
+	client, err := NewClient(ctx.HTTP, ctx.Integration)
+	if err != nil {
+		return err
+	}
+
+	session, err := client.GetSession(metadata.SandboxID, metadata.SessionID)
+	if err != nil {
+		return ctx.Requests.ScheduleActionCall("poll", map[string]any{}, ExecuteCodePollInterval)
+	}
+
+	cmd := session.FindCommand(metadata.CmdID)
+	if cmd == nil || cmd.ExitCode == nil {
+		return ctx.Requests.ScheduleActionCall("poll", map[string]any{}, ExecuteCodePollInterval)
+	}
+
+	logs, err := client.GetSessionCommandLogs(metadata.SandboxID, metadata.SessionID, metadata.CmdID)
+	if err != nil {
+		logs = ""
+	}
+
+	result := &ExecuteCodeResponse{
+		ExitCode: *cmd.ExitCode,
+		Result:   logs,
+	}
+
+	channel := ExecuteCodeOutputChannelFailed
+	if *cmd.ExitCode == 0 {
+		channel = ExecuteCodeOutputChannelSuccess
+	}
+
+	return ctx.ExecutionState.Emit(
+		channel,
+		ExecuteCodePayloadType,
+		[]any{result},
+	)
+}
+
+func (e *ExecuteCode) HandleWebhook(ctx core.WebhookRequestContext) (int, *core.WebhookResponseBody, error) {
+	return http.StatusOK, nil, nil
+}
+
+func (e *ExecuteCode) Cleanup(ctx core.SetupContext) error {
+	return nil
+}
+
+func buildExecuteCodeCommand(language, code string) string {
+	quotedCode := shellQuote(code)
+
+	switch language {
+	case "python":
+		return fmt.Sprintf("python3 -c %s", quotedCode)
+	case "javascript":
+		return fmt.Sprintf("node -e %s", quotedCode)
+	case "typescript":
+		return fmt.Sprintf("npx ts-node -e %s", quotedCode)
+	default:
+		return fmt.Sprintf("python3 -c %s", quotedCode)
+	}
+}

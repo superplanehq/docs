@@ -1,0 +1,449 @@
+package models
+
+import (
+	"errors"
+	"slices"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/superplanehq/superplane/pkg/database"
+	"github.com/superplanehq/superplane/pkg/utils"
+	"gorm.io/gorm"
+)
+
+const AccountBlockedMessage = "Your account has been blocked. Please contact support."
+
+var ErrAccountBlocked = errors.New(AccountBlockedMessage)
+
+type Account struct {
+	ID                     uuid.UUID `gorm:"primary_key;default:uuid_generate_v4()"`
+	Email                  string
+	Name                   string
+	InstallationAdmin      bool `gorm:"default:false"`
+	PasswordChangedAt      *time.Time
+	BlockedAt              *time.Time
+	WelcomeCreditGrantedAt *time.Time
+	CreatedAt              *time.Time
+	UpdatedAt              *time.Time
+	DeletedAt              gorm.DeletedAt `gorm:"index"`
+}
+
+func (a *Account) HasReceivedWelcomeCredit() bool {
+	return a != nil && a.WelcomeCreditGrantedAt != nil
+}
+
+func (a *Account) IsInstallationAdmin() bool {
+	return a.InstallationAdmin
+}
+
+func (a *Account) IsBlocked() bool {
+	return a != nil && a.BlockedAt != nil
+}
+
+// IsSessionFresh reports whether a token issued at the given Unix timestamp
+// is still valid relative to the most recent password change. Tokens issued
+// strictly before PasswordChangedAt are considered stale.
+func (a *Account) IsSessionFresh(issuedAt int64) bool {
+	if a.PasswordChangedAt == nil {
+		return true
+	}
+
+	return issuedAt >= a.PasswordChangedAt.Unix()
+}
+
+// MarkPasswordChangedInTransaction stamps the password rotation time on the
+// account. Used together with rotating the password hash and clearing API
+// tokens to invalidate every existing session for the account.
+func (a *Account) MarkPasswordChangedInTransaction(tx *gorm.DB, now time.Time) error {
+	err := tx.Model(a).Update("password_changed_at", now).Error
+	if err != nil {
+		return err
+	}
+
+	a.PasswordChangedAt = &now
+	return nil
+}
+
+func PromoteToInstallationAdmin(accountID string) error {
+	return database.Conn().
+		Model(&Account{}).
+		Where("id = ?", accountID).
+		Update("installation_admin", true).
+		Error
+}
+
+func DemoteFromInstallationAdmin(accountID string) error {
+	return database.Conn().
+		Model(&Account{}).
+		Where("id = ?", accountID).
+		Update("installation_admin", false).
+		Error
+}
+
+// Block marks the account blocked, invalidates sessions, and clears personal
+// tokens plus org API keys created by the account's users.
+func (a *Account) Block(tx *gorm.DB, now time.Time) error {
+	if a == nil {
+		return errors.New("account is required")
+	}
+	if a.IsBlocked() {
+		return nil
+	}
+
+	err := tx.Model(a).Update("blocked_at", now).Error
+	if err != nil {
+		return err
+	}
+	a.BlockedAt = &now
+
+	if err := a.MarkPasswordChangedInTransaction(tx, now); err != nil {
+		return err
+	}
+	if err := ClearTokenHashesForAccountInTransaction(tx, a.ID); err != nil {
+		return err
+	}
+	if err := ClearAPIKeyTokenHashesCreatedByAccount(tx, a.ID); err != nil {
+		return err
+	}
+	return DeleteUserAPITokensForAccount(tx, a.ID)
+}
+
+// Unblock clears the blocked flag. Existing sessions remain invalid; the user
+// must sign in again.
+func (a *Account) Unblock(tx *gorm.DB) error {
+	if a == nil {
+		return errors.New("account is required")
+	}
+	if !a.IsBlocked() {
+		return nil
+	}
+
+	err := tx.Model(a).Update("blocked_at", nil).Error
+	if err != nil {
+		return err
+	}
+	a.BlockedAt = nil
+	return nil
+}
+
+func CreateAccount(name, email string) (*Account, error) {
+	return CreateAccountInTransaction(database.Conn(), name, email)
+}
+
+func CreateAccountInTransaction(tx *gorm.DB, name, email string) (*Account, error) {
+	account := &Account{Name: name, Email: utils.NormalizeEmail(email)}
+	err := tx.Create(account).Error
+	if err != nil {
+		return nil, err
+	}
+
+	return account, nil
+}
+
+func ListAccounts(search string, limit, offset int, sortBy, sortDirection string) ([]Account, int64, error) {
+	query := database.Conn().Model(&Account{})
+
+	if search != "" {
+		query = query.Where("name ILIKE ? OR email ILIKE ?", "%"+search+"%", "%"+search+"%")
+	}
+
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	if limit > 0 {
+		query = query.Limit(limit)
+	}
+
+	if offset > 0 {
+		query = query.Offset(offset)
+	}
+
+	orderClause := resolveOrderClause(sortBy, sortDirection, []string{"created_at", "name", "email"}, "created_at DESC")
+
+	var accounts []Account
+	if err := query.Order(orderClause).Find(&accounts).Error; err != nil {
+		return nil, 0, err
+	}
+
+	return accounts, total, nil
+}
+
+func FindAccountByID(id string) (*Account, error) {
+	var account Account
+
+	err := database.Conn().
+		Where("id = ?", id).
+		First(&account).
+		Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &account, nil
+}
+
+func FindAccountByEmail(email string) (*Account, error) {
+	var account Account
+
+	err := database.Conn().
+		Where("email = ?", utils.NormalizeEmail(email)).
+		First(&account).
+		Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &account, nil
+}
+
+func (a *Account) GetAccountProviders(tx *gorm.DB) ([]AccountProvider, error) {
+	providers := []AccountProvider{}
+
+	err := tx.
+		Where("account_id = ?", a.ID).
+		Find(&providers).
+		Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	return providers, nil
+}
+
+func (a *Account) GetAccountProvider(provider string) (*AccountProvider, error) {
+	var account AccountProvider
+	err := database.Conn().
+		Where("account_id = ?", a.ID).
+		Where("provider = ?", provider).
+		First(&account).
+		Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &account, err
+}
+
+func (a *Account) FindAccountProviderByID(provider, providerID string) (*AccountProvider, error) {
+	var account AccountProvider
+
+	err := database.Conn().
+		Where("account_id = ?", a.ID).
+		Where("provider = ?", provider).
+		Where("provider_id = ?", providerID).
+		First(&account).
+		Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &account, nil
+}
+
+func FindAccountByProvider(tx *gorm.DB, provider, providerID string) (*Account, error) {
+	var account Account
+	err := tx.
+		Joins("JOIN account_providers ON account_providers.account_id = accounts.id").
+		Where("account_providers.provider = ?", provider).
+		Where("account_providers.provider_id = ?", providerID).
+		First(&account).
+		Error
+	if err != nil {
+		return nil, err
+	}
+
+	return &account, nil
+}
+
+func CountActiveInstallationAdmins(tx *gorm.DB) (int64, error) {
+	var count int64
+	err := tx.Model(&Account{}).
+		Where("installation_admin = ?", true).
+		Where("blocked_at IS NULL").
+		Count(&count).
+		Error
+	return count, err
+}
+
+func (a *Account) UpdateName(tx *gorm.DB, name string) error {
+	err := tx.Model(a).Update("name", name).Error
+	if err != nil {
+		return err
+	}
+
+	err = tx.Model(&User{}).
+		Where("account_id = ?", a.ID).
+		Where("type = ?", UserTypeHuman).
+		Where("deleted_at IS NULL").
+		Update("name", name).
+		Error
+	if err != nil {
+		return err
+	}
+
+	a.Name = name
+	return nil
+}
+
+func (a *Account) SignInEmails(tx *gorm.DB) ([]string, error) {
+	emails := []string{}
+	if a.Email != "" {
+		emails = append(emails, utils.NormalizeEmail(a.Email))
+	}
+
+	providers, err := a.GetAccountProviders(tx)
+	if err != nil {
+		return nil, err
+	}
+	for _, provider := range providers {
+		email := utils.NormalizeEmail(provider.Email)
+		if email != "" && !slices.Contains(emails, email) {
+			emails = append(emails, email)
+		}
+	}
+	return emails, nil
+}
+
+func (a *Account) SetEmail(tx *gorm.DB, email string) error {
+	normalized := utils.NormalizeEmail(email)
+	if normalized == "" {
+		return ErrAccountEmailNotFromSignInMethod
+	}
+
+	if err := a.ensurePasswordSignInEmail(tx); err != nil {
+		return err
+	}
+
+	allowed, err := a.SignInEmails(tx)
+	if err != nil {
+		return err
+	}
+	if !slices.Contains(allowed, normalized) {
+		return ErrAccountEmailNotFromSignInMethod
+	}
+
+	var other Account
+	err = tx.Where("email = ?", normalized).Where("id <> ?", a.ID).First(&other).Error
+	if err == nil {
+		return ErrAccountEmailInUse
+	}
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return err
+	}
+
+	err = tx.Model(a).Update("email", normalized).Error
+	if err != nil {
+		return err
+	}
+	err = tx.Model(&User{}).
+		Where("account_id = ?", a.ID).
+		Where("type = ?", UserTypeHuman).
+		Where("deleted_at IS NULL").
+		Update("email", normalized).
+		Error
+	if err != nil {
+		return err
+	}
+
+	a.Email = normalized
+	return nil
+}
+
+func (a *Account) UpdateEmail(newEmail string) error {
+	normalizedEmail := utils.NormalizeEmail(newEmail)
+	originalEmail := a.Email
+
+	err := database.Conn().Transaction(func(tx *gorm.DB) error {
+		err := tx.Model(a).Update("email", normalizedEmail).Error
+		if err != nil {
+			return err
+		}
+
+		err = tx.Model(&User{}).
+			Where("account_id = ?", a.ID).
+			Update("email", normalizedEmail).Error
+		if err != nil {
+			return err
+		}
+
+		return nil
+	})
+
+	if err == nil {
+		a.Email = normalizedEmail
+		return nil
+	}
+
+	a.Email = originalEmail
+	return err
+}
+
+func (a *Account) UpdateEmailForProvider(newEmail, provider, providerID string) error {
+	normalizedEmail := utils.NormalizeEmail(newEmail)
+
+	err := database.Conn().Transaction(func(tx *gorm.DB) error {
+
+		err := tx.Model(a).Update("email", normalizedEmail).Error
+		if err != nil {
+			return err
+		}
+
+		err = tx.Model(&User{}).
+			Where("account_id = ?", a.ID).
+			Update("email", normalizedEmail).Error
+		if err != nil {
+			return err
+		}
+
+		err = tx.Model(&AccountProvider{}).
+			Where("account_id = ? AND provider = ? AND provider_id = ?", a.ID, provider, providerID).
+			Update("email", normalizedEmail).Error
+		if err != nil {
+			return err
+		}
+
+		return nil
+	})
+
+	if err == nil {
+		a.Email = normalizedEmail
+	}
+
+	return err
+}
+
+func (a *Account) ensurePasswordSignInEmail(tx *gorm.DB) error {
+	hasPassword, err := AccountHasPassword(tx, a.ID)
+	if err != nil || !hasPassword {
+		return err
+	}
+
+	email := utils.NormalizeEmail(a.Email)
+	if email == "" {
+		return nil
+	}
+
+	var existing AccountProvider
+	err = tx.Where("account_id = ?", a.ID).Where("provider = ?", ProviderPassword).First(&existing).Error
+	if err == nil {
+		return nil
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return err
+	}
+
+	return tx.Create(&AccountProvider{
+		AccountID:  a.ID,
+		Provider:   ProviderPassword,
+		ProviderID: a.ID.String(),
+		Email:      email,
+		Name:       a.Name,
+	}).Error
+}

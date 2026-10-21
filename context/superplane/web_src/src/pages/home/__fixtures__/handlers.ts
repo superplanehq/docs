@@ -1,0 +1,526 @@
+import {
+  STORYBOOK_ME_USER_AVATAR_URL,
+  STORYBOOK_ME_USER_EMAIL,
+  STORYBOOK_ME_USER_NAME,
+} from "@/pages/factories/__fixtures__/factoryPageResponses";
+import { storybookAccountProviders } from "./storybookAccountState";
+import { defaultHomePageFixture, type HomePageFixture } from "./homePageResponses";
+import { storybookHostedLlmModels, storybookSelectableLlmModels } from "./hostedLlmModels";
+
+export type { HomePageFixture };
+
+export const homePageIds = {
+  organizationId: defaultHomePageFixture.organizationId,
+};
+
+export function buildStorybookMeUser(orgId: string) {
+  return {
+    id: "storybook-user",
+    name: STORYBOOK_ME_USER_NAME,
+    email: STORYBOOK_ME_USER_EMAIL,
+    organizationId: orgId,
+    hasToken: true,
+    roles: ["org_admin"],
+    groups: [],
+    permissions: [
+      "canvases",
+      "integrations",
+      "secrets",
+      "api_keys",
+      "groups",
+      "users",
+      "roles",
+      "organization",
+      "org",
+      "agents",
+      "factories",
+      "work_orders",
+      "notifications",
+    ].flatMap((resource) => ["read", "create", "update", "delete"].map((action) => ({ resource, action }))),
+  };
+}
+
+export type FixtureResult = { json: unknown; status?: number } | { text: string; status?: number } | null;
+
+const re = (pattern: string): RegExp => new RegExp(`^${pattern}$`);
+
+interface Route {
+  pattern: RegExp;
+  resolve: (match: RegExpExecArray, url: URL, method: string) => FixtureResult;
+}
+
+function buildRoutes(fixture: HomePageFixture): Route[] {
+  const orgId = fixture.organizationId;
+  const meUser = buildStorybookMeUser(orgId);
+
+  return [
+    { pattern: re("/api/v1/me"), resolve: () => ({ json: { user: meUser } }) },
+    {
+      pattern: re("/api/v1/canvases"),
+      resolve: (_m, _url, method) => {
+        if (method === "POST") {
+          return {
+            json: {
+              canvas: {
+                metadata: {
+                  id: "storybook-new-canvas",
+                  name: "new-app",
+                  organizationId: orgId,
+                },
+              },
+            },
+          };
+        }
+        return {
+          json: {
+            canvases: fixture.canvases,
+            totalCount: fixture.canvases.length,
+            hasNextPage: false,
+          },
+        };
+      },
+    },
+    {
+      pattern: re("/api/v1/canvases/[^/]+/preference"),
+      resolve: () => ({ json: {} }),
+    },
+    {
+      pattern: re("/api/v1/canvases/[^/]+"),
+      resolve: (_m, _url, method) => {
+        if (method === "DELETE" || method === "PUT" || method === "PATCH") {
+          return { json: {} };
+        }
+        // GET canvas detail belongs to the AppPage fixture in OrgWorkspaceHarness.
+        // Returning null lets the combined fetch fall through instead of serving
+        // an empty `{ canvas: {} }` that blanks the live graph.
+        return null;
+      },
+    },
+    {
+      pattern: re("/api/v1/organizations/[^/]+/workspace-usage"),
+      resolve: () => ({ json: { totalTokens: "0", totalCostCents: "0", periodDays: 30, byModel: [] } }),
+    },
+    {
+      pattern: re("/api/v1/organizations/[^/]+/hosted-llm-models"),
+      resolve: (_m, url) => ({ json: storybookHostedLlmModels(url.searchParams.get("provider")) }),
+    },
+    {
+      pattern: re("/api/v1/organizations/[^/]+/selectable-llm-models"),
+      resolve: () => ({ json: { models: storybookSelectableLlmModels() } }),
+    },
+    { pattern: re("/api/v1/organizations/[^/]+/invite-link"), resolve: () => ({ json: {} }) },
+    {
+      pattern: re("/api/v1/organizations/[^/]+"),
+      resolve: () => ({
+        json: {
+          organization: {
+            metadata: { id: orgId, name: fixture.organizationName, slug: fixture.organizationSlug ?? "" },
+            spec: {
+              enabledExperimentalFeatures: fixture.enabledExperimentalFeatures ?? [],
+            },
+            status: {},
+          },
+        },
+      }),
+    },
+    {
+      pattern: re("/api/v1/factories"),
+      resolve: (_m, _url, method) => {
+        if (method === "POST") {
+          return {
+            json: {
+              factory: {
+                id: "storybook-new-factory",
+                name: "New Factory",
+                description: "",
+              },
+            },
+          };
+        }
+        return { json: { factories: fixture.factories ?? [] } };
+      },
+    },
+    {
+      pattern: re("/account/experimental-features"),
+      resolve: () => ({
+        json: {
+          features: [
+            {
+              id: "claude_managed_agents",
+              label: "Managed agents",
+              description: "Canvas agent chat",
+              released: true,
+            },
+            {
+              id: "factories",
+              label: "Factories",
+              description: "Software factories for tasks",
+            },
+            {
+              id: "workspace_models",
+              label: "Workspace Models",
+              description: "Show the in-progress workspace Models settings page",
+            },
+            {
+              id: "organization_byok",
+              label: "Organization BYOK",
+              description: "Show the organization LLM Models settings page",
+            },
+            {
+              id: "organization_byok_custom_provider",
+              label: "Organization BYOK Custom Provider",
+              description: "Add a custom model provider with a URL, token, and API type",
+            },
+            {
+              id: "workspace_mcp",
+              label: "Workspace MCP",
+              description: "Add MCP servers for workspace agents",
+            },
+            {
+              id: "workspace_skills",
+              label: "Workspace Skills",
+              description: "Add skills for workspace agents",
+            },
+            {
+              id: "superplane_mcp_server",
+              label: "MCP Server",
+              description: "Allow Cursor and other MCP clients to connect to workspaces in this organization",
+              released: true,
+            },
+          ],
+        },
+      }),
+    },
+    {
+      pattern: re("/organizations"),
+      resolve: () => ({
+        json: [
+          { id: orgId, slug: fixture.organizationSlug ?? "superplane", name: fixture.organizationName },
+          { id: "org-storybook-acme", slug: "acme", name: "Acme" },
+        ],
+      }),
+    },
+    {
+      pattern: re("/account"),
+      resolve: () => ({
+        json: {
+          id: meUser.id,
+          email: meUser.email,
+          name: meUser.name,
+          organization_id: orgId,
+          avatar_url: STORYBOOK_ME_USER_AVATAR_URL,
+          has_password: true,
+          providers: storybookAccountProviders(meUser.email),
+        },
+      }),
+    },
+  ];
+}
+
+/** Match a registered home fixture route. Returns `null` when none match (no catch-all). */
+export function matchHomePageFixture(
+  url: URL,
+  method: string,
+  fixture: HomePageFixture = defaultHomePageFixture,
+): FixtureResult {
+  for (const route of buildRoutes(fixture)) {
+    const match = route.pattern.exec(url.pathname);
+    if (match) {
+      return route.resolve(match, url, method);
+    }
+  }
+  return null;
+}
+
+function emptyHomeApiCatchAll(url: URL): FixtureResult {
+  if (
+    url.pathname.startsWith("/api") ||
+    url.pathname.startsWith("/admin/api") ||
+    url.pathname === "/account" ||
+    url.pathname.startsWith("/apps/")
+  ) {
+    return { json: {} };
+  }
+  return null;
+}
+
+export function requestMethod(input: RequestInfo | URL, init?: RequestInit): string {
+  return (
+    init?.method ??
+    (typeof input !== "string" && !(input instanceof URL) ? input.method : "GET") ??
+    "GET"
+  ).toUpperCase();
+}
+
+export function fixtureResponse(resolved: NonNullable<FixtureResult>): Response {
+  const status = resolved.status ?? 200;
+  if ("text" in resolved) {
+    return new Response(resolved.text, { status, headers: { "content-type": "text/plain" } });
+  }
+  return new Response(JSON.stringify(resolved.json), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
+}
+
+type StorybookConfigField = {
+  name: string;
+  type: string;
+  description: string;
+  required: boolean;
+  label: string;
+  visibilityConditions: unknown[];
+  requiredConditions: unknown[];
+  sensitive: boolean;
+  togglable: boolean;
+};
+
+const STORYBOOK_FACTORY_INTEGRATION_DEFINITIONS = [
+  storybookIntegrationDefinition(
+    "github",
+    "GitHub",
+    "GitHub repositories, issues, and pull requests",
+    [
+      {
+        name: "organization",
+        type: "string",
+        description:
+          "Organization to install the app into. If not specified, the app will be installed into the user's account.",
+        required: false,
+        label: "Organization",
+        visibilityConditions: [],
+        requiredConditions: [],
+        sensitive: false,
+        togglable: false,
+      },
+    ],
+    // Org experimental feature new_integration_setup_flow → GitHub SetupProvider path.
+    { legacySetupOnly: false },
+  ),
+  storybookIntegrationDefinition("claude", "Claude", "Use Claude models in workflows", [
+    storybookApiKeyField("Claude API key"),
+    {
+      name: "adminKey",
+      type: "string",
+      description: "Use this key only to fetch usage and cost reports.",
+      required: false,
+      label: "Admin API Key",
+      visibilityConditions: [],
+      requiredConditions: [],
+      sensitive: true,
+      togglable: true,
+    },
+  ]),
+  storybookIntegrationDefinition("openai", "OpenAI", "Generate text responses with OpenAI models", [
+    storybookApiKeyField("OpenAI API key"),
+  ]),
+  storybookIntegrationDefinition("openrouter", "OpenRouter", "Use OpenRouter models in workflows", [
+    storybookApiKeyField("OpenRouter API key"),
+  ]),
+];
+
+const STORYBOOK_SENTRY_PROJECTS = [
+  { id: "payments", name: "payments", type: "project" },
+  { id: "checkout-web", name: "checkout-web", type: "project" },
+  { id: "refund-worker", name: "refund-worker", type: "project" },
+];
+
+const STORYBOOK_SENTRY_UNRESOLVED_ISSUES = [
+  { id: "1", name: "TimeoutError: refund gateway did not answer", type: "unresolved-issue" },
+  { id: "2", name: "TypeError: cannot read amount of undefined", type: "unresolved-issue" },
+  { id: "3", name: "ValidationError: refund amount is above the limit", type: "unresolved-issue" },
+];
+
+const STORYBOOK_GITHUB_REPOSITORIES = [
+  { id: "repo_acme_web", name: "acme/web", type: "repository" },
+  { id: "repo_acme_api", name: "acme/api", type: "repository" },
+  { id: "repo_acme_mobile", name: "acme/mobile", type: "repository" },
+  { id: "repo_acme_docs", name: "acme/docs", type: "repository" },
+];
+
+/** Storybook definitions aligned with real integration Configuration() fields. */
+function storybookApiKeyField(description: string): StorybookConfigField {
+  return {
+    name: "apiKey",
+    type: "string",
+    description,
+    required: true,
+    label: "API Key",
+    visibilityConditions: [],
+    requiredConditions: [],
+    sensitive: true,
+    togglable: false,
+  };
+}
+
+function storybookIntegrationDefinition(
+  name: string,
+  label: string,
+  description: string,
+  configuration: StorybookConfigField[],
+  options?: { legacySetupOnly?: boolean },
+) {
+  return {
+    name,
+    label,
+    icon: name,
+    description,
+    configuration,
+    instructions: "",
+    // Mirrors API LegacySetupOnly (!registry.UseNewSetupFlow).
+    // UseNewSetupFlow = SetupProvider registered AND org has new_integration_setup_flow.
+    legacySetupOnly: options?.legacySetupOnly ?? true,
+  };
+}
+
+export type StorybookOrgIntegration = {
+  metadata: { id: string; name: string; integrationName: string };
+  status: { state: "ready" | "pending" | "error"; stateDescription?: string; metadata?: Record<string, unknown> };
+  spec?: { configuration?: Record<string, unknown> };
+};
+
+/**
+ * Builds a `fetch` implementation that serves the homepage fixture entirely
+ * in-process. Same rationale as AppPage's fixture fetch: avoid MSW's Service
+ * Worker dependency so Storybook works off-localhost too.
+ */
+export function createHomeFixtureFetch(
+  fallback: typeof fetch,
+  fixture: HomePageFixture = defaultHomePageFixture,
+): typeof fetch {
+  const orgIntegrations: StorybookOrgIntegration[] = [];
+
+  const impl = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    const url = new URL(requestUrl(input), globalThis.location?.href ?? "http://localhost");
+    const method = requestMethod(input, init);
+    const factoryResolved = await matchFactorySetupFixture(url, method, input, init, orgIntegrations);
+    const resolved = factoryResolved ?? matchHomePageFixture(url, method, fixture) ?? emptyHomeApiCatchAll(url);
+    if (!resolved) {
+      return fallback(input, init);
+    }
+    return fixtureResponse(resolved);
+  };
+  return impl as typeof fetch;
+}
+
+async function createStorybookOrgIntegration(
+  input: RequestInfo | URL,
+  init: RequestInit | undefined,
+  orgIntegrations: StorybookOrgIntegration[],
+): Promise<FixtureResult> {
+  const body = await readRequestJson(input, init);
+  const integrationName =
+    typeof body?.integrationName === "string" && body.integrationName.trim() ? body.integrationName.trim() : "github";
+  const name = typeof body?.name === "string" && body.name.trim() ? body.name.trim() : `${integrationName}-connection`;
+  const created: StorybookOrgIntegration = {
+    metadata: {
+      id: `storybook-${integrationName}-${orgIntegrations.length + 1}`,
+      name,
+      integrationName,
+    },
+    status: { state: "ready" },
+    spec: { configuration: {} },
+  };
+  orgIntegrations.push(created);
+  return { json: { integration: created } };
+}
+
+function matchOrgIntegrationDetail(
+  url: URL,
+  method: string,
+  orgIntegrations: StorybookOrgIntegration[],
+): FixtureResult {
+  const integrationDetailMatch = /^\/api\/v1\/organizations\/([^/]+)\/integrations\/([^/]+)$/.exec(url.pathname);
+  if (!integrationDetailMatch || method !== "GET") return null;
+  const integration = orgIntegrations.find((item) => item.metadata.id === integrationDetailMatch[2]);
+  if (!integration) return { json: {} };
+  return { json: { integration } };
+}
+
+/** Factory setup mocks for Storybook / vitest (connect + repository picker). */
+export async function matchFactorySetupFixture(
+  url: URL,
+  method: string,
+  input: RequestInfo | URL,
+  init: RequestInit | undefined,
+  orgIntegrations: StorybookOrgIntegration[],
+): Promise<FixtureResult> {
+  if (url.pathname === "/api/v1/integrations" && method === "GET") {
+    return { json: { integrations: STORYBOOK_FACTORY_INTEGRATION_DEFINITIONS, githubAppConfigured: true } };
+  }
+
+  const orgIntegrationsMatch = /^\/api\/v1\/organizations\/([^/]+)\/integrations$/.exec(url.pathname);
+  if (orgIntegrationsMatch && method === "GET") {
+    return { json: { integrations: orgIntegrations } };
+  }
+  if (orgIntegrationsMatch && method === "POST") {
+    return createStorybookOrgIntegration(input, init, orgIntegrations);
+  }
+
+  const detailResolved = matchOrgIntegrationDetail(url, method, orgIntegrations);
+  if (detailResolved) return detailResolved;
+
+  const resourcesMatch = /^\/api\/v1\/organizations\/([^/]+)\/integrations\/([^/]+)\/resources$/.exec(url.pathname);
+  if (resourcesMatch && method === "GET") {
+    const resourceType = url.searchParams.get("type");
+    if (resourceType === "default_branch") {
+      return { json: { resources: [{ id: "main", name: "main", type: "default_branch" }] } };
+    }
+    if (resourceType === "status_check") {
+      return {
+        json: {
+          resources: [
+            { type: "status_check", id: "lint", name: "lint" },
+            { type: "status_check", id: "unit", name: "unit" },
+            {
+              type: "status_check",
+              id: "e2e",
+              name: "e2e",
+              url: "https://app.circleci.com/pipelines/github/acme/api/1",
+            },
+          ],
+        },
+      };
+    }
+    if (resourceType === "project") {
+      return { json: { resources: STORYBOOK_SENTRY_PROJECTS } };
+    }
+    if (resourceType === "unresolved-issue") {
+      return { json: { resources: STORYBOOK_SENTRY_UNRESOLVED_ISSUES } };
+    }
+    if (resourceType === "review_bot") {
+      return {
+        json: {
+          resources: [
+            { type: "review_bot", id: "coderabbitai", name: "coderabbitai[bot]" },
+            { type: "review_bot", id: "bugbot", name: "bugbot[bot]" },
+          ],
+        },
+      };
+    }
+    return { json: { resources: STORYBOOK_GITHUB_REPOSITORIES } };
+  }
+
+  return null;
+}
+
+async function readRequestJson(input: RequestInfo | URL, init?: RequestInit): Promise<Record<string, unknown> | null> {
+  try {
+    if (typeof init?.body === "string" && init.body.trim()) {
+      return JSON.parse(init.body) as Record<string, unknown>;
+    }
+    if (typeof input !== "string" && !(input instanceof URL)) {
+      const clone = input.clone();
+      return (await clone.json()) as Record<string, unknown>;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function requestUrl(input: RequestInfo | URL): string {
+  if (typeof input === "string") return input;
+  if (input instanceof URL) return input.href;
+  return input.url;
+}

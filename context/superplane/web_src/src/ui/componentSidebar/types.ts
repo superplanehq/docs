@@ -1,0 +1,26 @@
+import type { CanvasesCanvasEvent, CanvasesCanvasNodeExecution } from "@/api-client";
+import type { ChildEventsState } from "../composite";
+
+export interface SidebarEvent {
+  // Unique UI identifier for the item (remains stable across types)
+  id: string;
+  title: string;
+  subtitle?: string | React.ReactNode;
+  state: ChildEventsState;
+  isOpen: boolean;
+  receivedAt?: Date;
+  values?: Record<string, string>;
+  originalEvent?: CanvasesCanvasEvent;
+  originalExecution?: CanvasesCanvasNodeExecution;
+
+  // Optional specific identifiers to avoid overloading `id`
+  // Present when the API can identify the run directly without ListRuns lookup.
+  runId?: string;
+  // Present for execution items
+  executionId?: string;
+  nodeId?: string;
+  // Present for trigger events
+  triggerEventId?: string;
+  // Optional explicit kind for clarity
+  kind?: "execution" | "trigger" | "queue";
+}

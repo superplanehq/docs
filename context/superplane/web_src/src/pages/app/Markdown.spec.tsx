@@ -1,0 +1,602 @@
+import { fireEvent, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { afterEach, describe, expect, it, vi } from "bun:test";
+
+import { clearWorkOrderFileDownloadCache } from "@/lib/workOrderFiles";
+import { clearWorkspaceMarkdownImageLoadCache } from "@/lib/workspaceMarkdownImages";
+
+import { MarkdownContent } from "./Markdown";
+
+vi.mock("@/components/AgentSidebar/widgets/MermaidWidget", () => ({
+  MermaidWidget: ({ content }: { content: string }) => <div data-testid="mermaid-diagram">{content}</div>,
+}));
+
+vi.mock("@/components/AgentSidebar/widgets/NodeChip", () => ({
+  NodeChipFromLink: ({
+    nodeId,
+    rawLabel,
+    canvasId,
+    organizationId,
+  }: {
+    nodeId: string;
+    rawLabel?: string;
+    canvasId: string;
+    organizationId: string;
+  }) => (
+    <button type="button" data-testid="node-chip">
+      {rawLabel}:{nodeId}:{canvasId}:{organizationId}
+    </button>
+  ),
+}));
+
+vi.mock("@/components/AgentSidebar/widgets/IntegrationButton", () => ({
+  IntegrationButton: ({ integrationRef, label }: { integrationRef: string; label?: string }) => (
+    <button type="button" data-testid="integration-chip">
+      {label}:{integrationRef}
+    </button>
+  ),
+}));
+
+vi.mock("@/components/AgentSidebar/widgets/MarkdownCode", () => ({
+  MarkdownCode: ({ children, className }: { children?: string; className?: string }) => (
+    <code data-language={className?.replace("language-", "")} data-testid="markdown-code">
+      {children}
+    </code>
+  ),
+}));
+
+describe("MarkdownContent", () => {
+  it("renders mermaid code fences as diagrams", () => {
+    render(<MarkdownContent content={"```mermaid\ngraph TD\n  A-->B\n```"} />);
+
+    expect(screen.getByTestId("mermaid-diagram").textContent).toContain("graph TD\n  A-->B");
+    expect(screen.getByTestId("mermaid-diagram").closest("pre")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("markdown-code")).not.toBeInTheDocument();
+  });
+
+  it("does not render undefined for an empty mermaid fence", () => {
+    render(<MarkdownContent content={"```mermaid\n```"} />);
+
+    expect(screen.getByTestId("mermaid-diagram")).toHaveTextContent("");
+    expect(screen.queryByText("undefined")).not.toBeInTheDocument();
+  });
+
+  it("renders node links as chips when canvas context is available", () => {
+    render(
+      <MarkdownContent
+        content={"Open [Deploy](node:deploy-node) before continuing."}
+        canvasId="canvas-1"
+        organizationId="org-1"
+      />,
+    );
+
+    expect(screen.getByTestId("node-chip")).toHaveTextContent("Deploy:deploy-node:canvas-1:org-1");
+  });
+
+  it("renders integration links as chips", () => {
+    render(<MarkdownContent content={"Connect [GitHub](integration:github) to continue."} />);
+
+    expect(screen.getByTestId("integration-chip")).toHaveTextContent("GitHub:github");
+    expect(screen.queryByRole("link", { name: "GitHub" })).not.toBeInTheDocument();
+  });
+
+  it("keeps regular markdown links on native anchors", () => {
+    render(<MarkdownContent content={'Open [docs](../docs "Local docs").'} />);
+
+    expect(screen.getByRole("link", { name: "docs" })).toHaveAttribute("href", "../docs");
+    expect(screen.getByRole("link", { name: "docs" })).toHaveAttribute("title", "Local docs");
+    expect(screen.getByRole("link", { name: "docs" })).not.toHaveAttribute("target");
+  });
+
+  it("can style links and open them in a new tab", () => {
+    render(
+      <MarkdownContent content="Open [docs](https://example.com)." openLinksInNewTab linkClassName="visible-link" />,
+    );
+
+    const link = screen.getByRole("link", { name: "docs" });
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
+    expect(link).toHaveClass("visible-link");
+  });
+
+  it("applies shared console link and inline-code styles", () => {
+    const { container } = render(<MarkdownContent content={"See [docs](https://example.com) and `sha`."} />);
+
+    expect(container.firstChild).toHaveClass("[&_a]:text-sky-600");
+    expect(container.firstChild).toHaveClass("[&_a]:no-underline");
+    expect(container.firstChild).toHaveClass("[&_code]:bg-gray-950/5");
+    expect(container.firstChild).not.toHaveClass("[&_a]:underline");
+  });
+
+  it("keeps regular fenced code blocks as code", () => {
+    render(<MarkdownContent content={"```yaml\nname: deploy\n```"} />);
+
+    expect(screen.getByTestId("markdown-code")).toHaveTextContent("name: deploy");
+    expect(screen.getByTestId("markdown-code")).toHaveAttribute("data-language", "yaml");
+    expect(screen.getByTestId("markdown-code").closest("pre")).not.toBeInTheDocument();
+  });
+
+  it("keeps unlabeled fenced code blocks wrapped as blocks", () => {
+    render(<MarkdownContent content={"```\nraw output\n```"} />);
+
+    expect(screen.getByTestId("markdown-code")).toHaveTextContent("raw output");
+    expect(screen.getByTestId("markdown-code").closest("pre")).toBeInTheDocument();
+  });
+
+  it("renders underline HTML in workspace markdown", () => {
+    render(<MarkdownContent content={"Hello <u>world</u>"} variant="workspace" />);
+
+    expect(screen.getByText("world").tagName).toBe("U");
+  });
+
+  it("renders underline next to punctuation and nested marks", () => {
+    render(<MarkdownContent content={"See **<u>word</u>**."} variant="workspace" />);
+
+    expect(screen.getByText("word").tagName).toBe("U");
+    expect(screen.getByText("word").closest("strong")).toBeInTheDocument();
+  });
+
+  it("does not treat ++ as workspace underline", () => {
+    const { container } = render(<MarkdownContent content={"i++ then j++ and C++ … ++more++"} variant="workspace" />);
+
+    expect(container.querySelector("u")).toBeNull();
+    expect(container).toHaveTextContent("i++ then j++ and C++ … ++more++");
+  });
+
+  it("renders bold markdown with semibold weight", () => {
+    const { container } = render(<MarkdownContent content={"**Claude Managed Agent**"} />);
+    expect(container.firstChild).toHaveClass("[&_strong]:font-semibold");
+    expect(screen.getByText("Claude Managed Agent").tagName).toBe("STRONG");
+  });
+
+  it("applies section spacing classes directly on headings", () => {
+    render(<MarkdownContent content={"Intro\n\n## Section title\n\nBody copy."} />);
+    const h2 = screen.getByRole("heading", { level: 2, name: "Section title" });
+    expect(h2.className).toContain("my-4");
+    expect(h2.className).toContain("first:mt-0");
+  });
+
+  it("uses matching borders and semibold headers in tables", () => {
+    render(<MarkdownContent content={"| Stage | Note |\n| --- | --- |\n| Build | **Failed** |\n"} />);
+    const th = screen.getByRole("columnheader", { name: "Stage" });
+    const td = screen.getByRole("cell", { name: "Failed" });
+    expect(th.className).toContain("border-slate-200");
+    expect(th.className).toContain("font-semibold");
+    expect(td.className).toContain("border-slate-200");
+    expect(td.className).not.toContain("border-slate-100");
+    expect(screen.getByText("Failed").tagName).toBe("STRONG");
+    expect(screen.getByText("Failed").className).toContain("font-semibold");
+  });
+
+  it("renders ___ as a horizontal divider", () => {
+    render(<MarkdownContent content={"Above\n\n___\n\nBelow"} />);
+
+    const divider = screen.getByTestId("markdown-divider");
+    expect(divider.tagName).toBe("HR");
+    expect(divider).toHaveAttribute("role", "separator");
+    expect(divider.className).toContain("border-t-2");
+    expect(divider.className).toContain("border-slate-300");
+  });
+
+  it.each([
+    ["NOTE", "Note"],
+    ["TIP", "Tip"],
+    ["IMPORTANT", "Important"],
+    ["WARNING", "Warning"],
+    ["CAUTION", "Caution"],
+  ] as const)("renders GitHub %s alerts with SuperPlane chrome", (type, label) => {
+    render(<MarkdownContent content={`> [!${type}]\n> Useful ${label.toLowerCase()} details.`} />);
+
+    const alert = screen.getByTestId(`markdown-alert-${type.toLowerCase()}`);
+    expect(alert.tagName).toBe("ASIDE");
+    expect(alert).toHaveTextContent(label);
+    expect(alert).toHaveTextContent(`Useful ${label.toLowerCase()} details.`);
+    expect(alert).not.toHaveTextContent(`[!${type}]`);
+    expect(document.querySelector("blockquote")).toBeNull();
+  });
+
+  it("keeps unknown alert markers as plain blockquotes", () => {
+    render(<MarkdownContent content={"> [!TODO]\n> Ship it later."} />);
+
+    expect(screen.queryByTestId(/markdown-alert-/)).not.toBeInTheDocument();
+    expect(screen.getByText(/Ship it later/)).toBeInTheDocument();
+    expect(document.querySelector("blockquote")).toBeTruthy();
+  });
+
+  it("preserves nested markdown inside alert bodies", () => {
+    render(<MarkdownContent content={"> [!TIP]\n> See [docs](https://example.com) and `sha`."} />);
+
+    const alert = screen.getByTestId("markdown-alert-tip");
+    expect(alert).toHaveTextContent("Tip");
+    expect(screen.getByRole("link", { name: "docs" })).toHaveAttribute("href", "https://example.com");
+    expect(screen.getByTestId("markdown-code")).toHaveTextContent("sha");
+  });
+
+  it("renders [!SECTION] blockquotes as collapsed accordions", async () => {
+    const user = userEvent.setup();
+    render(
+      <MarkdownContent
+        content={"> [!SECTION] Rules\n> Standing instructions for the agent.\n>\n> Keep them focused."}
+      />,
+    );
+
+    const section = screen.getByTestId("markdown-section");
+    expect(section).toHaveTextContent("Rules");
+    expect(section).not.toHaveTextContent("[!SECTION]");
+    expect(screen.queryByText(/Standing instructions/)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /Rules/i }));
+    expect(screen.getByText(/Standing instructions for the agent/)).toBeInTheDocument();
+    expect(screen.getByText(/Keep them focused/)).toBeInTheDocument();
+  });
+
+  it("renders optional section trailing meta after a middle dot", () => {
+    render(<MarkdownContent content={"> [!SECTION] Rules · ~5,366\n> Body copy."} />);
+
+    const section = screen.getByTestId("markdown-section");
+    expect(section).toHaveTextContent("Rules");
+    expect(section).toHaveTextContent("~5,366");
+    expect(section).not.toHaveTextContent("[!SECTION]");
+  });
+
+  it("applies named section presets for icon and accent color", () => {
+    render(<MarkdownContent content={"> [!SECTION:runbook] Deploy checklist · prod\n> Body copy."} />);
+
+    const section = screen.getByTestId("markdown-section");
+    expect(section).toHaveAttribute("data-section-preset", "runbook");
+    expect(section).toHaveTextContent("Deploy checklist");
+    expect(section).toHaveTextContent("prod");
+  });
+
+  it("applies the agent and run section presets", () => {
+    const { rerender } = render(<MarkdownContent content={"> [!SECTION:agent] Agent notes\n> Body copy."} />);
+    expect(screen.getByTestId("markdown-section")).toHaveAttribute("data-section-preset", "agent");
+
+    rerender(<MarkdownContent content={"> [!SECTION:run] Promote · prod\n> Body copy."} />);
+    expect(screen.getByTestId("markdown-section")).toHaveAttribute("data-section-preset", "run");
+  });
+
+  it("shows a count of direct nested sections beside the title", () => {
+    render(
+      <MarkdownContent
+        content={
+          "> [!SECTION:runbook] Score a PR · on-call\n> Intro.\n>\n> > [!SECTION:group] Analysis\n> > One.\n>\n> > [!SECTION:group] Reporting\n> > Two."
+        }
+      />,
+    );
+
+    const section = screen.getByTestId("markdown-section");
+    expect(section).toHaveAttribute("data-section-count", "2");
+    expect(section).toHaveTextContent("Score a PR");
+    expect(section).toHaveTextContent("2");
+  });
+
+  it("does not count sections nested inside alerts as direct children", () => {
+    render(
+      <MarkdownContent
+        content={
+          "> [!SECTION] Parent\n> Intro.\n>\n> > [!NOTE]\n> > Note body.\n> >\n> > > [!SECTION] Nested in note\n> > > Deep.\n>\n> > [!SECTION] Direct child\n> > Child body."
+        }
+      />,
+    );
+
+    const section = screen.getByTestId("markdown-section");
+    expect(section).toHaveAttribute("data-section-count", "1");
+    expect(screen.getByTestId("markdown-section-count")).toHaveTextContent("1");
+  });
+
+  it("preserves nested markdown inside section bodies", async () => {
+    const user = userEvent.setup();
+    render(<MarkdownContent content={"> [!SECTION] Tips\n> See [docs](https://example.com) and `sha`."} />);
+
+    await user.click(screen.getByRole("button", { name: /Tips/i }));
+    expect(screen.getByRole("link", { name: "docs" })).toHaveAttribute("href", "https://example.com");
+    expect(screen.getByTestId("markdown-code")).toHaveTextContent("sha");
+  });
+
+  it("does not treat [!SECTION] without a title as a section", () => {
+    render(<MarkdownContent content={"> [!SECTION]\n> Missing title stays a quote."} />);
+
+    expect(screen.queryByTestId("markdown-section")).not.toBeInTheDocument();
+    expect(document.querySelector("blockquote")).toBeTruthy();
+  });
+});
+
+describe("MarkdownContent mentions", () => {
+  it("highlights complete @Name mentions when mention people are provided", () => {
+    render(
+      <MarkdownContent
+        content="@test test dasdasd"
+        variant="workspace"
+        mentionPeople={[{ id: "u1", name: "test test", email: "test@test.com" }]}
+      />,
+    );
+
+    expect(screen.getByTestId("work-order-mention")).toHaveTextContent("@test test");
+    expect(screen.getByTestId("work-order-mention")).not.toHaveTextContent("dasdasd");
+  });
+
+  it("shows the member name and email on mention hover", async () => {
+    const user = userEvent.setup();
+    render(
+      <MarkdownContent
+        content="@test test dasdasd"
+        variant="workspace"
+        mentionPeople={[{ id: "u1", name: "test test", email: "test@test.com" }]}
+      />,
+    );
+
+    await user.hover(screen.getByTestId("work-order-mention"));
+    const card = await screen.findByTestId("work-order-mention-tooltip");
+    expect(card).toHaveTextContent("test test");
+    expect(card).toHaveTextContent("test@test.com");
+  });
+});
+
+describe("MarkdownContent work order files", () => {
+  const fileId = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+
+  afterEach(() => {
+    clearWorkOrderFileDownloadCache();
+  });
+
+  it("uses the download URL as the image source when files are present", () => {
+    render(
+      <MarkdownContent
+        content={`See ![bug](sp-file://${fileId})`}
+        files={[{ id: fileId, downloadUrl: "https://cdn.example/bug.png" }]}
+      />,
+    );
+
+    expect(screen.getByRole("img", { name: "bug" })).toHaveAttribute("src", "https://cdn.example/bug.png");
+  });
+
+  it("does not render an empty image source without files", () => {
+    render(<MarkdownContent content={`See ![bug](sp-file://${fileId})`} />);
+
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+    expect(screen.getByText("bug")).toBeInTheDocument();
+  });
+
+  it("does not change the image source when the download URL is reminted", () => {
+    const first = "https://files.example/bug.png?expires=9999999999&sig=one";
+    const reminted = "https://files.example/bug.png?expires=9999999999&sig=two";
+    const { rerender } = render(
+      <MarkdownContent content={`See ![bug](sp-file://${fileId})`} files={[{ id: fileId, downloadUrl: first }]} />,
+    );
+
+    expect(screen.getByRole("img", { name: "bug" })).toHaveAttribute("src", first);
+
+    rerender(
+      <MarkdownContent content={`See ![bug](sp-file://${fileId})`} files={[{ id: fileId, downloadUrl: reminted }]} />,
+    );
+
+    expect(screen.getByRole("img", { name: "bug" })).toHaveAttribute("src", first);
+  });
+
+  it("renders a video player for video task files", () => {
+    render(
+      <MarkdownContent
+        content={`See ![clip](sp-file://${fileId})`}
+        files={[{ id: fileId, downloadUrl: "https://cdn.example/clip.mp4", contentType: "video/mp4" }]}
+      />,
+    );
+
+    const video = document.querySelector("video");
+    expect(video).not.toBeNull();
+    expect(video).toHaveAttribute("src", "https://cdn.example/clip.mp4");
+  });
+
+  it("keeps the video element mounted when the chat rerenders", () => {
+    const content = `See ![clip](sp-file://${fileId})`;
+    const files = [{ id: fileId, downloadUrl: "https://cdn.example/clip.mp4", contentType: "video/mp4" }];
+    const { rerender } = render(<MarkdownContent content={content} files={files} />);
+    const video = document.querySelector("video");
+
+    rerender(<MarkdownContent content={content} files={[{ ...files[0] }]} />);
+
+    expect(document.querySelector("video")).toBe(video);
+  });
+
+  it("shows a download fallback for videos the browser cannot play", () => {
+    render(
+      <MarkdownContent
+        content={`See ![clip](sp-file://${fileId})`}
+        files={[{ id: fileId, downloadUrl: "https://cdn.example/clip.mov", contentType: "video/quicktime" }]}
+      />,
+    );
+
+    expect(document.querySelector("video")).toBeNull();
+    expect(screen.getByText("clip")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Download video" })).toHaveAttribute(
+      "href",
+      "https://cdn.example/clip.mov",
+    );
+    expect(screen.getByText("This browser cannot play this video.")).toBeInTheDocument();
+  });
+
+  it("retries a video after a new download URL when playback failed", () => {
+    const { rerender } = render(
+      <MarkdownContent
+        content={`See ![clip](sp-file://${fileId})`}
+        files={[{ id: fileId, downloadUrl: "https://cdn.example/clip.mp4", contentType: "video/mp4" }]}
+      />,
+    );
+
+    fireEvent.error(document.querySelector("video")!);
+    expect(document.querySelector("video")).toBeNull();
+    expect(screen.getByRole("link", { name: "Download video" })).toBeInTheDocument();
+
+    rerender(
+      <MarkdownContent
+        content={`See ![clip](sp-file://${fileId})`}
+        files={[{ id: fileId, downloadUrl: "https://cdn.example/clip-2.mp4", contentType: "video/mp4" }]}
+      />,
+    );
+
+    const video = document.querySelector("video");
+    expect(video).not.toBeNull();
+    expect(video).toHaveAttribute("src", "https://cdn.example/clip-2.mp4");
+  });
+});
+
+describe("MarkdownContent images", () => {
+  afterEach(() => {
+    clearWorkspaceMarkdownImageLoadCache();
+  });
+
+  it("hides a workspace image until it loads", () => {
+    const { container } = render(
+      <MarkdownContent content="![Architecture](https://files.example/architecture.png)" variant="workspace" />,
+    );
+    const image = container.querySelector("img");
+
+    expect(image).not.toBeNull();
+    expect(image).toHaveClass("opacity-0");
+
+    fireEvent.load(image!);
+
+    expect(image).not.toHaveClass("opacity-0");
+  });
+
+  it("keeps a failed workspace image hidden and accessible", () => {
+    const { container } = render(
+      <MarkdownContent content="![Architecture](https://files.example/architecture.png)" variant="workspace" />,
+    );
+    const image = container.querySelector("img");
+
+    fireEvent.error(image!);
+
+    expect(image).toHaveClass("opacity-0");
+    expect(image).toHaveAttribute("alt", "Architecture");
+  });
+
+  it("hides a workspace image again only when its source changes", () => {
+    const first = "![Architecture](https://files.example/architecture.png)";
+    const { container, rerender } = render(<MarkdownContent content={first} variant="workspace" />);
+    const image = container.querySelector("img");
+
+    fireEvent.load(image!);
+    rerender(<MarkdownContent content={first} variant="workspace" />);
+
+    expect(container.querySelector("img")).not.toHaveClass("opacity-0");
+
+    rerender(<MarkdownContent content="![Architecture](https://files.example/updated.png)" variant="workspace" />);
+
+    expect(container.querySelector("img")).toHaveClass("opacity-0");
+  });
+
+  it("keeps a loaded workspace image visible after the markdown remounts", () => {
+    const content = "![Architecture](https://files.example/architecture.png)";
+    const { container, rerender } = render(<MarkdownContent key="first" content={content} variant="workspace" />);
+
+    fireEvent.load(container.querySelector("img")!);
+    rerender(<MarkdownContent key="second" content={content} variant="workspace" />);
+
+    expect(container.querySelector("img")).not.toHaveClass("opacity-0");
+  });
+
+  it("keeps default Markdown image behavior", () => {
+    const { container } = render(<MarkdownContent content="![Architecture](https://files.example/architecture.png)" />);
+
+    expect(container.querySelector("img")).not.toHaveClass("opacity-0");
+  });
+});
+
+describe("MarkdownContent GitHub attachments", () => {
+  const attachment = "https://github.com/user-attachments/assets/31436ab5-d9ce-405a-89fc-fba12e03a40f";
+
+  it("plays a GitHub user-attachments autolink as video", () => {
+    render(<MarkdownContent content={attachment} />);
+
+    const video = document.querySelector("video");
+    expect(video).not.toBeNull();
+    expect(video).toHaveAttribute("src", attachment);
+    expect(screen.queryByRole("link", { name: attachment })).not.toBeInTheDocument();
+  });
+
+  it("plays a GitHub attachment image as video when the type is unknown", () => {
+    render(<MarkdownContent content={`![clip](${attachment})`} />);
+
+    const video = document.querySelector("video");
+    expect(video).not.toBeNull();
+    expect(video).toHaveAttribute("src", attachment);
+    expect(video).toHaveAttribute("aria-label", "clip");
+  });
+
+  it("shows an image when the GitHub attachment is not a video", () => {
+    render(<MarkdownContent content={attachment} />);
+
+    fireEvent.error(document.querySelector("video")!);
+
+    expect(document.querySelector("video")).toBeNull();
+    expect(screen.getByRole("img", { name: attachment })).toHaveAttribute("src", attachment);
+  });
+
+  it("keeps a labeled GitHub attachment as a link", () => {
+    render(<MarkdownContent content={`See [Watch clip](${attachment}).`} />);
+
+    expect(document.querySelector("video")).toBeNull();
+    expect(screen.getByRole("link", { name: "Watch clip" })).toHaveAttribute("href", attachment);
+  });
+
+  it("keeps a formatted GitHub attachment label as a link", () => {
+    render(<MarkdownContent content={`See [**Watch clip**](${attachment}).`} />);
+
+    expect(document.querySelector("video")).toBeNull();
+    expect(screen.getByRole("link", { name: "Watch clip" })).toHaveAttribute("href", attachment);
+  });
+
+  it("keeps a repository file under assets as a link", () => {
+    const file = "https://github.com/superplanehq/superplane/blob/main/docs/assets/diagram.png";
+    render(<MarkdownContent content={`See ${file}`} />);
+
+    expect(document.querySelector("video")).toBeNull();
+    expect(screen.getByRole("link", { name: file })).toHaveAttribute("href", file);
+  });
+
+  it("plays a repository attachment autolink as video", () => {
+    const repoAttachment = "https://github.com/acme/app/assets/1/2";
+    render(<MarkdownContent content={repoAttachment} />);
+
+    expect(document.querySelector("video")).toHaveAttribute("src", repoAttachment);
+  });
+
+  it("keeps regular GitHub issue links as links", () => {
+    render(<MarkdownContent content="See https://github.com/superplanehq/superplane/issues/8004" />);
+
+    expect(document.querySelector("video")).toBeNull();
+    expect(screen.getByRole("link", { name: /issues\/8004/ })).toHaveAttribute(
+      "href",
+      "https://github.com/superplanehq/superplane/issues/8004",
+    );
+  });
+});
+
+describe("MarkdownContent hosted videos", () => {
+  it("renders a provider embed from the video id", () => {
+    render(<MarkdownContent content="![Demo](https://www.youtube.com/watch?v=dQw4w9WgXcQ)" />);
+
+    const frame = document.querySelector("iframe");
+    expect(frame).toHaveAttribute("src", "https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ");
+    expect(frame).not.toHaveAttribute("src", "https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+  });
+
+  it("renders a CleanShot card instead of an embed", () => {
+    render(<MarkdownContent content="![Demo](https://cln.sh/abcd1234)" />);
+
+    expect(document.querySelector("iframe")).toBeNull();
+    expect(screen.getByText("CleanShot")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Open video" })).toHaveAttribute("href", "https://cln.sh/abcd1234");
+  });
+
+  it("keeps a plain video link as a link", () => {
+    render(<MarkdownContent content="[Demo](https://www.youtube.com/watch?v=dQw4w9WgXcQ)" />);
+
+    expect(document.querySelector("iframe")).toBeNull();
+    expect(screen.getByRole("link", { name: "Demo" })).toHaveAttribute(
+      "href",
+      "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    );
+  });
+});

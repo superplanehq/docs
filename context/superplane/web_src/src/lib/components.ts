@@ -1,0 +1,292 @@
+/**
+ * Functions for rendering forms with proper labels and placeholders.
+ */
+
+import type { ConfigurationField } from "../api-client";
+import { THINKING_LEVEL_KEY } from "./thinkingLevel";
+
+/**
+ * Validates a cron expression
+ */
+function validateCronExpression(cronExpression: string): string | null {
+  if (!cronExpression || cronExpression.trim() === "") {
+    return "Cron expression cannot be empty";
+  }
+
+  const trimmed = cronExpression.trim();
+
+  // Quick check for obviously invalid expressions to avoid expensive parsing
+  if (trimmed.length < 5) {
+    return "Cron expression too short";
+  }
+
+  const parts = trimmed.split(/\s+/);
+
+  // Cron expressions should have 6 parts (second minute hour day month dayofweek)
+  if (parts.length !== 6 && parts.length !== 5) {
+    return `Expected 5 or 6 fields, got ${parts.length}`;
+  }
+
+  // Quick validation with pre-compiled regex for better performance
+  const validChars = /^[0-9*,\-/A-Z]+$/;
+
+  // Use a more efficient approach - validate only the problematic parts
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i];
+
+    if (!validChars.test(part)) {
+      return "Invalid characters. Use only: numbers, *, ,, -, / and day names";
+    }
+
+    // Skip expensive range checks for wildcards and complex expressions
+    if (part === "*" || part.includes(",") || part.includes("-") || part.includes("/")) {
+      continue;
+    }
+
+    const num = parseInt(part);
+    if (!isNaN(num)) {
+      const fieldIndex = parts.length === 5 ? i + 1 : i;
+
+      // Basic range validation with early exit. Use 6-field positions internally:
+      // second, minute, hour, day, month, dayofweek.
+      switch (fieldIndex) {
+        case 0:
+        case 1:
+          if (num < 0 || num > 59) return "Invalid minute/second value";
+          break;
+        case 2:
+          if (num < 0 || num > 23) return "Invalid hour value";
+          break;
+        case 3:
+          if (num < 1 || num > 31) return "Invalid day value";
+          break;
+        case 4:
+          if (num < 1 || num > 12) return "Invalid month value";
+          break;
+        case 5:
+          if (num < 0 || num > 6) return "Invalid day of week value";
+          break;
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Checks if a field is visible based on its visibility conditions
+ */
+export function isFieldVisible(field: ConfigurationField, allValues: Record<string, unknown>): boolean {
+  if (!field.visibilityConditions || field.visibilityConditions.length === 0) {
+    return true;
+  }
+
+  // All conditions must be satisfied (AND logic)
+  return field.visibilityConditions.every((condition) => {
+    if (!condition.field || !condition.values) {
+      return true;
+    }
+
+    const fieldValue = allValues[condition.field];
+
+    // Convert field value to string for comparison
+    const fieldValueStr = fieldValue !== undefined && fieldValue !== null ? String(fieldValue) : "";
+
+    // Check if the field value matches any of the expected values
+    // Support wildcard "*" to match any non-empty value
+    return condition.values.some((expectedValue) => {
+      if (expectedValue === "*") {
+        // Wildcard matches any non-empty value
+        return fieldValueStr !== "";
+      }
+      return fieldValueStr === expectedValue;
+    });
+  });
+}
+
+/**
+ * Filters a configuration object to only include visible fields based on their visibility conditions.
+ * This ensures that hidden fields are not included in the API payload.
+ *
+ * @param configuration - The full configuration object with all field values
+ * @param fields - The configuration field definitions including visibility conditions
+ * @returns A filtered configuration object containing only visible fields
+ */
+export function filterVisibleConfiguration(
+  configuration: Record<string, unknown>,
+  fields: ConfigurationField[],
+): Record<string, unknown> {
+  const filtered: Record<string, unknown> = {};
+
+  for (const field of fields) {
+    if (!field.name || !isFieldVisible(field, configuration)) {
+      continue;
+    }
+
+    const fieldValue = configuration[field.name];
+    if (fieldValue === undefined) {
+      continue;
+    }
+
+    filtered[field.name] = filterFieldValueByVisibility(field, fieldValue);
+  }
+
+  if (fields.some((field) => field.type === "hosted-model") && configuration[THINKING_LEVEL_KEY] !== undefined) {
+    filtered[THINKING_LEVEL_KEY] = configuration[THINKING_LEVEL_KEY];
+  }
+
+  return filtered;
+}
+
+function filterFieldValueByVisibility(field: ConfigurationField, value: unknown): unknown {
+  const objectSchema = field.typeOptions?.object?.schema;
+  if (field.type === "object" && objectSchema && isRecord(value)) {
+    return filterVisibleConfiguration(value, objectSchema);
+  }
+
+  const listItemSchema = field.typeOptions?.list?.itemDefinition?.schema;
+  if (field.type === "list" && listItemSchema && Array.isArray(value)) {
+    return value.map((item) => (isRecord(item) ? filterVisibleConfiguration(item, listItemSchema) : item));
+  }
+
+  return value;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Checks if a field is required based on its required conditions
+ */
+export function isFieldRequired(field: ConfigurationField, allValues: Record<string, unknown>): boolean {
+  // If field is always required, return true
+  if (field.required) {
+    return true;
+  }
+
+  // If there are no required conditions, field is not required
+  if (!field.requiredConditions || field.requiredConditions.length === 0) {
+    return false;
+  }
+
+  // Check if any required condition is satisfied (OR logic)
+  return field.requiredConditions.some((condition) => {
+    if (!condition.field || !condition.values) {
+      return false;
+    }
+
+    const fieldValue = allValues[condition.field];
+    const fieldValueStr = fieldValue !== undefined && fieldValue !== null ? String(fieldValue) : "";
+
+    // Check if the field value matches any of the expected values
+    return condition.values.some((expectedValue) => {
+      return fieldValueStr === expectedValue;
+    });
+  });
+}
+
+/**
+ * Validates a single field value for form submission (includes type-specific validation)
+ */
+export function validateFieldForSubmission(field: ConfigurationField, value: unknown): string[] {
+  const errors: string[] = [];
+
+  // Add type-specific validation for form submission
+  if (field.type === "cron" && value != null && value !== "") {
+    const cronError = validateCronExpression(String(value));
+    if (cronError) {
+      errors.push(cronError);
+    }
+  }
+
+  // Add min/max validation for number fields
+  if (field.type === "number" && value != null && value !== "") {
+    const numValue = Number(value);
+    if (!isNaN(numValue) && field.typeOptions?.number) {
+      const { min, max } = field.typeOptions.number;
+      if (min !== undefined && numValue < min) {
+        errors.push(`Value must be at least ${min}`);
+      }
+      if (max !== undefined && numValue > max) {
+        errors.push(`Value must not exceed ${max}`);
+      }
+    }
+  }
+
+  return errors;
+}
+
+/**
+ * Parses default values based on field type to match API expectations
+ */
+export function parseDefaultValues(configurationFields: ConfigurationField[]): Record<string, unknown> {
+  const values: Record<string, unknown> = {};
+  for (const field of configurationFields) {
+    if (!field.name || field.defaultValue == null) {
+      continue;
+    }
+    values[field.name] = parseDefaultValue(field.type, field.defaultValue);
+  }
+  return values;
+}
+
+function parseDefaultValue(fieldType: string | undefined, defaultValue: unknown): unknown {
+  if (typeof defaultValue !== "string" || defaultValue === "") {
+    return defaultValue;
+  }
+
+  return parseTypedDefaultValue(fieldType, defaultValue);
+}
+
+function parseTypedDefaultValue(fieldType: string | undefined, defaultValue: string): unknown {
+  switch (fieldType) {
+    case "number":
+      return parseNumericDefault(defaultValue);
+    case "boolean":
+      return defaultValue === "true";
+    case "multi-select":
+    case "days-of-week":
+    case "list":
+    case "any-predicate-list":
+      return parseListDefault(fieldType, defaultValue);
+    case "object":
+      return parseObjectDefault(defaultValue);
+    case "timezone":
+      return parseTimezoneDefault(defaultValue);
+    default:
+      return defaultValue;
+  }
+}
+
+function parseNumericDefault(defaultValue: string): unknown {
+  const num = Number(defaultValue);
+  return isNaN(num) ? defaultValue : num;
+}
+
+function parseListDefault(fieldType: string, defaultValue: string): unknown {
+  try {
+    return JSON.parse(defaultValue);
+  } catch {
+    if (fieldType === "multi-select") {
+      return [defaultValue];
+    }
+    return defaultValue;
+  }
+}
+
+function parseObjectDefault(defaultValue: string): unknown {
+  try {
+    return JSON.parse(defaultValue);
+  } catch {
+    return {};
+  }
+}
+
+function parseTimezoneDefault(defaultValue: string): string {
+  if (defaultValue === "current") {
+    const offset = -new Date().getTimezoneOffset() / 60;
+    return offset.toString();
+  }
+  return defaultValue;
+}

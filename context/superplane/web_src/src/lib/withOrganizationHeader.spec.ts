@@ -1,0 +1,92 @@
+import { describe, it, expect, beforeEach, afterEach } from "bun:test";
+import { withOrganizationHeader } from "@/lib/withOrganizationHeader";
+
+describe("withOrganizationHeader", () => {
+  const setPathname = (pathname: string) => {
+    window.history.pushState({}, "", pathname);
+  };
+
+  beforeEach(() => {
+    setPathname("/");
+  });
+
+  afterEach(() => {
+    setPathname("/");
+  });
+
+  it("adds x-organization-id based on window.location.pathname by default", () => {
+    setPathname("/org-from-url/canvases");
+
+    const options = withOrganizationHeader();
+    expect(options.headers["x-organization-id"]).toBe("org-from-url");
+  });
+
+  it("does not treat the onboarding route as an organization", () => {
+    setPathname("/onboarding");
+
+    const options = withOrganizationHeader();
+    expect(options.headers["x-organization-id"]).toBeUndefined();
+  });
+
+  it("prefers explicit organizationId when window.location is stale", () => {
+    // Regression test: this is the scenario that caused a transient 404 on first navigation.
+    // During router transitions, window.location.pathname can still point at the previous route.
+    setPathname("/old-org-id");
+
+    const options = withOrganizationHeader({ organizationId: "new-org-id" });
+    expect(options.headers["x-organization-id"]).toBe("new-org-id");
+  });
+
+  it("does not leak organizationId into the returned options", () => {
+    setPathname("/old-org-id");
+
+    const options = withOrganizationHeader({ organizationId: "new-org-id" });
+    expect("organizationId" in options).toBe(false);
+    // @ts-expect-error organizationId is stripped from the return type
+    void options.organizationId;
+  });
+
+  it("preserves extra request options for OpenAPI clients", () => {
+    const options = withOrganizationHeader({
+      organizationId: "org-1",
+      path: { id: "factory-1" },
+    });
+
+    expect(options.path).toEqual({ id: "factory-1" });
+    expect("organizationId" in options).toBe(false);
+  });
+
+  it("accepts headers composed from RequestInit", () => {
+    const init: RequestInit = {
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    const options = withOrganizationHeader({
+      organizationId: "org-1",
+      headers: {
+        Accept: "application/json",
+        ...(init.body ? { "Content-Type": "application/json" } : {}),
+        ...init.headers,
+      },
+    });
+
+    expect(options.headers.Accept).toBe("application/json");
+    expect(options.headers["x-organization-id"]).toBe("org-1");
+  });
+
+  it("merges provided headers and preserves them", () => {
+    setPathname("/old-org-id");
+
+    const options = withOrganizationHeader({
+      organizationId: "new-org-id",
+      headers: {
+        "content-type": "application/json",
+      },
+    });
+
+    expect(options.headers["content-type"]).toBe("application/json");
+    expect(options.headers["x-organization-id"]).toBe("new-org-id");
+  });
+});

@@ -1,0 +1,1234 @@
+package actions
+
+import (
+	"encoding/json"
+	"fmt"
+	"slices"
+
+	uuid "github.com/google/uuid"
+	"github.com/superplanehq/superplane/pkg/configuration"
+	"github.com/superplanehq/superplane/pkg/core"
+	grpcerrors "github.com/superplanehq/superplane/pkg/grpc/errors"
+	"github.com/superplanehq/superplane/pkg/models"
+	actionpb "github.com/superplanehq/superplane/pkg/protos/actions"
+	pbAuth "github.com/superplanehq/superplane/pkg/protos/authorization"
+	componentpb "github.com/superplanehq/superplane/pkg/protos/components"
+	configpb "github.com/superplanehq/superplane/pkg/protos/configuration"
+	integrationpb "github.com/superplanehq/superplane/pkg/protos/integrations"
+	organizationpb "github.com/superplanehq/superplane/pkg/protos/organizations"
+	triggerpb "github.com/superplanehq/superplane/pkg/protos/triggers"
+	widgetpb "github.com/superplanehq/superplane/pkg/protos/widgets"
+	"google.golang.org/protobuf/types/known/structpb"
+)
+
+func ValidateUUIDs(ids ...string) error {
+	return ValidateUUIDsArray(ids)
+}
+
+func ValidateUUIDsArray(ids []string) error {
+	for _, id := range ids {
+		_, err := uuid.Parse(id)
+		if err != nil {
+			return grpcerrors.InvalidArgument(nil, fmt.Sprintf("invalid UUID: %s", id))
+		}
+	}
+
+	return nil
+}
+
+func DomainTypeToProto(domainType string) pbAuth.DomainType {
+	switch domainType {
+	case models.DomainTypeOrganization:
+		return pbAuth.DomainType_DOMAIN_TYPE_ORGANIZATION
+	default:
+		return pbAuth.DomainType_DOMAIN_TYPE_UNSPECIFIED
+	}
+}
+
+func numberTypeOptionsToProto(opts *configuration.NumberTypeOptions) *configpb.NumberTypeOptions {
+	if opts == nil {
+		return nil
+	}
+
+	pbOpts := &configpb.NumberTypeOptions{}
+	if opts.Min != nil {
+		min := int32(*opts.Min)
+		pbOpts.Min = &min
+	}
+	if opts.Max != nil {
+		max := int32(*opts.Max)
+		pbOpts.Max = &max
+	}
+	return pbOpts
+}
+
+func stringTypeOptionsToProto(opts *configuration.StringTypeOptions) *configpb.StringTypeOptions {
+	if opts == nil {
+		return nil
+	}
+
+	pbOpts := &configpb.StringTypeOptions{}
+	if opts.MinLength != nil {
+		minLength := int32(*opts.MinLength)
+		pbOpts.MinLength = &minLength
+	}
+	if opts.MaxLength != nil {
+		maxLength := int32(*opts.MaxLength)
+		pbOpts.MaxLength = &maxLength
+	}
+
+	if opts.AllowExpressions != nil {
+		pbOpts.AllowExpressions = opts.AllowExpressions
+	}
+
+	return pbOpts
+}
+
+func expressionTypeOptionsToProto(opts *configuration.ExpressionTypeOptions) *configpb.ExpressionTypeOptions {
+	if opts == nil {
+		return nil
+	}
+
+	pbOpts := &configpb.ExpressionTypeOptions{}
+	if opts.MinLength != nil {
+		minLength := int32(*opts.MinLength)
+		pbOpts.MinLength = &minLength
+	}
+	if opts.MaxLength != nil {
+		maxLength := int32(*opts.MaxLength)
+		pbOpts.MaxLength = &maxLength
+	}
+
+	return pbOpts
+}
+
+func textTypeOptionsToProto(opts *configuration.TextTypeOptions) *configpb.TextTypeOptions {
+	if opts == nil {
+		return nil
+	}
+
+	pbOpts := &configpb.TextTypeOptions{}
+	if opts.MinLength != nil {
+		minLength := int32(*opts.MinLength)
+		pbOpts.MinLength = &minLength
+	}
+	if opts.MaxLength != nil {
+		maxLength := int32(*opts.MaxLength)
+		pbOpts.MaxLength = &maxLength
+	}
+
+	if opts.Language != "" {
+		pbOpts.Language = &opts.Language
+	}
+
+	if opts.AllowExpressions != nil {
+		pbOpts.AllowExpressions = opts.AllowExpressions
+	}
+
+	return pbOpts
+}
+
+func selectTypeOptionsToProto(opts *configuration.SelectTypeOptions) *configpb.SelectTypeOptions {
+	if opts == nil {
+		return nil
+	}
+
+	pbOpts := &configpb.SelectTypeOptions{
+		Options: make([]*configpb.SelectOption, len(opts.Options)),
+	}
+	for i, opt := range opts.Options {
+		pbOpts.Options[i] = &configpb.SelectOption{
+			Label:       opt.Label,
+			Value:       opt.Value,
+			Description: opt.Description,
+		}
+	}
+	return pbOpts
+}
+
+func multiSelectTypeOptionsToProto(opts *configuration.MultiSelectTypeOptions) *configpb.MultiSelectTypeOptions {
+	if opts == nil {
+		return nil
+	}
+
+	pbOpts := &configpb.MultiSelectTypeOptions{
+		Options:       make([]*configpb.SelectOption, len(opts.Options)),
+		UseCheckboxes: opts.UseCheckboxes,
+	}
+	for i, opt := range opts.Options {
+		pbOpts.Options[i] = &configpb.SelectOption{
+			Label:       opt.Label,
+			Value:       opt.Value,
+			Description: opt.Description,
+		}
+	}
+	return pbOpts
+}
+
+func resourceTypeOptionsToProto(opts *configuration.ResourceTypeOptions) *configpb.ResourceTypeOptions {
+	if opts == nil {
+		return nil
+	}
+
+	return &configpb.ResourceTypeOptions{
+		Type:           opts.Type,
+		UseNameAsValue: opts.UseNameAsValue,
+		Multi:          opts.Multi,
+		Parameters:     parameterRefsToProto(opts.Parameters),
+	}
+}
+
+func appCanvasNodeTypeOptionsToProto(opts *configuration.AppCanvasNodeTypeOptions) *configpb.AppCanvasNodeTypeOptions {
+	if opts == nil {
+		return nil
+	}
+
+	return &configpb.AppCanvasNodeTypeOptions{
+		NodeTypes:      opts.NodeTypes,
+		ComponentTypes: opts.ComponentTypes,
+		Parameters:     parameterRefsToProto(opts.Parameters),
+	}
+}
+
+func appTypeOptionsToProto(opts *configuration.AppTypeOptions) *configpb.AppTypeOptions {
+	if opts == nil {
+		return nil
+	}
+
+	return &configpb.AppTypeOptions{
+		AllowSelf: opts.AllowSelf,
+	}
+}
+
+func integrationTypeOptionsToProto(opts *configuration.IntegrationTypeOptions) *configpb.IntegrationTypeOptions {
+	if opts == nil {
+		return nil
+	}
+
+	return &configpb.IntegrationTypeOptions{
+		Integration: opts.Integration,
+	}
+}
+
+func listTypeOptionsToProto(opts *configuration.ListTypeOptions) *configpb.ListTypeOptions {
+	if opts == nil || opts.ItemDefinition == nil {
+		return nil
+	}
+
+	pbOpts := &configpb.ListTypeOptions{
+		ItemLabel: opts.ItemLabel,
+		ItemDefinition: &configpb.ListItemDefinition{
+			Type: opts.ItemDefinition.Type,
+		},
+	}
+
+	if opts.Accordion {
+		accordion := true
+		pbOpts.Accordion = &accordion
+	}
+
+	if opts.Reorderable {
+		reorderable := true
+		pbOpts.Reorderable = &reorderable
+	}
+
+	if opts.MaxItems != nil {
+		maxItems := int32(*opts.MaxItems)
+		pbOpts.MaxItems = &maxItems
+	}
+
+	if len(opts.ItemDefinition.Schema) > 0 {
+		pbOpts.ItemDefinition.Schema = make([]*configpb.Field, len(opts.ItemDefinition.Schema))
+		for i, schemaField := range opts.ItemDefinition.Schema {
+			pbOpts.ItemDefinition.Schema[i] = ConfigurationFieldToProto(schemaField)
+		}
+	}
+
+	return pbOpts
+}
+
+func objectTypeOptionsToProto(opts *configuration.ObjectTypeOptions) *configpb.ObjectTypeOptions {
+	if opts == nil || len(opts.Schema) == 0 {
+		return nil
+	}
+
+	pbOpts := &configpb.ObjectTypeOptions{
+		Schema: make([]*configpb.Field, len(opts.Schema)),
+	}
+	for i, schemaField := range opts.Schema {
+		pbOpts.Schema[i] = ConfigurationFieldToProto(schemaField)
+	}
+
+	return pbOpts
+}
+
+func timeTypeOptionsToProto(opts *configuration.TimeTypeOptions) *configpb.TimeTypeOptions {
+	if opts == nil {
+		return nil
+	}
+
+	pbOpts := &configpb.TimeTypeOptions{}
+	if opts.Format != "" {
+		pbOpts.Format = &opts.Format
+	}
+	return pbOpts
+}
+
+func dateTypeOptionsToProto(opts *configuration.DateTypeOptions) *configpb.DateTypeOptions {
+	if opts == nil {
+		return nil
+	}
+
+	pbOpts := &configpb.DateTypeOptions{}
+	if opts.Format != "" {
+		pbOpts.Format = &opts.Format
+	}
+	return pbOpts
+}
+
+func dateTimeTypeOptionsToProto(opts *configuration.DateTimeTypeOptions) *configpb.DateTimeTypeOptions {
+	if opts == nil {
+		return nil
+	}
+
+	pbOpts := &configpb.DateTimeTypeOptions{}
+	if opts.Format != "" {
+		pbOpts.Format = &opts.Format
+	}
+	return pbOpts
+}
+
+func anyPredicateListTypeOptionsToProto(opts *configuration.AnyPredicateListTypeOptions) *configpb.AnyPredicateListTypeOptions {
+	if opts == nil {
+		return nil
+	}
+
+	pbOpts := &configpb.AnyPredicateListTypeOptions{
+		Operators: make([]*configpb.SelectOption, len(opts.Operators)),
+	}
+	for i, opt := range opts.Operators {
+		pbOpts.Operators[i] = &configpb.SelectOption{
+			Label:       opt.Label,
+			Value:       opt.Value,
+			Description: opt.Description,
+		}
+	}
+	return pbOpts
+}
+
+func typeOptionsToProto(opts *configuration.TypeOptions) *configpb.TypeOptions {
+	if opts == nil {
+		return nil
+	}
+
+	return &configpb.TypeOptions{
+		Number:           numberTypeOptionsToProto(opts.Number),
+		String_:          stringTypeOptionsToProto(opts.String),
+		Expression:       expressionTypeOptionsToProto(opts.Expression),
+		Text:             textTypeOptionsToProto(opts.Text),
+		Select:           selectTypeOptionsToProto(opts.Select),
+		MultiSelect:      multiSelectTypeOptionsToProto(opts.MultiSelect),
+		Resource:         resourceTypeOptionsToProto(opts.Resource),
+		List:             listTypeOptionsToProto(opts.List),
+		AnyPredicateList: anyPredicateListTypeOptionsToProto(opts.AnyPredicateList),
+		Object:           objectTypeOptionsToProto(opts.Object),
+		Time:             timeTypeOptionsToProto(opts.Time),
+		Date:             dateTypeOptionsToProto(opts.Date),
+		Datetime:         dateTimeTypeOptionsToProto(opts.DateTime),
+		AppCanvasNode:    appCanvasNodeTypeOptionsToProto(opts.AppCanvasNode),
+		App:              appTypeOptionsToProto(opts.App),
+		Integration:      integrationTypeOptionsToProto(opts.Integration),
+		HostedModel:      hostedModelTypeOptionsToProto(opts.HostedModel),
+	}
+}
+
+func hostedModelTypeOptionsToProto(opts *configuration.HostedModelTypeOptions) *configpb.HostedModelTypeOptions {
+	if opts == nil {
+		return nil
+	}
+	return &configpb.HostedModelTypeOptions{Provider: opts.Provider}
+}
+
+func ConfigurationFieldToProto(field configuration.Field) *configpb.Field {
+	pbField := &configpb.Field{
+		Name:        field.Name,
+		Label:       field.Label,
+		Type:        field.Type,
+		Description: field.Description,
+		Required:    field.Required,
+		Sensitive:   &field.Sensitive,
+		Togglable:   &field.Togglable,
+		TypeOptions: typeOptionsToProto(field.TypeOptions),
+	}
+
+	if field.Default != nil {
+		pbField.DefaultValue = defaultValueToProto(field.Default)
+	}
+
+	if field.Placeholder != "" {
+		pbField.Placeholder = &field.Placeholder
+	}
+
+	if len(field.VisibilityConditions) > 0 {
+		pbField.VisibilityConditions = make([]*configpb.VisibilityCondition, len(field.VisibilityConditions))
+		for i, cond := range field.VisibilityConditions {
+			pbField.VisibilityConditions[i] = &configpb.VisibilityCondition{
+				Field:  cond.Field,
+				Values: cond.Values,
+			}
+		}
+	}
+
+	if len(field.RequiredConditions) > 0 {
+		pbField.RequiredConditions = make([]*configpb.RequiredCondition, len(field.RequiredConditions))
+		for i, cond := range field.RequiredConditions {
+			pbField.RequiredConditions[i] = &configpb.RequiredCondition{
+				Field:  cond.Field,
+				Values: cond.Values,
+			}
+		}
+	}
+
+	return pbField
+}
+
+func protoToNumberTypeOptions(pbOpts *configpb.NumberTypeOptions) *configuration.NumberTypeOptions {
+	if pbOpts == nil {
+		return nil
+	}
+
+	opts := &configuration.NumberTypeOptions{}
+	if pbOpts.Min != nil {
+		min := int(*pbOpts.Min)
+		opts.Min = &min
+	}
+	if pbOpts.Max != nil {
+		max := int(*pbOpts.Max)
+		opts.Max = &max
+	}
+	return opts
+}
+
+func protoToStringTypeOptions(pbOpts *configpb.StringTypeOptions) *configuration.StringTypeOptions {
+	if pbOpts == nil {
+		return nil
+	}
+
+	opts := &configuration.StringTypeOptions{}
+	if pbOpts.MinLength != nil {
+		minLength := int(*pbOpts.MinLength)
+		opts.MinLength = &minLength
+	}
+	if pbOpts.MaxLength != nil {
+		maxLength := int(*pbOpts.MaxLength)
+		opts.MaxLength = &maxLength
+	}
+
+	if pbOpts.AllowExpressions != nil {
+		opts.AllowExpressions = pbOpts.AllowExpressions
+	}
+
+	return opts
+}
+
+func protoToExpressionTypeOptions(pbOpts *configpb.ExpressionTypeOptions) *configuration.ExpressionTypeOptions {
+	if pbOpts == nil {
+		return nil
+	}
+
+	opts := &configuration.ExpressionTypeOptions{}
+	if pbOpts.MinLength != nil {
+		minLength := int(*pbOpts.MinLength)
+		opts.MinLength = &minLength
+	}
+	if pbOpts.MaxLength != nil {
+		maxLength := int(*pbOpts.MaxLength)
+		opts.MaxLength = &maxLength
+	}
+	return opts
+}
+
+func protoToTextTypeOptions(pbOpts *configpb.TextTypeOptions) *configuration.TextTypeOptions {
+	if pbOpts == nil {
+		return nil
+	}
+
+	opts := &configuration.TextTypeOptions{}
+	if pbOpts.MinLength != nil {
+		minLength := int(*pbOpts.MinLength)
+		opts.MinLength = &minLength
+	}
+	if pbOpts.MaxLength != nil {
+		maxLength := int(*pbOpts.MaxLength)
+		opts.MaxLength = &maxLength
+	}
+
+	if pbOpts.Language != nil {
+		opts.Language = *pbOpts.Language
+	}
+
+	if pbOpts.AllowExpressions != nil {
+		opts.AllowExpressions = pbOpts.AllowExpressions
+	}
+
+	return opts
+}
+
+func protoToSelectTypeOptions(pbOpts *configpb.SelectTypeOptions) *configuration.SelectTypeOptions {
+	if pbOpts == nil {
+		return nil
+	}
+
+	opts := &configuration.SelectTypeOptions{
+		Options: make([]configuration.FieldOption, len(pbOpts.Options)),
+	}
+	for i, pbOpt := range pbOpts.Options {
+		opts.Options[i] = configuration.FieldOption{
+			Label:       pbOpt.Label,
+			Value:       pbOpt.Value,
+			Description: pbOpt.Description,
+		}
+	}
+	return opts
+}
+
+func protoToMultiSelectTypeOptions(pbOpts *configpb.MultiSelectTypeOptions) *configuration.MultiSelectTypeOptions {
+	if pbOpts == nil {
+		return nil
+	}
+
+	opts := &configuration.MultiSelectTypeOptions{
+		Options:       make([]configuration.FieldOption, len(pbOpts.Options)),
+		UseCheckboxes: pbOpts.UseCheckboxes,
+	}
+	for i, pbOpt := range pbOpts.Options {
+		opts.Options[i] = configuration.FieldOption{
+			Label:       pbOpt.Label,
+			Value:       pbOpt.Value,
+			Description: pbOpt.Description,
+		}
+	}
+	return opts
+}
+
+func protoToResourceTypeOptions(pbOpts *configpb.ResourceTypeOptions) *configuration.ResourceTypeOptions {
+	if pbOpts == nil {
+		return nil
+	}
+
+	return &configuration.ResourceTypeOptions{
+		Type:           pbOpts.Type,
+		UseNameAsValue: pbOpts.UseNameAsValue,
+		Multi:          pbOpts.Multi,
+		Parameters:     protoToParameterRefs(pbOpts.Parameters),
+	}
+}
+
+func protoToAppCanvasNodeTypeOptions(pbOpts *configpb.AppCanvasNodeTypeOptions) *configuration.AppCanvasNodeTypeOptions {
+	if pbOpts == nil {
+		return nil
+	}
+
+	return &configuration.AppCanvasNodeTypeOptions{
+		NodeTypes:      pbOpts.NodeTypes,
+		ComponentTypes: pbOpts.ComponentTypes,
+		Parameters:     protoToParameterRefs(pbOpts.Parameters),
+	}
+}
+
+func protoToAppTypeOptions(pbOpts *configpb.AppTypeOptions) *configuration.AppTypeOptions {
+	if pbOpts == nil {
+		return nil
+	}
+
+	return &configuration.AppTypeOptions{
+		AllowSelf: pbOpts.AllowSelf,
+	}
+}
+
+func protoToIntegrationTypeOptions(pbOpts *configpb.IntegrationTypeOptions) *configuration.IntegrationTypeOptions {
+	if pbOpts == nil {
+		return nil
+	}
+
+	return &configuration.IntegrationTypeOptions{
+		Integration: pbOpts.Integration,
+	}
+}
+
+func parameterRefsToProto(params []configuration.ParameterRef) []*configpb.ParameterRef {
+	if len(params) == 0 {
+		return nil
+	}
+
+	out := make([]*configpb.ParameterRef, 0, len(params))
+	for _, param := range params {
+		pbParam := &configpb.ParameterRef{
+			Name: param.Name,
+		}
+		if param.Value != nil {
+			pbParam.Value = *param.Value
+		}
+		if param.ValueFrom != nil {
+			pbParam.ValueFrom = &configpb.ParameterValueFrom{
+				Field: param.ValueFrom.Field,
+			}
+		}
+		out = append(out, pbParam)
+	}
+	return out
+}
+
+func protoToParameterRefs(params []*configpb.ParameterRef) []configuration.ParameterRef {
+	if len(params) == 0 {
+		return nil
+	}
+
+	out := make([]configuration.ParameterRef, 0, len(params))
+	for _, param := range params {
+		if param == nil {
+			continue
+		}
+		ref := configuration.ParameterRef{
+			Name: param.Name,
+		}
+		if param.Value != "" {
+			value := param.Value
+			ref.Value = &value
+		}
+		if param.ValueFrom != nil {
+			ref.ValueFrom = &configuration.ParameterValueFrom{
+				Field: param.ValueFrom.Field,
+			}
+		}
+		out = append(out, ref)
+	}
+	return out
+}
+
+func protoToListTypeOptions(pbOpts *configpb.ListTypeOptions) *configuration.ListTypeOptions {
+	if pbOpts == nil || pbOpts.ItemDefinition == nil {
+		return nil
+	}
+
+	opts := &configuration.ListTypeOptions{
+		ItemLabel:   pbOpts.GetItemLabel(),
+		Accordion:   pbOpts.GetAccordion(),
+		Reorderable: pbOpts.GetReorderable(),
+		ItemDefinition: &configuration.ListItemDefinition{
+			Type: pbOpts.ItemDefinition.Type,
+		},
+	}
+
+	if pbOpts.MaxItems != nil {
+		maxItems := int(*pbOpts.MaxItems)
+		opts.MaxItems = &maxItems
+	}
+
+	if len(pbOpts.ItemDefinition.Schema) > 0 {
+		opts.ItemDefinition.Schema = make([]configuration.Field, len(pbOpts.ItemDefinition.Schema))
+		for i, pbSchemaField := range pbOpts.ItemDefinition.Schema {
+			opts.ItemDefinition.Schema[i] = ProtoToConfigurationField(pbSchemaField)
+		}
+	}
+
+	return opts
+}
+
+func protoToObjectTypeOptions(pbOpts *configpb.ObjectTypeOptions) *configuration.ObjectTypeOptions {
+	if pbOpts == nil || len(pbOpts.Schema) == 0 {
+		return nil
+	}
+
+	opts := &configuration.ObjectTypeOptions{
+		Schema: make([]configuration.Field, len(pbOpts.Schema)),
+	}
+	for i, pbSchemaField := range pbOpts.Schema {
+		opts.Schema[i] = ProtoToConfigurationField(pbSchemaField)
+	}
+
+	return opts
+}
+
+func protoToTimeTypeOptions(pbOpts *configpb.TimeTypeOptions) *configuration.TimeTypeOptions {
+	if pbOpts == nil {
+		return nil
+	}
+
+	opts := &configuration.TimeTypeOptions{}
+	if pbOpts.Format != nil {
+		opts.Format = *pbOpts.Format
+	}
+	return opts
+}
+
+func protoToDateTypeOptions(pbOpts *configpb.DateTypeOptions) *configuration.DateTypeOptions {
+	if pbOpts == nil {
+		return nil
+	}
+
+	opts := &configuration.DateTypeOptions{}
+	if pbOpts.Format != nil {
+		opts.Format = *pbOpts.Format
+	}
+	return opts
+}
+
+func protoToDateTimeTypeOptions(pbOpts *configpb.DateTimeTypeOptions) *configuration.DateTimeTypeOptions {
+	if pbOpts == nil {
+		return nil
+	}
+
+	opts := &configuration.DateTimeTypeOptions{}
+	if pbOpts.Format != nil {
+		opts.Format = *pbOpts.Format
+	}
+	return opts
+}
+
+func protoToAnyPredicateListTypeOptions(pbOpts *configpb.AnyPredicateListTypeOptions) *configuration.AnyPredicateListTypeOptions {
+	if pbOpts == nil {
+		return nil
+	}
+
+	opts := &configuration.AnyPredicateListTypeOptions{
+		Operators: make([]configuration.FieldOption, len(pbOpts.Operators)),
+	}
+	for i, pbOpt := range pbOpts.Operators {
+		opts.Operators[i] = configuration.FieldOption{
+			Label:       pbOpt.Label,
+			Value:       pbOpt.Value,
+			Description: pbOpt.Description,
+		}
+	}
+	return opts
+}
+
+func protoToTypeOptions(pbOpts *configpb.TypeOptions) *configuration.TypeOptions {
+	if pbOpts == nil {
+		return nil
+	}
+
+	return &configuration.TypeOptions{
+		Number:           protoToNumberTypeOptions(pbOpts.Number),
+		String:           protoToStringTypeOptions(pbOpts.String_),
+		Expression:       protoToExpressionTypeOptions(pbOpts.Expression),
+		Text:             protoToTextTypeOptions(pbOpts.Text),
+		Select:           protoToSelectTypeOptions(pbOpts.Select),
+		MultiSelect:      protoToMultiSelectTypeOptions(pbOpts.MultiSelect),
+		Resource:         protoToResourceTypeOptions(pbOpts.Resource),
+		List:             protoToListTypeOptions(pbOpts.List),
+		AnyPredicateList: protoToAnyPredicateListTypeOptions(pbOpts.AnyPredicateList),
+		Object:           protoToObjectTypeOptions(pbOpts.Object),
+		Time:             protoToTimeTypeOptions(pbOpts.Time),
+		Date:             protoToDateTypeOptions(pbOpts.Date),
+		DateTime:         protoToDateTimeTypeOptions(pbOpts.Datetime),
+		AppCanvasNode:    protoToAppCanvasNodeTypeOptions(pbOpts.AppCanvasNode),
+		App:              protoToAppTypeOptions(pbOpts.App),
+		Integration:      protoToIntegrationTypeOptions(pbOpts.Integration),
+	}
+}
+
+func ProtoToConfigurationField(pbField *configpb.Field) configuration.Field {
+	field := configuration.Field{
+		Name:        pbField.Name,
+		Label:       pbField.Label,
+		Type:        pbField.Type,
+		Description: pbField.Description,
+		Required:    pbField.Required,
+		TypeOptions: protoToTypeOptions(pbField.TypeOptions),
+	}
+
+	if pbField.DefaultValue != nil {
+		field.Default = defaultValueFromProto(pbField.Type, *pbField.DefaultValue)
+	}
+
+	if pbField.Placeholder != nil {
+		field.Placeholder = *pbField.Placeholder
+	}
+
+	if pbField.Sensitive != nil {
+		field.Sensitive = *pbField.Sensitive
+	}
+
+	if pbField.Togglable != nil {
+		field.Togglable = *pbField.Togglable
+	}
+
+	if len(pbField.VisibilityConditions) > 0 {
+		field.VisibilityConditions = make([]configuration.VisibilityCondition, len(pbField.VisibilityConditions))
+		for i, pbCond := range pbField.VisibilityConditions {
+			field.VisibilityConditions[i] = configuration.VisibilityCondition{
+				Field:  pbCond.Field,
+				Values: pbCond.Values,
+			}
+		}
+	}
+
+	if len(pbField.RequiredConditions) > 0 {
+		field.RequiredConditions = make([]configuration.RequiredCondition, len(pbField.RequiredConditions))
+		for i, pbCond := range pbField.RequiredConditions {
+			field.RequiredConditions[i] = configuration.RequiredCondition{
+				Field:  pbCond.Field,
+				Values: pbCond.Values,
+			}
+		}
+	}
+
+	return field
+}
+
+func ProtoToNodes(nodes []*componentpb.Node) []models.Node {
+	result := make([]models.Node, len(nodes))
+	for i, node := range nodes {
+		var integrationID *string
+		if node.Integration != nil && node.Integration.Id != nil {
+			integrationID = node.Integration.Id
+		}
+
+		var errorMessage *string
+		if node.ErrorMessage != nil {
+			errorMessage = node.ErrorMessage
+		}
+
+		var warningMessage *string
+		if node.WarningMessage != nil {
+			warningMessage = node.WarningMessage
+		}
+
+		nodeType, nodeRef := ComponentToNodeTypeAndRef(node.Type, node.Component)
+
+		//
+		// NOTE: we do not include metadata in here,
+		// to avoid allowing requests to override node metadata.
+		// Metadata is something only triggers/components implementations can set.
+		//
+		result[i] = models.Node{
+			ID:             node.Id,
+			Name:           node.Name,
+			Type:           nodeType,
+			Ref:            *nodeRef,
+			Configuration:  node.Configuration.AsMap(),
+			Position:       ProtoToPosition(node.Position),
+			IsCollapsed:    node.IsCollapsed,
+			Concurrency:    ProtoToConcurrencySpec(node.Concurrency),
+			IntegrationID:  integrationID,
+			ErrorMessage:   errorMessage,
+			WarningMessage: warningMessage,
+		}
+	}
+
+	return result
+}
+
+func ProtoToConcurrencySpec(spec *componentpb.ConcurrencySpec) *models.ConcurrencySpec {
+	if spec == nil {
+		return nil
+	}
+
+	result := &models.ConcurrencySpec{
+		Key: spec.GetKey(),
+	}
+
+	if spec.Max != nil {
+		max := int(*spec.Max)
+		result.Max = &max
+	}
+
+	return result
+}
+
+func ConcurrencySpecToProto(spec *models.ConcurrencySpec) *componentpb.ConcurrencySpec {
+	if spec == nil {
+		return nil
+	}
+
+	result := &componentpb.ConcurrencySpec{}
+	if spec.Key != "" {
+		result.Key = &spec.Key
+	}
+
+	if spec.Max != nil {
+		max := int32(*spec.Max)
+		result.Max = &max
+	}
+
+	return result
+}
+
+func ComponentToNodeTypeAndRef(nodeType componentpb.Node_Type, component string) (string, *models.NodeRef) {
+	switch nodeType {
+	case componentpb.Node_TYPE_ACTION:
+		return models.NodeTypeComponent, &models.NodeRef{
+			Component: &models.ComponentRef{
+				Name: component,
+			},
+		}
+	case componentpb.Node_TYPE_TRIGGER:
+		return models.NodeTypeTrigger, &models.NodeRef{
+			Trigger: &models.TriggerRef{
+				Name: component,
+			},
+		}
+	case componentpb.Node_TYPE_WIDGET:
+		return models.NodeTypeWidget, &models.NodeRef{
+			Widget: &models.WidgetRef{
+				Name: component,
+			},
+		}
+	default:
+		return models.NodeTypeComponent, &models.NodeRef{}
+	}
+}
+
+func NodesToProto(nodes []models.Node) []*componentpb.Node {
+	result := make([]*componentpb.Node, len(nodes))
+	for i, node := range nodes {
+		result[i] = &componentpb.Node{
+			Id:          node.ID,
+			Name:        node.Name,
+			Type:        NodeTypeToProto(node.Type),
+			Position:    PositionToProto(node.Position),
+			IsCollapsed: node.IsCollapsed,
+			Concurrency: ConcurrencySpecToProto(node.Concurrency),
+		}
+
+		if node.Ref.Component != nil {
+			result[i].Component = node.Ref.Component.Name
+		}
+
+		if node.Ref.Trigger != nil {
+			result[i].Component = node.Ref.Trigger.Name
+		}
+
+		if node.Ref.Widget != nil {
+			result[i].Component = node.Ref.Widget.Name
+		}
+
+		if node.Configuration != nil {
+			result[i].Configuration, _ = structpb.NewStruct(node.Configuration)
+		}
+
+		if node.Metadata != nil {
+			result[i].Metadata, _ = structpb.NewStruct(node.Metadata)
+		}
+
+		if node.IntegrationID != nil && *node.IntegrationID != "" {
+			result[i].Integration = &componentpb.IntegrationRef{
+				Id: node.IntegrationID,
+			}
+		}
+
+		if node.ErrorMessage != nil && *node.ErrorMessage != "" {
+			result[i].ErrorMessage = node.ErrorMessage
+		}
+
+		if node.WarningMessage != nil && *node.WarningMessage != "" {
+			result[i].WarningMessage = node.WarningMessage
+		}
+	}
+
+	return result
+}
+
+func NodeTypeToProto(nodeType string) componentpb.Node_Type {
+	switch nodeType {
+	case models.NodeTypeTrigger:
+		return componentpb.Node_TYPE_TRIGGER
+	case models.NodeTypeWidget:
+		return componentpb.Node_TYPE_WIDGET
+	case models.NodeTypeComponent:
+		return componentpb.Node_TYPE_ACTION
+	default:
+		return componentpb.Node_TYPE_ACTION
+	}
+}
+
+func ProtoToEdges(edges []*componentpb.Edge) []models.Edge {
+	result := make([]models.Edge, len(edges))
+	for i, edge := range edges {
+		result[i] = models.Edge{
+			SourceID: edge.SourceId,
+			TargetID: edge.TargetId,
+			Channel:  edge.Channel,
+		}
+	}
+	return result
+}
+
+func EdgesToProto(edges []models.Edge) []*componentpb.Edge {
+	result := make([]*componentpb.Edge, len(edges))
+	for i, edge := range edges {
+		result[i] = &componentpb.Edge{
+			SourceId: edge.SourceID,
+			TargetId: edge.TargetID,
+			Channel:  edge.Channel,
+		}
+	}
+	return result
+}
+
+func PositionToProto(position models.Position) *componentpb.Position {
+	return &componentpb.Position{
+		X: int32(position.X),
+		Y: int32(position.Y),
+	}
+}
+
+func ProtoToPosition(position *componentpb.Position) models.Position {
+	if position == nil {
+		return models.Position{X: 0, Y: 0}
+	}
+	return models.Position{
+		X: int(position.X),
+		Y: int(position.Y),
+	}
+}
+
+func defaultValueToProto(value any) *string {
+	// We are converting the "default value" of a configuration
+	// field to its protobuf representation.
+
+	// The field can have different types, and the default value
+	// can be a simple scalar (string, number, boolean) or a complex
+	// structure (list, object).
+
+	// For simple scalar types, we can directly convert the default
+	// value to a string and return it.
+
+	if str, ok := value.(string); ok {
+		return &str
+	}
+
+	// For complex types, we need to serialize the default value
+	// to JSON so that we can reconstruct the original structure
+	// when deserializing.
+
+	defaultBytes, err := json.Marshal(value)
+	if err == nil {
+		str := string(defaultBytes)
+		return &str
+	}
+
+	// This should never happen, as we should be able to
+	// marshal any value to JSON. Panic in this case.
+	panic("unable to marshal default value to JSON")
+}
+
+func defaultValueFromProto(fieldType, defaultValue string) any {
+	switch fieldType {
+	case configuration.FieldTypeString:
+		fallthrough
+	case configuration.FieldTypeExpression:
+		fallthrough
+	case configuration.FieldTypeText:
+		fallthrough
+	case configuration.FieldTypeGitRef:
+		fallthrough
+	case configuration.FieldTypeSelect:
+		fallthrough
+	case configuration.FieldTypeIntegrationResource:
+		fallthrough
+	case configuration.FieldTypeTime:
+		fallthrough
+	case configuration.FieldTypeDate:
+		fallthrough
+	case configuration.FieldTypeDateTime:
+		fallthrough
+	case configuration.FieldTypeDayInYear:
+		fallthrough
+	case configuration.FieldTypeUser:
+		fallthrough
+	case configuration.FieldTypeRole:
+		fallthrough
+	case configuration.FieldTypeGroup:
+		// String-like types: preserve the raw string.
+		return defaultValue
+
+	case configuration.FieldTypeMultiSelect:
+		fallthrough
+	case configuration.FieldTypeList:
+		fallthrough
+	case configuration.FieldTypeAnyPredicateList:
+		fallthrough
+	case configuration.FieldTypeObject:
+		// Complex/collection types: decode JSON into structured values.
+		var v any
+		if err := json.Unmarshal([]byte(defaultValue), &v); err == nil {
+			return v
+		}
+		return defaultValue
+
+	case configuration.FieldTypeBool:
+		// Boolean: decode JSON into a bool, fall back to raw string.
+		var v bool
+		if err := json.Unmarshal([]byte(defaultValue), &v); err == nil {
+			return v
+		}
+		return defaultValue
+
+	case configuration.FieldTypeNumber:
+		// Number: decode JSON into a float64, fall back to raw string.
+		var v float64
+		if err := json.Unmarshal([]byte(defaultValue), &v); err == nil {
+			return v
+		}
+		return defaultValue
+
+	default:
+		return defaultValue
+	}
+}
+
+func SerializeTriggers(in []core.Trigger) []*triggerpb.Trigger {
+	out := make([]*triggerpb.Trigger, len(in))
+	for i, trigger := range in {
+		configFields := trigger.Configuration()
+		configFields = AppendGlobalTriggerFields(trigger.Name(), configFields)
+		configuration := make([]*configpb.Field, len(configFields))
+		for j, field := range configFields {
+			configuration[j] = ConfigurationFieldToProto(field)
+		}
+		exampleData, _ := structpb.NewStruct(trigger.ExampleData())
+
+		out[i] = &triggerpb.Trigger{
+			Name:          trigger.Name(),
+			Label:         trigger.Label(),
+			Description:   trigger.Description(),
+			Icon:          trigger.Icon(),
+			Color:         trigger.Color(),
+			Configuration: configuration,
+			ExampleData:   exampleData,
+		}
+	}
+	return out
+}
+
+func AppendGlobalTriggerFields(triggerName string, fields []configuration.Field) []configuration.Field {
+	if slices.ContainsFunc(fields, func(field configuration.Field) bool {
+		return field.Name == "customName"
+	}) {
+		return fields
+	}
+
+	runTitleField := configuration.Field{
+		Name:        "customName",
+		Label:       "Run title",
+		Type:        configuration.FieldTypeString,
+		Togglable:   true,
+		Description: "Give each run a dynamic title using expressions. Use root().data to access the trigger payload.",
+		Placeholder: "{{ root().data.foo }}",
+	}
+
+	if defaultTitle := defaultRunTitleExpression(triggerName); defaultTitle != "" {
+		runTitleField.Default = defaultTitle
+	}
+
+	fields = append(fields, runTitleField)
+
+	return fields
+}
+
+func SerializeWidgets(in []core.Widget) []*widgetpb.Widget {
+	out := make([]*widgetpb.Widget, len(in))
+	for i, widget := range in {
+		configFields := widget.Configuration()
+		configuration := make([]*configpb.Field, len(configFields))
+		for j, field := range configFields {
+			configuration[j] = ConfigurationFieldToProto(field)
+		}
+
+		out[i] = &widgetpb.Widget{
+			Name:          widget.Name(),
+			Label:         widget.Label(),
+			Description:   widget.Description(),
+			Icon:          widget.Icon(),
+			Color:         widget.Color(),
+			Configuration: configuration,
+		}
+	}
+	return out
+}
+
+func SerializeActions(in []core.Action) []*actionpb.Action {
+	out := make([]*actionpb.Action, len(in))
+	for i, action := range in {
+		outputChannels := action.OutputChannels(nil)
+		channels := make([]*actionpb.OutputChannel, len(outputChannels))
+		for j, channel := range outputChannels {
+			channels[j] = &actionpb.OutputChannel{
+				Name: channel.Name,
+			}
+		}
+
+		configFields := action.Configuration()
+		configuration := make([]*configpb.Field, len(configFields))
+		for j, field := range configFields {
+			configuration[j] = ConfigurationFieldToProto(field)
+		}
+		exampleOutput, _ := structpb.NewStruct(action.ExampleOutput())
+
+		out[i] = &actionpb.Action{
+			Name:           action.Name(),
+			Label:          action.Label(),
+			Description:    action.Description(),
+			Icon:           action.Icon(),
+			Color:          action.Color(),
+			OutputChannels: channels,
+			Configuration:  configuration,
+			ExampleOutput:  exampleOutput,
+		}
+	}
+	return out
+}
+
+func CapabilityTypeToProto(t string) integrationpb.CapabilityDefinition_Type {
+	switch t {
+	case string(core.IntegrationCapabilityTypeAction):
+		return integrationpb.CapabilityDefinition_TYPE_ACTION
+	case string(core.IntegrationCapabilityTypeTrigger):
+		return integrationpb.CapabilityDefinition_TYPE_TRIGGER
+	}
+	return integrationpb.CapabilityDefinition_TYPE_UNKNOWN
+}
+
+func ProtoToCapabilityType(t integrationpb.CapabilityDefinition_Type) string {
+	switch t {
+	case integrationpb.CapabilityDefinition_TYPE_ACTION:
+		return string(core.IntegrationCapabilityTypeAction)
+	case integrationpb.CapabilityDefinition_TYPE_TRIGGER:
+		return string(core.IntegrationCapabilityTypeTrigger)
+	}
+
+	return ""
+}
+
+func CapabilityStateToProto(t string) organizationpb.Integration_CapabilityState_State {
+	switch t {
+	case string(core.IntegrationCapabilityStateRequested):
+		return organizationpb.Integration_CapabilityState_STATE_REQUESTED
+	case string(core.IntegrationCapabilityStateEnabled):
+		return organizationpb.Integration_CapabilityState_STATE_ENABLED
+	case string(core.IntegrationCapabilityStateDisabled):
+		return organizationpb.Integration_CapabilityState_STATE_DISABLED
+	case string(core.IntegrationCapabilityStateAvailable):
+		return organizationpb.Integration_CapabilityState_STATE_AVAILABLE
+	}
+	return organizationpb.Integration_CapabilityState_STATE_UNAVAILABLE
+}
+
+func ProtoToCapabilityState(t organizationpb.Integration_CapabilityState_State) string {
+	switch t {
+	case organizationpb.Integration_CapabilityState_STATE_AVAILABLE:
+		return string(core.IntegrationCapabilityStateAvailable)
+	case organizationpb.Integration_CapabilityState_STATE_UNAVAILABLE:
+		return string(core.IntegrationCapabilityStateUnavailable)
+	case organizationpb.Integration_CapabilityState_STATE_REQUESTED:
+		return string(core.IntegrationCapabilityStateRequested)
+	case organizationpb.Integration_CapabilityState_STATE_ENABLED:
+		return string(core.IntegrationCapabilityStateEnabled)
+	case organizationpb.Integration_CapabilityState_STATE_DISABLED:
+		return string(core.IntegrationCapabilityStateDisabled)
+	}
+	return ""
+}

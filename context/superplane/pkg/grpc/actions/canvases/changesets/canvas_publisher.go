@@ -1,0 +1,721 @@
+package changesets
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"maps"
+	"strings"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/superplanehq/superplane/pkg/authorization"
+	"github.com/superplanehq/superplane/pkg/core"
+	"github.com/superplanehq/superplane/pkg/crypto"
+	"github.com/superplanehq/superplane/pkg/logging"
+	"github.com/superplanehq/superplane/pkg/models"
+	"github.com/superplanehq/superplane/pkg/registry"
+	"github.com/superplanehq/superplane/pkg/workers/contexts"
+	"gorm.io/datatypes"
+	"gorm.io/gorm"
+)
+
+var errNoChangesToPublish = fmt.Errorf("no changes between live and draft version being applied")
+
+/*
+ * CanvasPublisher takes the live version and the proposed version,
+ * calculates the changeset to go from the live version to the proposed version,
+ * and applies any database changes required for that to happen.
+ *
+ * The workflow_versions.nodes already contains the state of the nodes,
+ * so we don't need to run the same checks the CanvasPatcher does.
+ *
+ * Here, we only take the current state in the workflow_versions.nodes column,
+ * run Setup(), and update things accordingly.
+ */
+type CanvasPublisher struct {
+	tx         *gorm.DB
+	options    CanvasPublisherOptions
+	canvas     *models.Canvas
+	live       *models.CanvasVersion
+	draft      *models.CanvasVersion
+	changeset  *CanvasChangeset
+	finalNodes map[string]models.Node
+	renamedIDs map[string]string
+
+	//
+	// All nodes in the workflow, including deleted ones.
+	// Deleted ones are needed, so we can use proper node IDs
+	// when adding new nodes, ensuring they are unique and do
+	// not conflict with deleted nodes.
+	//
+	allNodes map[string]models.CanvasNode
+
+	// pendingSetups holds nodes that were created or updated and still need
+	// Setup(). Deferred until every AddNode has inserted its workflow_nodes
+	// row so self-referential components (e.g. runApp → onRun on the same
+	// canvas) can resolve sibling nodes during first publish.
+	pendingSetups []pendingNodeSetup
+
+	cancelledExecutionIDs []uuid.UUID
+	deletedQueueItems     []models.CanvasNodeQueueItem
+}
+
+type pendingNodeSetup struct {
+	canvasNode models.CanvasNode
+	draftID    string
+}
+
+type CanvasPublishResult struct {
+	CancelledExecutionIDs []uuid.UUID
+	DeletedQueueItems     []models.CanvasNodeQueueItem
+}
+
+type CanvasPublisherOptions struct {
+	Registry       *registry.Registry
+	OrgID          uuid.UUID
+	Encryptor      crypto.Encryptor
+	AuthService    authorization.Authorization
+	WebhookBaseURL string
+}
+
+func (o *CanvasPublisherOptions) Validate() error {
+	if o.Registry == nil {
+		return fmt.Errorf("registry is required")
+	}
+
+	if o.OrgID == uuid.Nil {
+		return fmt.Errorf("org ID is required")
+	}
+
+	if o.Encryptor == nil {
+		return fmt.Errorf("encryptor is required")
+	}
+
+	if o.AuthService == nil {
+		return fmt.Errorf("auth service is required")
+	}
+
+	if o.WebhookBaseURL == "" {
+		return fmt.Errorf("webhook base URL is required")
+	}
+
+	return nil
+}
+
+func NewCanvasPublisher(tx *gorm.DB, canvas *models.Canvas, draft *models.CanvasVersion, liveVersion *models.CanvasVersion, options CanvasPublisherOptions) (*CanvasPublisher, error) {
+	if err := options.Validate(); err != nil {
+		return nil, err
+	}
+
+	changeset, err := NewChangesetBuilder(liveVersion.Nodes, liveVersion.Edges, draft.Nodes, draft.Edges).Build()
+	if err != nil {
+		return nil, err
+	}
+	if len(changeset.Changes) == 0 {
+		return nil, errNoChangesToPublish
+	}
+
+	allNodes, err := models.FindCanvasNodesUnscopedInTransaction(tx, liveVersion.WorkflowID)
+	if err != nil {
+		return nil, err
+	}
+
+	allNodesMap := make(map[string]models.CanvasNode)
+	for _, node := range allNodes {
+		allNodesMap[node.NodeID] = node
+	}
+
+	//
+	// Since Setup() is only run here, we might need to update the
+	// state of the []models.Node objects before saving them into
+	// the workflow_versions.nodes column.
+	//
+	finalNodes := make(map[string]models.Node, len(draft.Nodes))
+	for _, node := range draft.Nodes {
+		finalNodes[node.ID] = node
+	}
+
+	return &CanvasPublisher{
+		tx:         tx,
+		options:    options,
+		canvas:     canvas,
+		live:       liveVersion,
+		finalNodes: finalNodes,
+		draft:      draft,
+		changeset:  changeset,
+		allNodes:   allNodesMap,
+		renamedIDs: make(map[string]string),
+	}, nil
+}
+
+func (p *CanvasPublisher) Publish(ctx context.Context) error {
+	for _, change := range p.changeset.Changes {
+		if err := p.processChange(ctx, change); err != nil {
+			return err
+		}
+	}
+
+	if err := p.runPendingSetups(ctx); err != nil {
+		return err
+	}
+
+	finalNodes := make([]models.Node, 0, len(p.finalNodes))
+	for _, node := range p.finalNodes {
+		finalNodes = append(finalNodes, node)
+	}
+
+	finalEdges := p.filterEdgesForExistingNodes(p.edgesWithRenamedNodeIDs(p.draft.Edges))
+	err := models.PromoteToLiveInTransaction(p.tx, p.draft, finalNodes, finalEdges)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (p *CanvasPublisher) Result() CanvasPublishResult {
+	return CanvasPublishResult{
+		CancelledExecutionIDs: append([]uuid.UUID(nil), p.cancelledExecutionIDs...),
+		DeletedQueueItems:     append([]models.CanvasNodeQueueItem(nil), p.deletedQueueItems...),
+	}
+}
+
+func (p *CanvasPublisher) edgesWithRenamedNodeIDs(edges []models.Edge) []models.Edge {
+	if len(p.renamedIDs) == 0 {
+		return edges
+	}
+
+	updatedEdges := make([]models.Edge, len(edges))
+	copy(updatedEdges, edges)
+
+	for i := range updatedEdges {
+		if renamedSource, ok := p.renamedIDs[updatedEdges[i].SourceID]; ok {
+			updatedEdges[i].SourceID = renamedSource
+		}
+
+		if renamedTarget, ok := p.renamedIDs[updatedEdges[i].TargetID]; ok {
+			updatedEdges[i].TargetID = renamedTarget
+		}
+	}
+
+	return updatedEdges
+}
+
+func (p *CanvasPublisher) filterEdgesForExistingNodes(edges []models.Edge) []models.Edge {
+	filteredEdges := make([]models.Edge, 0, len(edges))
+	for _, edge := range edges {
+		if _, sourceExists := p.finalNodes[edge.SourceID]; !sourceExists {
+			continue
+		}
+
+		if _, targetExists := p.finalNodes[edge.TargetID]; !targetExists {
+			continue
+		}
+
+		filteredEdges = append(filteredEdges, edge)
+	}
+
+	return filteredEdges
+}
+
+func (p *CanvasPublisher) processChange(ctx context.Context, change *Change) error {
+	switch change.Type {
+	case ChangeTypeAddNode:
+		return p.addNode(ctx, change)
+	case ChangeTypeDeleteNode:
+		return p.deleteNode(change)
+	case ChangeTypeUpdateNode:
+		return p.updateNode(ctx, change)
+	}
+
+	return nil
+}
+
+func (p *CanvasPublisher) addNode(ctx context.Context, change *Change) error {
+	node := p.finalNodes[change.Node.ID]
+	nodeID := p.ensureNewNodeID(node)
+	node.ID = nodeID
+
+	//
+	// Widget nodes are not saved as workflow_nodes records in the database.
+	//
+	if node.Type == models.NodeTypeWidget {
+		return nil
+	}
+
+	appInstallationID, err := p.getNodeIntegrationID(node)
+	if err != nil {
+		return err
+	}
+
+	now := time.Now()
+	newNode := models.CanvasNode{
+		WorkflowID:        p.live.WorkflowID,
+		NodeID:            nodeID,
+		Name:              node.Name,
+		Type:              node.Type,
+		Ref:               datatypes.NewJSONType(node.Ref),
+		Configuration:     datatypes.NewJSONType(node.Configuration),
+		Metadata:          datatypes.NewJSONType(node.Metadata),
+		Position:          datatypes.NewJSONType(node.Position),
+		IsCollapsed:       node.IsCollapsed,
+		AppInstallationID: appInstallationID,
+		CreatedAt:         &now,
+		UpdatedAt:         &now,
+	}
+	newNode.SetConcurrencySpec(node.Concurrency)
+
+	//
+	// If node update led to an error, set the node to error state.
+	// Otherwise, node is ready.
+	//
+	if node.ErrorMessage != nil && strings.TrimSpace(*node.ErrorMessage) != "" {
+		newNode.State = models.CanvasNodeStateError
+		newNode.StateReason = node.ErrorMessage
+	} else {
+		newNode.State = models.CanvasNodeStateReady
+		newNode.StateReason = nil
+	}
+
+	deletedNode, err := models.FindUnscopedCanvasNode(p.tx, p.live.WorkflowID, nodeID)
+	if err == nil && deletedNode.DeletedAt.Valid {
+		return p.restoreDeletedNode(node, *deletedNode, appInstallationID, newNode)
+	}
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return err
+	}
+
+	//
+	// Insert first so Setup() (and sibling lookups during a later Setup) can
+	// find the workflow_node row. Setup itself is deferred until every AddNode
+	// has been inserted — see pendingSetups / runPendingSetups.
+	//
+	err = p.tx.Create(&newNode).Error
+	if err != nil {
+		return err
+	}
+
+	return p.rememberAddedNode(node, newNode)
+}
+
+func (p *CanvasPublisher) restoreDeletedNode(
+	node models.Node,
+	existing models.CanvasNode,
+	appInstallationID *uuid.UUID,
+	replacement models.CanvasNode,
+) error {
+	now := time.Now()
+	existing.Name = replacement.Name
+	existing.Type = replacement.Type
+	existing.Ref = replacement.Ref
+	existing.Configuration = datatypes.NewJSONType(withoutAppSubscriptionID(replacement.Configuration.Data()))
+	existing.Metadata = datatypes.NewJSONType(withoutAppSubscriptionID(replacement.Metadata.Data()))
+	existing.Position = replacement.Position
+	existing.IsCollapsed = replacement.IsCollapsed
+	existing.AppInstallationID = appInstallationID
+	existing.WebhookID = nil
+	existing.State = replacement.State
+	existing.StateReason = replacement.StateReason
+	existing.ConcurrencyKey = replacement.ConcurrencyKey
+	existing.ConcurrencyMax = replacement.ConcurrencyMax
+	existing.DeletedAt = gorm.DeletedAt{}
+	existing.UpdatedAt = &now
+	node.Configuration = withoutAppSubscriptionID(node.Configuration)
+	node.Metadata = withoutAppSubscriptionID(node.Metadata)
+
+	if err := p.tx.Unscoped().Save(&existing).Error; err != nil {
+		return err
+	}
+
+	return p.rememberAddedNode(node, existing)
+}
+
+func (p *CanvasPublisher) rememberAddedNode(node models.Node, canvasNode models.CanvasNode) error {
+	p.allNodes[canvasNode.NodeID] = canvasNode
+
+	if canvasNode.State == models.CanvasNodeStateError {
+		node.Metadata = canvasNode.Metadata.Data()
+		p.finalNodes[node.ID] = node
+		return nil
+	}
+
+	p.pendingSetups = append(p.pendingSetups, pendingNodeSetup{
+		canvasNode: canvasNode,
+		draftID:    node.ID,
+	})
+	p.finalNodes[node.ID] = node
+	return nil
+}
+
+func (p *CanvasPublisher) updateNode(ctx context.Context, change *Change) error {
+	updatedNode := p.finalNodes[change.Node.ID]
+
+	if updatedNode.Type == models.NodeTypeWidget {
+		liveNode, exists := p.findLiveNode(updatedNode.ID)
+		if !exists {
+			return fmt.Errorf("node %s not found", updatedNode.ID)
+		}
+
+		if nodeImplementationChanged(liveNode, updatedNode) {
+			return fmt.Errorf("cannot change node %s implementation; delete the node and add a new one instead", updatedNode.ID)
+		}
+
+		return nil
+	}
+
+	existingNode, exists := p.allNodes[updatedNode.ID]
+	if !exists {
+		return fmt.Errorf("node %s not found", updatedNode.ID)
+	}
+
+	if canvasNodeImplementationChanged(existingNode, updatedNode) {
+		return fmt.Errorf("cannot change node %s implementation; delete the node and add a new one instead", updatedNode.ID)
+	}
+
+	appInstallationID, err := p.getNodeIntegrationID(updatedNode)
+	if err != nil {
+		return err
+	}
+
+	//
+	// If node update led to an error, set the node to error state.
+	// Otherwise, clear the error state.
+	//
+	if updatedNode.ErrorMessage != nil && strings.TrimSpace(*updatedNode.ErrorMessage) != "" {
+		existingNode.State = models.CanvasNodeStateError
+		existingNode.StateReason = updatedNode.ErrorMessage
+	} else if existingNode.State == models.CanvasNodeStateError {
+		existingNode.State = models.CanvasNodeStateReady
+		existingNode.StateReason = nil
+	}
+
+	//
+	// Update the node with the new values.
+	//
+	now := time.Now()
+	existingNode.Name = updatedNode.Name
+	existingNode.Type = updatedNode.Type
+	existingNode.Ref = datatypes.NewJSONType(updatedNode.Ref)
+	existingNode.Configuration = datatypes.NewJSONType(updatedNode.Configuration)
+	existingNode.Metadata = datatypes.NewJSONType(withoutAppSubscriptionID(
+		mergeNodeMetadata(existingNode.Metadata.Data(), updatedNode.Metadata),
+	))
+	existingNode.Position = datatypes.NewJSONType(updatedNode.Position)
+	existingNode.IsCollapsed = updatedNode.IsCollapsed
+	existingNode.SetConcurrencySpec(updatedNode.Concurrency)
+	existingNode.AppInstallationID = appInstallationID
+	existingNode.UpdatedAt = &now
+
+	//
+	// Persist field updates now so later Setups see the new configuration.
+	// Setup itself is deferred with AddNode setups (see runPendingSetups).
+	//
+	if existingNode.State == models.CanvasNodeStateError {
+		updatedNode.Metadata = existingNode.Metadata.Data()
+		p.finalNodes[existingNode.NodeID] = updatedNode
+		p.allNodes[existingNode.NodeID] = existingNode
+		return p.tx.Save(&existingNode).Error
+	}
+
+	if err := p.tx.Save(&existingNode).Error; err != nil {
+		return err
+	}
+
+	p.allNodes[existingNode.NodeID] = existingNode
+	p.pendingSetups = append(p.pendingSetups, pendingNodeSetup{
+		canvasNode: existingNode,
+		draftID:    existingNode.NodeID,
+	})
+	p.finalNodes[existingNode.NodeID] = updatedNode
+	return nil
+}
+
+func (p *CanvasPublisher) runPendingSetups(ctx context.Context) error {
+	for i := range p.pendingSetups {
+		pending := &p.pendingSetups[i]
+		node := pending.canvasNode
+		draftNode, ok := p.finalNodes[pending.draftID]
+		if !ok {
+			return fmt.Errorf("pending setup for unknown draft node %s", pending.draftID)
+		}
+
+		err := p.setupNode(ctx, &node)
+		if err != nil {
+			errorMsg := err.Error()
+			node.State = models.CanvasNodeStateError
+			node.StateReason = &errorMsg
+			draftNode.ErrorMessage = &errorMsg
+		}
+
+		merged := mergeNodeMetadata(draftNode.Metadata, node.Metadata.Data())
+		draftNode.Metadata = merged
+		node.Metadata = datatypes.NewJSONType(merged)
+		p.finalNodes[pending.draftID] = draftNode
+		p.allNodes[node.NodeID] = node
+		if err := p.tx.Save(&node).Error; err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (p *CanvasPublisher) deleteNode(change *Change) error {
+	existingNode, exists := p.allNodes[change.Node.ID]
+	if !exists {
+		return nil
+	}
+
+	// Do not call Datadog here. This method runs inside the publish
+	// transaction. A later failure restores the intake, but Datadog
+	// would not restore a monitor deleted now. The cleanup worker
+	// deletes the monitor after the removal is committed.
+
+	delete(p.allNodes, existingNode.NodeID)
+	result, err := models.DeleteCanvasNodeWithResult(p.tx, existingNode)
+	if err != nil {
+		return err
+	}
+
+	p.cancelledExecutionIDs = append(p.cancelledExecutionIDs, result.CancelledExecutionIDs...)
+	p.deletedQueueItems = append(p.deletedQueueItems, result.DeletedQueueItems...)
+	return nil
+}
+
+func (p *CanvasPublisher) getNodeIntegrationID(node models.Node) (*uuid.UUID, error) {
+	//
+	// Only integration-based nodes have an integration ID,
+	// so we must return nil for other node types.
+	//
+	if node.IntegrationID == nil || strings.TrimSpace(*node.IntegrationID) == "" {
+		return nil, nil
+	}
+
+	id, err := uuid.Parse(strings.TrimSpace(*node.IntegrationID))
+	if err != nil {
+		return nil, nil
+	}
+
+	_, err = models.FindIntegrationInTransaction(p.tx, p.options.OrgID, id)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &id, nil
+}
+
+func (p *CanvasPublisher) findLiveNode(nodeID string) (models.Node, bool) {
+	for _, node := range p.live.Nodes {
+		if node.ID == nodeID {
+			return node, true
+		}
+	}
+
+	return models.Node{}, false
+}
+
+func canvasNodeImplementationChanged(existingNode models.CanvasNode, updatedNode models.Node) bool {
+	return nodeImplementationChanged(nodeFromCanvasNode(existingNode), updatedNode)
+}
+
+func nodeImplementationChanged(existingNode models.Node, updatedNode models.Node) bool {
+	if existingNode.Type != updatedNode.Type {
+		return true
+	}
+
+	existingImplementation := nodeImplementationName(existingNode)
+	return existingImplementation != "" && existingImplementation != nodeImplementationName(updatedNode)
+}
+
+func nodeFromCanvasNode(node models.CanvasNode) models.Node {
+	return models.Node{
+		Type: node.Type,
+		Ref:  node.Ref.Data(),
+	}
+}
+
+func nodeImplementationName(node models.Node) string {
+	if node.Ref.Component != nil {
+		return strings.TrimSpace(node.Ref.Component.Name)
+	}
+
+	if node.Ref.Trigger != nil {
+		return strings.TrimSpace(node.Ref.Trigger.Name)
+	}
+
+	if node.Ref.Widget != nil {
+		return strings.TrimSpace(node.Ref.Widget.Name)
+	}
+
+	return ""
+}
+
+func (p *CanvasPublisher) setupNode(ctx context.Context, node *models.CanvasNode) error {
+	switch node.Type {
+	case models.NodeTypeTrigger:
+		return p.setupTrigger(ctx, node)
+	case models.NodeTypeComponent:
+		return p.setupAction(ctx, node)
+	case models.NodeTypeWidget:
+		return nil
+	}
+
+	return nil
+}
+
+func (p *CanvasPublisher) setupTrigger(ctx context.Context, node *models.CanvasNode) error {
+	ref := node.Ref.Data()
+	trigger, err := p.options.Registry.GetTrigger(ref.Trigger.Name)
+	if err != nil {
+		return err
+	}
+
+	triggerCtx, err := p.triggerContext(ctx, node)
+	if err != nil {
+		return err
+	}
+	if triggerCtx.Integration != nil && triggerCtx.Logger != nil {
+		triggerCtx.Logger.WithField("source", "trigger_setup").Info("Integration operation may write secrets")
+	}
+
+	return trigger.Setup(triggerCtx)
+}
+
+func (p *CanvasPublisher) triggerContext(ctx context.Context, node *models.CanvasNode) (core.TriggerContext, error) {
+	logger := logging.ForNode(*node)
+	triggerCtx := core.TriggerContext{
+		Configuration: node.Configuration.Data(),
+		HTTP:          p.options.Registry.HTTPContextInTransaction(p.tx),
+		Metadata:      contexts.NewNodeMetadataContext(p.tx, node),
+		Requests:      contexts.NewNodeRequestContext(p.tx, node),
+		Events:        contexts.NewEventContext(p.tx, node, nil, nil),
+		Webhook:       contexts.NewNodeWebhookContext(ctx, p.tx, p.options.Encryptor, node, p.options.WebhookBaseURL),
+		Apps:          contexts.NewAppContext(p.tx, p.canvas, node),
+	}
+
+	if node.AppInstallationID != nil {
+		integration, err := models.FindUnscopedIntegrationInTransaction(p.tx, *node.AppInstallationID)
+		if err != nil {
+			return core.TriggerContext{}, fmt.Errorf("failed to find app installation: %v", err)
+		}
+
+		logger = logging.WithIntegration(logger, *integration)
+		triggerCtx.Integration = contexts.NewIntegrationContext(
+			p.tx,
+			node,
+			integration,
+			p.options.Encryptor,
+			p.options.Registry,
+			nil,
+		)
+	}
+
+	triggerCtx.Logger = logger
+	return triggerCtx, nil
+}
+
+func (p *CanvasPublisher) setupAction(ctx context.Context, node *models.CanvasNode) error {
+	ref := node.Ref.Data()
+	action, err := p.options.Registry.GetAction(ref.Component.Name)
+	if err != nil {
+		return err
+	}
+
+	logger := logging.ForNode(*node)
+	setupCtx := core.SetupContext{
+		Configuration: node.Configuration.Data(),
+		HTTP:          p.options.Registry.HTTPContextInTransaction(p.tx),
+		Metadata:      contexts.NewNodeMetadataContext(p.tx, node),
+		Requests:      contexts.NewNodeRequestContext(p.tx, node),
+		Webhook:       contexts.NewNodeWebhookContext(ctx, p.tx, p.options.Encryptor, node, p.options.WebhookBaseURL),
+		Auth:          contexts.NewAuthReader(p.tx, p.options.OrgID, p.options.AuthService, nil),
+		Apps:          contexts.NewAppContext(p.tx, p.canvas, node),
+	}
+
+	if node.AppInstallationID != nil {
+		integration, err := models.FindUnscopedIntegrationInTransaction(p.tx, *node.AppInstallationID)
+		if err != nil {
+			return fmt.Errorf("failed to find app installation: %v", err)
+		}
+
+		logger = logging.WithIntegration(logger, *integration)
+		setupCtx.Integration = contexts.NewIntegrationContext(
+			p.tx,
+			node,
+			integration,
+			p.options.Encryptor,
+			p.options.Registry,
+			nil,
+		)
+		logger.WithField("source", "action_setup").Info("Integration operation may write secrets")
+	}
+
+	setupCtx.Logger = logger
+	return action.Setup(setupCtx)
+}
+
+func (p *CanvasPublisher) ensureNewNodeID(node models.Node) string {
+
+	//
+	// If node ID has not been used yet, just use it.
+	//
+	if _, exists := p.allNodes[node.ID]; !exists {
+		return node.ID
+	}
+
+	reservedIDs := make(map[string]bool)
+	for _, node := range p.allNodes {
+		reservedIDs[node.NodeID] = true
+	}
+
+	//
+	// If node ID has been used, generate a new one.
+	// Here, we update p.finalNodes to ensure that the new ID
+	// is propagated to the nodes saved in the workflow_versions.nodes record.
+	//
+	newNodeID := models.GenerateUniqueNodeID(node, reservedIDs)
+	delete(p.finalNodes, node.ID)
+	p.renamedIDs[node.ID] = newNodeID
+	node.ID = newNodeID
+	p.finalNodes[newNodeID] = node
+	return newNodeID
+}
+
+const appSubscriptionIDKey = "appSubscriptionID"
+
+func mergeNodeMetadata(base map[string]any, overlay any) map[string]any {
+	merged := map[string]any{}
+	maps.Copy(merged, base)
+	overlayMap, ok := overlay.(map[string]any)
+	if !ok {
+		if len(merged) == 0 {
+			return base
+		}
+		return merged
+	}
+	maps.Copy(merged, overlayMap)
+	if len(merged) == 0 {
+		return nil
+	}
+	return merged
+}
+
+func withoutAppSubscriptionID(values map[string]any) map[string]any {
+	if values == nil {
+		return nil
+	}
+
+	cleaned := make(map[string]any, len(values))
+	for key, value := range values {
+		if key == appSubscriptionIDKey {
+			continue
+		}
+		cleaned[key] = value
+	}
+	return cleaned
+}

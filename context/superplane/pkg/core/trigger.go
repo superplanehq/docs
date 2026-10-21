@@ -1,0 +1,181 @@
+package core
+
+import (
+	"errors"
+	"net/http"
+	"net/url"
+
+	log "github.com/sirupsen/logrus"
+	"github.com/superplanehq/superplane/pkg/configuration"
+)
+
+var ErrNotFound = errors.New("not found")
+
+type Trigger interface {
+	/*
+	 * The unique identifier for the trigger.
+	 * This is how nodes reference it, and is used for registration.
+	 */
+	Name() string
+
+	/*
+	 * The label for the trigger.
+	 * This is how nodes are displayed in the UI.
+	 */
+	Label() string
+
+	/*
+	 * A good description of what the trigger does.
+	 * Helpful for documentation and user interfaces.
+	 */
+	Description() string
+
+	/*
+	 * Detailed markdown documentation explaining how to use the trigger.
+	 * This should provide in-depth information about the trigger's purpose,
+	 * configuration options, use cases, and examples.
+	 */
+	Documentation() string
+
+	/*
+	 * The icon for the trigger.
+	 */
+	Icon() string
+
+	/*
+	 * The color for the trigger.
+	 */
+	Color() string
+
+	/*
+	 * Example input data for the trigger.
+	 */
+	ExampleData() map[string]any
+
+	/*
+	 * The configuration fields exposed by the trigger.
+	 */
+	Configuration() []configuration.Field
+
+	/*
+	 * Handler for webhooks
+	 */
+	HandleWebhook(ctx WebhookRequestContext) (int, *WebhookResponseBody, error)
+
+	/*
+	 * Setup the trigger.
+	 */
+	Setup(ctx TriggerContext) error
+
+	/*
+	 * Allows triggers to define custom hooks.
+	 */
+	Hooks() []Hook
+
+	/*
+	 * Execute a custom hook - defined in Hooks() for a trigger.
+	 */
+	HandleHook(ctx TriggerHookContext) (map[string]any, error)
+
+	/*
+	 * Cleanup allows triggers to clean up resources after being removed from a canvas.
+	 * Default behavior does nothing. Triggers can override to perform cleanup.
+	 */
+	Cleanup(ctx TriggerContext) error
+}
+
+type TriggerContext struct {
+	Logger        *log.Entry
+	Configuration any
+	HTTP          HTTPContext
+	Metadata      MetadataWriter
+	Requests      RequestContext
+	Events        EventContext
+	Webhook       NodeWebhookContext
+	Integration   IntegrationContext
+	Apps          AppContext
+}
+
+type AppContext interface {
+	Get(idOrName string) (*App, error)
+	GetNode(app, node string) (*CanvasNode, error)
+	Subscribe(id string) error
+	Unsubscribe() error
+}
+
+type App struct {
+	ID   string
+	Name string
+}
+
+type CanvasNode struct {
+	ID   string
+	Name string
+}
+
+type AppTrigger interface {
+	Trigger
+	OnAppMessage(ctx AppMessageContext) error
+}
+
+type AppMessageContext struct {
+	Message       any
+	Configuration any
+	NodeMetadata  MetadataReader
+	Logger        *log.Entry
+	HTTP          HTTPContext
+	Events        EventContext
+}
+
+type EventContext interface {
+	Emit(payloadType string, payload any) error
+}
+
+type WebhookRequestContext struct {
+	Body          []byte
+	Headers       http.Header
+	Query         url.Values
+	WorkflowID    string
+	NodeID        string
+	Configuration any
+	Metadata      MetadataWriter
+	Logger        *log.Entry
+	Webhook       NodeWebhookContext
+	Events        EventContext
+	Integration   IntegrationContext
+	Factory       FactoryContext
+
+	//
+	// Return an execution context for a given execution,
+	// through a referencing key-value pair.
+	//
+	FindExecutionByKV func(key string, value string) (*ExecutionContext, error)
+
+	//
+	// Return the oldest active execution for a key-value pair.
+	// Narrowly scoped for Bitbucket build waits, where a completed wait can
+	// share a KV with a later active wait. Nil when the caller does not
+	// support active lookups; other components keep FindExecutionByKV.
+	//
+	FindActiveExecutionByKV func(key string, value string) (*ExecutionContext, error)
+
+	// Do not make HTTP calls as part of handling the webhook. This is useful for
+	// retrieving more data that is not part of the webhook payload.
+	HTTP HTTPContext
+}
+
+// WebhookResponseBody allows a HandleWebhook implementation to return a custom
+// response body. If non-nil and Body is non-empty, the server writes it back
+// to the caller instead of the default empty 200 OK.
+type WebhookResponseBody struct {
+	Body        []byte
+	ContentType string
+}
+
+type NodeWebhookContext interface {
+	Setup() (string, error)
+	GetSecret() ([]byte, error)
+	SetSecret(secret []byte) error
+	ResetSecret() ([]byte, []byte, error)
+	GetBaseURL() string
+}

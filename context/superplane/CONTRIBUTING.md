@@ -1,0 +1,126 @@
+# Contributing to SuperPlane
+
+Thank you for your interest in contributing to SuperPlane! We welcome
+contributions from the community.
+
+## Ways to Get Involved
+
+Before starting your contribution, especially for core features, we encourage
+you to reach out to us on [Discord](https://discord.gg/KC78eCNsnw). This allows
+us to ensure that your proposed feature aligns with the project's roadmap and
+goals. Developers are the key to making SuperPlane the best platform it can be,
+and we value input from the community.
+
+There are many ways to contribute to SuperPlane:
+
+- **Report bugs** - Help us identify and fix issues (see [Issue Tracking](docs/contributing/issue-tracking.md))
+- **Suggest features** - Share your ideas for new functionality
+- **Write code** - Fix bugs, implement features, or improve existing code
+- **Improve documentation** - Help make our docs clearer and more comprehensive
+- **Share feedback** - Let us know what works well and what could be better
+
+## Development Quickstart
+
+Getting started with SuperPlane development is fast. It only takes a couple of
+minutes to set up your local development environment!
+
+### Pre-requisites
+
+The complete development is done inside of Docker, so you don't need any
+programming languages, databases, or other dependencies installed directly on
+your machine. Everything runs in containers managed by Make and Docker.
+
+Before you begin, make sure you have the following:
+
+- You are running MacOS or Linux
+- [Make](https://www.gnu.org/software/make/)
+- [Docker](https://www.docker.com/)
+
+### Forking and Cloning the Repository
+
+To begin working with SuperPlane, you'll need to fork and clone the repository:
+
+1. **Fork** the repository on GitHub to have your own copy.
+2. **Clone** your fork to your local machine:
+
+```bash
+git clone https://github.com/YOUR_USERNAME/superplane.git
+cd superplane
+```
+
+### Setting Up the Development Environment
+
+Once inside the cloned repository, bring up Docker, install dependencies and
+migrations, then start the development server:
+
+```sh
+make dev.up        # Build app and runner images. Start db, rabbitmq, and the app shell
+make dev.setup     # Codegen, Go + JS deps, and migrate superplane_dev
+make dev.server    # Start air, Vite, and the Docker Fleet Manager
+```
+
+After the first setup, run `make dev.up` when the stack is not running, then
+`make dev.server` to start air, Vite, and the workers (use
+`make dev.server.fg` for foreground logs). Re-run `make dev.setup` when you
+need a fresh `npm install`, codegen, or migrations.
+
+When `make dev.server` reports the app as healthy, open SuperPlane at [http://localhost:8000](http://localhost:8000).
+
+After owner setup, create the required installation fleets through the admin
+API or admin CLI. Create a personal API token for the installation
+administrator and set `INSTALLATION_ADMIN_TOKEN` in `.env`. The Docker Fleet
+Manager then creates an ephemeral runner for each integrated task. The
+`new_runners` feature is enabled for every organization.
+
+A local dump lets you create a new environment without owner setup or GitHub
+connection. This is the intended path when a script or agent creates local
+environments.
+See [Local database snapshot](docs/contributing/local-database-snapshot.md).
+
+`make dev.up`, `make dev.setup`, and `make dev.server` use the integrated
+runner API and Docker Fleet Manager. Set `TASK_BROKER_*` in `.env` only while
+you test legacy or remote broker routing (see `.env.example`).
+
+The local worker image includes Claude Code, Codex, OpenCode, git, `gh`, and
+`jq` so factory line apps can run locally. Do not install those CLIs on the
+host. Connect GitHub and Claude integrations in the organization before you
+dispatch a factory line. Factory nodes use those integrations, not `.env`
+`ANTHROPIC_API_KEY`. After you change `release/runner/Dockerfile`, run
+`make dev.up` again. Check tools with `make doctor-local` after
+`make dev.server`. OpenCode must be on the runner `PATH` for Run OpenRouter
+Agent.
+
+Local hosted OpenRouter is optional. Set `SUPERPLANE_DEV_HOSTED_OPENROUTER`
+in `.env` only when you need the SuperPlane-hosted provider. See
+[Connecting to third-party services](docs/contributing/connecting-to-3rdparty-services-from-development.md).
+
+## Additional Development Resources
+
+### Overview
+
+- **[Product Docs](https://docs.superplane.com)** - Complete product documentation and user guides
+- **[Architecture Overview](docs/contributing/architecture.md)** - High-level system architecture and codebase structure
+
+### Contributing
+
+- **[Discord](https://discord.gg/KC78eCNsnw)** - Join our Discord community for discussions, questions, and collaboration
+- **[Issue Tracking](docs/contributing/issue-tracking.md)** - How to report bugs, use the SuperPlane Board, and understand issue types
+- **[Pull Requests](docs/contributing/pull-requests.md)** - How to create pull-requests
+- **[Commit Sign-off](docs/contributing/commit_sign-off.md)** - Information about the Developer's Certificate of Origin and signing off commits
+- **[E2E Testing](docs/contributing/e2e-tests.md)** - Writing, running, and debugging end-to-end tests
+- **[Running Multiple Local Instances](docs/contributing/multi-instance-dev.md)** - Run two SuperPlane repos side by side with separate ports
+- **[Local database snapshot](docs/contributing/local-database-snapshot.md)** - Restore a dump to skip owner setup in a new local environment
+- **[Using AI Agents](docs/contributing/ai-agents.md)** - Guide for using AI agents to help with development tasks
+- **[Quality Standards](docs/contributing/quality.md)** - High-level principles for building maintainable, user-focused products
+
+### Adding new integrations to SuperPlane
+
+- **[Building an Integration](docs/contributing/building-an-integration.md)** — High-level overview of the steps to add a new integration (claim a ticket, research, build, open a PR)
+- **[Opening PRs for integrations](docs/contributing/integration-prs.md)** — Checklist for opening and submitting integration PRs (title, description, video, frontend/backend/docs, CI, DCO)
+- **[Integrations](docs/contributing/integrations.md)** — Instructions for adding new third-party integrations to SuperPlane
+- **[Component Implementation](docs/contributing/component-implementations.md)** — Step-by-step instructions for creating new components or triggers
+- **[Component Customization](docs/contributing/component-customization.md)** — Guide for customizing existing components or building behaviors
+- **[Templates](docs/contributing/templates.md)** — Guide for creating and adding new workflow templates
+- **[Integrations Board](https://github.com/orgs/superplanehq/projects/2/views/17)** — View all integration-related work on the SuperPlane Board
+- **[Integration bounties](docs/contributing/bounties.md)** — How to claim, work on, and get paid for bounties via BountyHub; review and dispute process
+- **[Connecting to Third-Party Services during Development](docs/contributing/connecting-to-3rdparty-services-from-development.md)**

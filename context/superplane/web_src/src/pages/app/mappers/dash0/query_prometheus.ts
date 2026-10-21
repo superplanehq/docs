@@ -1,0 +1,105 @@
+import type { ComponentBaseProps, EventSection } from "@/ui/componentBase";
+import type React from "react";
+import { getState, getStateMap, getTriggerRenderer } from "../mapperLookup";
+import type {
+  ComponentBaseMapper,
+  ExecutionDetailsContext,
+  ComponentBaseContext,
+  ExecutionInfo,
+  NodeInfo,
+  OutputPayload,
+  SubtitleContext,
+} from "../types";
+import type { MetadataItem } from "@/ui/metadataList";
+import dash0Icon from "@/assets/icons/integrations/dash0.svg";
+import type { QueryPrometheusConfiguration } from "./types";
+import { truncate } from "../safeMappers";
+import { renderTimeAgo } from "@/components/TimeAgo";
+
+export const queryPrometheusMapper: ComponentBaseMapper = {
+  props(context: ComponentBaseContext): ComponentBaseProps {
+    const lastExecution = context.lastExecutions.length > 0 ? context.lastExecutions[0] : null;
+    const componentName = context.componentDefinition.name || "unknown";
+
+    return {
+      iconSrc: dash0Icon,
+      collapsedBackground: "bg-white",
+      collapsed: context.node.isCollapsed,
+      title: context.node.name || context.componentDefinition.label || "Unnamed component",
+      eventSections: lastExecution ? baseEventSections(context.nodes, lastExecution, componentName) : undefined,
+      metadata: metadataList(context.node),
+      includeEmptyState: !lastExecution,
+      eventStateMap: getStateMap(componentName),
+    };
+  },
+
+  getExecutionDetails(context: ExecutionDetailsContext): Record<string, string> {
+    const outputs = context.execution.outputs as { default?: OutputPayload[] } | undefined;
+
+    if (!outputs || !outputs.default || outputs.default.length === 0) {
+      return { Response: "No data returned" };
+    }
+
+    const payload = outputs.default[0];
+    const responseData = payload?.data as Record<string, unknown> | undefined;
+
+    if (!responseData) {
+      return { Response: "No data returned" };
+    }
+
+    // Format the Prometheus response data for display
+    const details: Record<string, string> = {};
+    if (payload?.timestamp) {
+      details["Checked At"] = new Date(payload.timestamp).toLocaleString();
+    }
+    try {
+      const formatted = JSON.stringify(responseData, null, 2);
+      details["Response Data"] = formatted;
+    } catch {
+      details["Response Data"] = String(responseData);
+    }
+
+    return details;
+  },
+  subtitle(context: SubtitleContext): string | React.ReactNode {
+    if (!context.execution.createdAt) return "";
+    return renderTimeAgo(new Date(context.execution.createdAt));
+  },
+};
+
+function metadataList(node: NodeInfo): MetadataItem[] {
+  const metadata: MetadataItem[] = [];
+  const configuration = node.configuration as QueryPrometheusConfiguration;
+
+  if (configuration?.query) {
+    // Show a preview of the query (first 50 chars)
+    const queryPreview = truncate(configuration.query, 50);
+    metadata.push({ icon: "code", label: queryPreview });
+  }
+
+  if (configuration?.dataset) {
+    metadata.push({ icon: "database", label: `Dataset: ${configuration.dataset}` });
+  }
+
+  if (configuration?.type) {
+    metadata.push({ icon: "funnel", label: `Type: ${configuration.type}` });
+  }
+
+  return metadata;
+}
+
+function baseEventSections(nodes: NodeInfo[], execution: ExecutionInfo, componentName: string): EventSection[] {
+  const rootTriggerNode = nodes.find((n) => n.id === execution.rootEvent?.nodeId);
+  const rootTriggerRenderer = getTriggerRenderer(rootTriggerNode?.componentName ?? "");
+  const { title } = rootTriggerRenderer.getTitleAndSubtitle({ event: execution.rootEvent });
+
+  return [
+    {
+      receivedAt: new Date(execution.createdAt!),
+      eventTitle: title,
+      eventSubtitle: renderTimeAgo(new Date(execution.createdAt!)),
+      eventState: getState(componentName)(execution),
+      eventId: execution.rootEvent!.id!,
+    },
+  ];
+}

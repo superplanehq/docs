@@ -1,0 +1,2505 @@
+package contexts
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"regexp"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/expr-lang/expr"
+	"github.com/google/uuid"
+	"github.com/superplanehq/superplane/pkg/blob"
+	"github.com/superplanehq/superplane/pkg/components/runner"
+	"github.com/superplanehq/superplane/pkg/configuration"
+	"github.com/superplanehq/superplane/pkg/configuration/expressionvalidation"
+	"github.com/superplanehq/superplane/pkg/exprruntime"
+	"github.com/superplanehq/superplane/pkg/models"
+	"github.com/superplanehq/superplane/pkg/models/factory"
+	"github.com/superplanehq/superplane/pkg/storedfiles"
+	"gorm.io/gorm"
+)
+
+var expressionRegex = regexp.MustCompile(`\{\{(.*?)\}\}`)
+
+type NodeConfigurationBuilder struct {
+	tx                  *gorm.DB
+	workflowID          uuid.UUID
+	nodeID              string
+	previousExecutionID *uuid.UUID
+	incomingEventID     *uuid.UUID
+	rootEventID         *uuid.UUID
+	rootPayload         any
+	input               any
+	expressionVariables map[string]any
+	configurationFields []configuration.Field
+}
+
+func NewNodeConfigurationBuilder(tx *gorm.DB, workflowID uuid.UUID) *NodeConfigurationBuilder {
+	return &NodeConfigurationBuilder{
+		tx:         tx,
+		workflowID: workflowID,
+	}
+}
+
+func (b *NodeConfigurationBuilder) WithNodeID(nodeID string) *NodeConfigurationBuilder {
+	b.nodeID = nodeID
+	return b
+}
+
+func (b *NodeConfigurationBuilder) WithRootEvent(rootEventID *uuid.UUID) *NodeConfigurationBuilder {
+	b.rootEventID = rootEventID
+	return b
+}
+
+// WithRootPayload stores payload normalized for expression evaluation (see normalizeExpressionValue).
+func (b *NodeConfigurationBuilder) WithRootPayload(payload any) *NodeConfigurationBuilder {
+	b.rootPayload = normalizeExpressionValue(payload)
+	return b
+}
+
+func (b *NodeConfigurationBuilder) WithPreviousExecution(previousExecutionID *uuid.UUID) *NodeConfigurationBuilder {
+	b.previousExecutionID = previousExecutionID
+	return b
+}
+
+func (b *NodeConfigurationBuilder) WithIncomingEventID(incomingEventID *uuid.UUID) *NodeConfigurationBuilder {
+	b.incomingEventID = incomingEventID
+	return b
+}
+
+// WithInput stores input normalized for expression evaluation (see normalizeExpressionValue).
+func (b *NodeConfigurationBuilder) WithInput(input any) *NodeConfigurationBuilder {
+	b.input = normalizeExpressionValue(input)
+	return b
+}
+
+func (b *NodeConfigurationBuilder) WithExpressionVariables(variables map[string]any) *NodeConfigurationBuilder {
+	b.expressionVariables = variables
+	return b
+}
+
+func (b *NodeConfigurationBuilder) WithConfigurationFields(fields []configuration.Field) *NodeConfigurationBuilder {
+	b.configurationFields = fields
+	return b
+}
+
+func (b *NodeConfigurationBuilder) Build(configuration map[string]any) (map[string]any, error) {
+	var (
+		resolved map[string]any
+		err      error
+	)
+	if len(b.configurationFields) > 0 {
+		resolved, err = b.resolveWithSchema(configuration, b.configurationFields)
+	} else {
+		resolved, err = b.resolve(configuration)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	resolved, err = b.applyLineDispatchOverrides(resolved)
+	if err != nil {
+		return nil, err
+	}
+	return b.replaceClaudeModelAlias(resolved)
+}
+
+func WithoutRunTitleConfiguration(configuration map[string]any) map[string]any {
+	if _, ok := configuration["customName"]; !ok {
+		return configuration
+	}
+
+	result := make(map[string]any, len(configuration)-1)
+	for key, value := range configuration {
+		if key == "customName" {
+			continue
+		}
+		result[key] = value
+	}
+
+	return result
+}
+
+func (b *NodeConfigurationBuilder) resolve(configuration map[string]any) (map[string]any, error) {
+	result := make(map[string]any, len(configuration))
+
+	for k, v := range configuration {
+		resolved, err := b.resolveValue(v)
+		if err != nil {
+			return nil, fmt.Errorf("error resolving field %s: %w", k, err)
+		}
+		result[k] = resolved
+	}
+
+	return result, nil
+}
+
+func (b *NodeConfigurationBuilder) resolveWithSchema(config map[string]any, fields []configuration.Field) (map[string]any, error) {
+	result := make(map[string]any, len(config))
+	fieldsByName := make(map[string]configuration.Field, len(fields))
+	for _, field := range fields {
+		fieldsByName[field.Name] = field
+	}
+
+	for key, value := range config {
+		field, ok := fieldsByName[key]
+		if !ok {
+			resolved, err := b.resolveValue(value)
+			if err != nil {
+				return nil, fmt.Errorf("error resolving field %s: %w", key, err)
+			}
+			result[key] = resolved
+			continue
+		}
+
+		resolved, err := b.resolveFieldValue(value, field)
+		if err != nil {
+			return nil, fmt.Errorf("error resolving field %s: %w", key, err)
+		}
+		result[key] = resolved
+	}
+
+	return result, nil
+}
+
+func (b *NodeConfigurationBuilder) resolveFieldValue(value any, field configuration.Field) (any, error) {
+	switch field.Type {
+	case configuration.FieldTypeObject:
+		return b.resolveObjectFieldValue(value, field)
+	case configuration.FieldTypeNumber, configuration.FieldTypeBool:
+		if text, ok := value.(string); ok {
+			return b.resolveTemplatePreservingWholeValue(text)
+		}
+	}
+
+	if field.TypeOptions != nil {
+		if field.TypeOptions.List != nil && field.TypeOptions.List.ItemDefinition != nil {
+			if list, ok := value.([]any); ok {
+				return b.resolveListItems(list, field.TypeOptions.List.ItemDefinition)
+			}
+		}
+	}
+
+	if _, ok := value.(string); ok && !fieldAllowsExpressionResolution(field) {
+		return value, nil
+	}
+
+	return b.resolveValue(value)
+}
+
+// fieldAllowsExpressionResolution reports whether {{ }} placeholders in this
+// field should be evaluated. Text fields can opt out via
+// TypeOptions.Text.AllowExpressions=false; placeholders are then left as
+// literal text (e.g. runner scripts).
+func fieldAllowsExpressionResolution(field configuration.Field) bool {
+	if field.Type != configuration.FieldTypeText || field.TypeOptions == nil || field.TypeOptions.Text == nil {
+		return true
+	}
+
+	if field.TypeOptions.Text.AllowExpressions == nil {
+		return true
+	}
+
+	return *field.TypeOptions.Text.AllowExpressions
+}
+
+func (b *NodeConfigurationBuilder) resolveListItems(list []any, itemDef *configuration.ListItemDefinition) ([]any, error) {
+	itemField := configuration.Field{Type: itemDef.Type}
+	if itemDef.Type == configuration.FieldTypeObject && len(itemDef.Schema) > 0 {
+		itemField.TypeOptions = &configuration.TypeOptions{
+			Object: &configuration.ObjectTypeOptions{Schema: itemDef.Schema},
+		}
+	}
+
+	result := make([]any, len(list))
+	for i, item := range list {
+		resolved, err := b.resolveFieldValue(item, itemField)
+		if err != nil {
+			return nil, fmt.Errorf("list item %d: %w", i, err)
+		}
+		result[i] = resolved
+	}
+
+	return result, nil
+}
+
+// resolveValue walks configuration values and stringifies every template result.
+func (b *NodeConfigurationBuilder) resolveValue(value any) (any, error) {
+	return b.walkResolvedValue(value, false)
+}
+
+// resolveValuePreservingTypes walks object/JSON trees and keeps native types
+// when a leaf is a whole {{ ... }} expression (e.g. JSON body numbers/bools).
+func (b *NodeConfigurationBuilder) resolveValuePreservingTypes(value any) (any, error) {
+	return b.walkResolvedValue(value, true)
+}
+
+func (b *NodeConfigurationBuilder) walkResolvedValue(value any, preserveTypes bool) (any, error) {
+	switch v := value.(type) {
+	case string:
+		if preserveTypes {
+			return b.resolveTemplatePreservingWholeValue(v)
+		}
+		return b.ResolveTemplateExpressions(v)
+
+	case map[string]any:
+		result := make(map[string]any, len(v))
+		for key, nested := range v {
+			resolved, err := b.walkResolvedValue(nested, preserveTypes)
+			if err != nil {
+				return nil, err
+			}
+			result[key] = resolved
+		}
+		return result, nil
+
+	case map[string]string:
+		anyMap := make(map[string]any, len(v))
+		for key, nested := range v {
+			anyMap[key] = nested
+		}
+		return b.walkResolvedValue(anyMap, preserveTypes)
+
+	case []any:
+		result := make([]any, len(v))
+		for i, item := range v {
+			resolved, err := b.walkResolvedValue(item, preserveTypes)
+			if err != nil {
+				return nil, err
+			}
+			result[i] = resolved
+		}
+		return result, nil
+
+	default:
+		return v, nil
+	}
+}
+
+func (b *NodeConfigurationBuilder) resolveObjectFieldValue(value any, field configuration.Field) (any, error) {
+	normalized, templatesResolved, err := b.normalizeObjectFieldInput(value)
+	if err != nil {
+		return nil, err
+	}
+
+	// String inputs (raw JSON templates or whole {{ … }} expressions) already
+	// had templates evaluated in normalizeObjectFieldInput. Walking again would
+	// re-evaluate mustache-like text that came from expression output.
+	if templatesResolved {
+		return normalized, nil
+	}
+
+	schema := objectFieldSchema(field)
+	if len(schema) == 0 {
+		return b.resolveValuePreservingTypes(normalized)
+	}
+
+	// Schemed objects normally resolve key-by-key. If the value is not a map
+	// (e.g. a whole {{ … }} expression that returned something else), fall back
+	// to generic resolution — same as before type-preserving object handling.
+	obj, ok := asAnyMap(normalized)
+	if !ok {
+		return b.resolveValue(normalized)
+	}
+
+	return b.resolveWithSchema(obj, schema)
+}
+
+func objectFieldSchema(field configuration.Field) []configuration.Field {
+	if field.TypeOptions == nil || field.TypeOptions.Object == nil {
+		return nil
+	}
+
+	return field.TypeOptions.Object.Schema
+}
+
+// normalizeObjectFieldInput turns an object field's stored value into a
+// structured value. Maps/arrays pass through unresolved; strings may be a whole
+// expression or a JSON template that still needs expression substitution.
+// templatesResolved is true when the returned value already had templates applied.
+func (b *NodeConfigurationBuilder) normalizeObjectFieldInput(value any) (any, bool, error) {
+	if obj, ok := asAnyMap(value); ok {
+		return obj, false, nil
+	}
+	if list, ok := value.([]any); ok {
+		return list, false, nil
+	}
+
+	text, ok := value.(string)
+	if !ok {
+		return value, false, nil
+	}
+
+	resolved, err := b.resolveTemplatePreservingWholeValue(text)
+	if err != nil {
+		return nil, false, err
+	}
+
+	resolvedText, ok := resolved.(string)
+	if !ok {
+		return resolved, true, nil
+	}
+
+	decoded, err := decodeJSONValue(resolvedText)
+	if err != nil {
+		// A whole {{ … }} that evaluated to a non-JSON string is kept so schemed
+		// object fields can fall back to generic resolution (pre-existing behavior).
+		if _, isWholeExpression := unwrapExpressionTemplate(text); isWholeExpression {
+			return resolvedText, true, nil
+		}
+		return nil, false, fmt.Errorf("resolved object field must be valid JSON: %w", err)
+	}
+
+	return decoded, true, nil
+}
+
+// resolveTemplatePreservingWholeValue returns the native expression result when
+// the entire string is a single {{ ... }} template; otherwise stringifies.
+func (b *NodeConfigurationBuilder) resolveTemplatePreservingWholeValue(value string) (any, error) {
+	if expression, ok := unwrapExpressionTemplate(value); ok {
+		return b.ResolveExpression(expression)
+	}
+
+	return b.ResolveTemplateExpressions(value)
+}
+
+func unwrapExpressionTemplate(value string) (string, bool) {
+	trimmed := strings.TrimSpace(value)
+	matches := expressionRegex.FindStringSubmatch(trimmed)
+	if len(matches) != 2 || matches[0] != trimmed {
+		return "", false
+	}
+
+	expression := strings.TrimSpace(matches[1])
+	if expression == "" {
+		return "", false
+	}
+
+	return expression, true
+}
+
+func decodeJSONValue(value string) (any, error) {
+	decoder := json.NewDecoder(strings.NewReader(value))
+	decoder.UseNumber()
+
+	var decoded any
+	if err := decoder.Decode(&decoded); err != nil {
+		return nil, err
+	}
+
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		return nil, fmt.Errorf("must contain a single JSON value")
+	}
+
+	return decoded, nil
+}
+
+func asAnyMap(value any) (map[string]any, bool) {
+	switch typed := value.(type) {
+	case map[string]any:
+		return typed, true
+	case map[string]string:
+		anyMap := make(map[string]any, len(typed))
+		for key, value := range typed {
+			anyMap[key] = value
+		}
+		return anyMap, true
+	default:
+		return nil, false
+	}
+}
+
+func (b *NodeConfigurationBuilder) ResolveTemplateExpressions(expression string) (any, error) {
+	matches := expressionRegex.FindAllStringIndex(expression, -1)
+	if len(matches) == 0 {
+		return expression, nil
+	}
+
+	var err error
+
+	result := expressionRegex.ReplaceAllStringFunc(expression, func(match string) string {
+		matches := expressionRegex.FindStringSubmatch(match)
+		if len(matches) != 2 {
+			return match
+		}
+
+		value, e := b.ResolveExpression(matches[1])
+		if e != nil {
+			err = e
+			return ""
+		}
+
+		return formatTemplateValue(value)
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
+func (b *NodeConfigurationBuilder) ResolveExpression(expression string) (any, error) {
+	return b.ResolveExpressionWithExtraVariables(expression, b.expressionVariables)
+}
+
+// ResolveExpressionWithExtraVariables evaluates an expression with extra
+// variables merged into the eval environment. Provided keys cannot override
+// built-ins; we reject any attempt to shadow reserved names so that `$`,
+// `memory`, `config`, `root`, and `previous` stay deterministic.
+func (b *NodeConfigurationBuilder) ResolveExpressionWithExtraVariables(expression string, variables map[string]any) (any, error) {
+	referencedNodes, err := expressionvalidation.ParseReferencedNodes(expression)
+	if err != nil {
+		return "", err
+	}
+
+	messageChain, err := b.buildMessageChain(referencedNodes)
+	if err != nil {
+		return "", err
+	}
+
+	env := map[string]any{
+		"$":      messageChain,
+		"memory": b.buildMemoryExpressionNamespace(),
+	}
+
+	for key, value := range variables {
+		if isReservedExpressionIdentifier(key) {
+			return "", fmt.Errorf("variable %q is reserved", key)
+		}
+		env[key] = value
+	}
+
+	exprOptions := []expr.Option{
+		expr.Env(env),
+		expr.AsAny(),
+		expr.WithContext("ctx"),
+		expr.Timezone(time.UTC.String()),
+		exprruntime.DateFunctionOption(),
+		expr.Function("root", func(params ...any) (any, error) {
+			if len(params) != 0 {
+				return nil, fmt.Errorf("root() takes no arguments")
+			}
+
+			return b.resolveRootPayload()
+		}),
+		expr.Function("previous", func(params ...any) (any, error) {
+			depth := 1
+			if len(params) > 1 {
+				return nil, fmt.Errorf("previous() accepts zero or one argument")
+			}
+			if len(params) == 1 {
+				parsedDepth, err := parseDepth(params[0])
+				if err != nil {
+					return nil, err
+				}
+				depth = parsedDepth
+			}
+
+			return b.resolvePreviousPayload(depth)
+		}),
+		expr.Function("run", func(params ...any) (any, error) {
+			if len(params) != 0 {
+				return nil, fmt.Errorf("run() takes no arguments")
+			}
+
+			return b.resolveRunPayload()
+		}),
+		expr.Function("app", func(params ...any) (any, error) {
+			if len(params) != 0 {
+				return nil, fmt.Errorf("app() takes no arguments")
+			}
+
+			return b.resolveAppPayload()
+		}),
+		expr.Function("order", noArgExpressionFunc("order", func() (any, error) {
+			return b.resolveOrderPayload(expression)
+		})),
+		expr.Function("task", noArgExpressionFunc("task", func() (any, error) {
+			return b.resolveOrderPayload(expression)
+		})),
+		expr.Function("workspace", func(params ...any) (any, error) {
+			if len(params) != 0 {
+				return nil, fmt.Errorf("workspace() takes no arguments")
+			}
+
+			return b.resolveWorkspacePayload()
+		}),
+	}
+
+	vm, err := expr.Compile(expression, exprOptions...)
+	if err != nil {
+		return "", err
+	}
+
+	output, err := expr.Run(vm, env)
+	if err != nil {
+		return "", fmt.Errorf("expression evaluation failed: %w", err)
+	}
+
+	return output, nil
+}
+
+func (b *NodeConfigurationBuilder) buildMessageChain(referencedNodes []string) (map[string]any, error) {
+	messageChain := map[string]any{}
+	inputMap := extractInputMap(b.input)
+	for key, value := range inputMap {
+		messageChain[key] = value
+	}
+
+	if len(referencedNodes) == 0 {
+		return messageChain, nil
+	}
+
+	// Fetch root event early - needed for both chain resolution and data population
+	rootEvent, err := b.fetchRootEvent()
+	if err != nil {
+		return nil, err
+	}
+
+	// Get execution chain first to help resolve ambiguous names
+	var executionChainNodeIDs []string
+	var executionByNodeID map[string]models.CanvasNodeExecution
+	if b.previousExecutionID != nil {
+		executionsInChain, err := b.listExecutionsInChain()
+		if err != nil {
+			return nil, err
+		}
+
+		//
+		// listExecutionsInChain merges the current execution's linear lineage
+		// (walked via previous_execution_id) with every run-wide execution of
+		// upstream nodes. When the graph has a feedback cycle (e.g. a loop whose
+		// body points back at the loop), an upstream node has one execution per
+		// iteration, so the same name maps to many executions in the run. We must
+		// bind each name to the execution in the *current* lineage; otherwise
+		// expressions like a loop's until-condition would read a stale
+		// iteration's output. So a linear-chain execution always wins over a
+		// run-wide upstream match for the same node.
+		//
+		linearExecutions, err := b.listLinearExecutionsInChain()
+		if err != nil {
+			return nil, err
+		}
+		linearExecutionIDs := make(map[uuid.UUID]struct{}, len(linearExecutions))
+		for _, execution := range linearExecutions {
+			linearExecutionIDs[execution.ID] = struct{}{}
+		}
+
+		executionByNodeID = make(map[string]models.CanvasNodeExecution, len(executionsInChain))
+		for _, execution := range executionsInChain {
+			executionChainNodeIDs = append(executionChainNodeIDs, execution.NodeID)
+
+			if existing, ok := executionByNodeID[execution.NodeID]; ok {
+				_, existingIsLinear := linearExecutionIDs[existing.ID]
+				_, candidateIsLinear := linearExecutionIDs[execution.ID]
+				if existingIsLinear && !candidateIsLinear {
+					continue
+				}
+			}
+			executionByNodeID[execution.NodeID] = execution
+		}
+	}
+
+	// Also include the root event's node (triggers don't create executions)
+	if rootEvent != nil && rootEvent.NodeID != "" {
+		executionChainNodeIDs = append(executionChainNodeIDs, rootEvent.NodeID)
+	}
+
+	nodeRefs, err := b.resolveNodeRefs(referencedNodes, executionChainNodeIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, nodeRef := range nodeRefs.unresolved {
+		messageChain[nodeRef] = nil
+	}
+
+	chainRefs := populateFromInputOrRoot(messageChain, inputMap, rootEvent, nodeRefs.byRef)
+
+	if len(chainRefs) == 0 {
+		b.injectConfigIntoMessageChain(messageChain, nodeRefs.byRef, executionByNodeID)
+		return messageChain, nil
+	}
+
+	if b.previousExecutionID == nil {
+		for nodeRef := range chainRefs {
+			messageChain[nodeRef] = nil
+		}
+
+		b.injectConfigIntoMessageChain(messageChain, nodeRefs.byRef, executionByNodeID)
+		return messageChain, nil
+	}
+
+	err = b.populateFromExecutions(messageChain, chainRefs, executionByNodeID)
+	if err != nil {
+		return nil, err
+	}
+
+	b.injectConfigIntoMessageChain(messageChain, nodeRefs.byRef, executionByNodeID)
+	return messageChain, nil
+}
+
+// BuildExecutionMessageChain returns upstream node payloads keyed by canvas node name.
+// This is the $ object passed to runner JavaScript tasks.
+func (b *NodeConfigurationBuilder) BuildExecutionMessageChain() (map[string]any, error) {
+	nodeIDToName, err := b.nodeIDToNameMap()
+	if err != nil {
+		return nil, err
+	}
+
+	messageChain := map[string]any{}
+	inputMap := extractInputMap(b.input)
+
+	rootEvent, err := b.fetchRootEvent()
+	if err != nil {
+		return nil, err
+	}
+	if rootEvent != nil {
+		if name, ok := nodeIDToName[rootEvent.NodeID]; ok && name != "" {
+			payload := normalizeExpressionValue(rootEvent.Data.Data())
+			if rootEvent.ExecutionID != nil {
+				execution, execErr := models.FindNodeExecutionInTransaction(b.tx, b.workflowID, *rootEvent.ExecutionID)
+				if execErr == nil && execution != nil {
+					payload = injectConfig(payload, execution.Configuration.Data())
+				}
+			}
+			messageChain[name] = payload
+		}
+	}
+
+	executionsInChain, err := b.listExecutionsInChain()
+	if err != nil {
+		return nil, err
+	}
+	if len(executionsInChain) > 0 {
+		linearExecutions, err := b.listLinearExecutionsInChain()
+		if err != nil {
+			return nil, err
+		}
+
+		outputs, err := newExecutionOutputLookup(
+			b.tx,
+			linearExecutions,
+			executionIDsFromExecutions(executionsInChain),
+			b.incomingEventID,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		for i := len(executionsInChain) - 1; i >= 0; i-- {
+			execution := executionsInChain[i]
+			name, ok := nodeIDToName[execution.NodeID]
+			if !ok || name == "" {
+				continue
+			}
+
+			event, found, err := outputs.outputEvent(execution.ID)
+			if err != nil {
+				return nil, err
+			}
+			if !found {
+				continue
+			}
+
+			messageChain[name] = injectConfig(normalizeExpressionValue(event.Data.Data()), execution.Configuration.Data())
+		}
+	}
+
+	for nodeID, value := range inputMap {
+		name, ok := nodeIDToName[nodeID]
+		if !ok || name == "" {
+			continue
+		}
+		messageChain[name] = value
+	}
+
+	return messageChain, nil
+}
+
+func (b *NodeConfigurationBuilder) nodeIDToNameMap() (map[string]string, error) {
+	nodes, err := models.FindCanvasNodesInTransaction(b.tx, b.workflowID)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make(map[string]string, len(nodes))
+	for _, node := range nodes {
+		if node.Name == "" {
+			continue
+		}
+		out[node.NodeID] = node.Name
+	}
+	return out, nil
+}
+
+func (b *NodeConfigurationBuilder) injectConfigIntoMessageChain(
+	messageChain map[string]any,
+	refToNodeID map[string]string,
+	executionByNodeID map[string]models.CanvasNodeExecution,
+) {
+	if len(executionByNodeID) == 0 {
+		return
+	}
+
+	for nodeRef, nodeID := range refToNodeID {
+		execution, ok := executionByNodeID[nodeID]
+		if !ok {
+			continue
+		}
+
+		payload, ok := messageChain[nodeRef]
+		if !ok {
+			continue
+		}
+
+		messageChain[nodeRef] = injectConfig(payload, execution.Configuration.Data())
+	}
+}
+
+func extractInputMap(input any) map[string]any {
+	if inputMap, ok := input.(map[string]any); ok {
+		return inputMap
+	}
+
+	return map[string]any{}
+}
+
+func normalizeExpressionValue(value any) any {
+	normalized, _ := normalizeExpressionValueWithChanged(value)
+	return normalized
+}
+
+func normalizeExpressionValueWithChanged(value any) (any, bool) {
+	switch v := value.(type) {
+	case json.Number:
+		return normalizeJSONNumber(v), true
+	case map[string]any:
+		return normalizeExpressionMap(v)
+	case map[string]string:
+		result := make(map[string]any, len(v))
+		for key, item := range v {
+			result[key] = item
+		}
+		return result, true
+	case []any:
+		return normalizeExpressionSlice(v)
+	default:
+		return v, false
+	}
+}
+
+func normalizeExpressionMap(value map[string]any) (any, bool) {
+	var out map[string]any
+	changed := false
+	for key, item := range value {
+		normalized, itemChanged := normalizeExpressionValueWithChanged(item)
+		if !itemChanged {
+			continue
+		}
+		changed = true
+		if out == nil {
+			out = make(map[string]any, len(value))
+			for k, v := range value {
+				out[k] = v
+			}
+		}
+		out[key] = normalized
+	}
+	if !changed {
+		return value, false
+	}
+	return out, true
+}
+
+func normalizeExpressionSlice(value []any) (any, bool) {
+	var out []any
+	changed := false
+	for i, item := range value {
+		normalized, itemChanged := normalizeExpressionValueWithChanged(item)
+		if !itemChanged {
+			continue
+		}
+		changed = true
+		if out == nil {
+			out = make([]any, len(value))
+			copy(out, value)
+		}
+		out[i] = normalized
+	}
+	if !changed {
+		return value, false
+	}
+	return out, true
+}
+
+func normalizeJSONNumber(value json.Number) any {
+	// Use float64 for all parseable numeric tokens so expression envs match
+	// standard json.Unmarshal (which never produces int/int). Preferring Int64
+	// would make expr perform integer division for int / int operands.
+	if number, err := value.Float64(); err == nil {
+		return number
+	}
+
+	return value
+}
+
+func formatTemplateValue(value any) string {
+	switch v := value.(type) {
+	case nil:
+		return "null"
+	case float32:
+		return strconv.FormatFloat(float64(v), 'f', -1, 32)
+	case float64:
+		return strconv.FormatFloat(v, 'f', -1, 64)
+	default:
+		return fmt.Sprintf("%v", v)
+	}
+}
+
+type resolvedNodeRefs struct {
+	byRef      map[string]string
+	unresolved []string
+}
+
+func (b *NodeConfigurationBuilder) resolveNodeRefs(nodeRefs []string, executionChainNodeIDs []string) (resolvedNodeRefs, error) {
+	nodes, err := models.FindCanvasNodesInTransaction(b.tx, b.workflowID)
+	if err != nil {
+		return resolvedNodeRefs{}, err
+	}
+
+	nameToNodeID := make(map[string]string, len(nodes))
+	ambiguousNames := make(map[string][]string) // name -> list of node IDs with that name
+	for _, node := range nodes {
+		if node.Name == "" {
+			continue
+		}
+
+		if nodeIDs, ok := ambiguousNames[node.Name]; ok {
+			ambiguousNames[node.Name] = append(nodeIDs, node.NodeID)
+			continue
+		}
+
+		if existing, ok := nameToNodeID[node.Name]; ok {
+			if existing != node.NodeID {
+				delete(nameToNodeID, node.Name)
+				ambiguousNames[node.Name] = []string{existing, node.NodeID}
+			}
+			continue
+		}
+
+		nameToNodeID[node.Name] = node.NodeID
+	}
+
+	// Build a map of node ID to its position in the execution chain (lower = closer)
+	executionChainOrder := make(map[string]int, len(executionChainNodeIDs))
+	for i, nodeID := range executionChainNodeIDs {
+		executionChainOrder[nodeID] = i
+	}
+
+	resolved := resolvedNodeRefs{byRef: make(map[string]string, len(nodeRefs))}
+	for _, nodeRef := range nodeRefs {
+		if nodeID, ok := nameToNodeID[nodeRef]; ok {
+			resolved.byRef[nodeRef] = nodeID
+			continue
+		}
+
+		if nodeIDs, ok := ambiguousNames[nodeRef]; ok {
+			// Find the closest node in the execution chain
+			closestNodeID := ""
+			closestOrder := -1
+			for _, nodeID := range nodeIDs {
+				if order, inChain := executionChainOrder[nodeID]; inChain {
+					if closestOrder == -1 || order < closestOrder {
+						closestOrder = order
+						closestNodeID = nodeID
+					}
+				}
+			}
+
+			if closestNodeID != "" {
+				resolved.byRef[nodeRef] = closestNodeID
+				continue
+			}
+
+			return resolvedNodeRefs{}, fmt.Errorf("node name %s is not unique and none of the matching nodes are in the execution chain", nodeRef)
+		}
+
+		resolved.unresolved = append(resolved.unresolved, nodeRef)
+	}
+
+	return resolved, nil
+}
+
+func (b *NodeConfigurationBuilder) fetchRootEvent() (*models.CanvasEvent, error) {
+	if b.rootEventID == nil {
+		return nil, nil
+	}
+
+	rootEvent, err := models.FindCanvasEventInTransaction(b.tx, *b.rootEventID)
+	if err != nil {
+		return nil, err
+	}
+
+	return rootEvent, nil
+}
+
+func (b *NodeConfigurationBuilder) resolveRootPayload() (any, error) {
+	rootEvent, err := b.fetchRootEvent()
+	if err != nil {
+		return nil, err
+	}
+
+	if rootEvent == nil {
+		if b.rootPayload != nil {
+			return b.rootPayload, nil
+		}
+		return nil, fmt.Errorf("no root event found")
+	}
+
+	payload := normalizeExpressionValue(rootEvent.Data.Data())
+
+	if rootEvent.ExecutionID != nil {
+		execution, err := models.FindNodeExecutionInTransaction(b.tx, b.workflowID, *rootEvent.ExecutionID)
+		if err == nil && execution != nil {
+			return injectConfig(payload, execution.Configuration.Data()), nil
+		}
+	}
+
+	return payload, nil
+}
+
+// resolveAppPayload exposes the current app (canvas) to expressions via app().
+// It returns id, name, description, and url for the workflow this node belongs to.
+func (b *NodeConfigurationBuilder) resolveAppPayload() (any, error) {
+	canvas, err := models.FindCanvasWithoutOrgScopeInTransaction(b.tx, b.workflowID)
+	if err != nil {
+		return nil, fmt.Errorf("app() could not resolve the current app: %w", err)
+	}
+
+	return map[string]any{
+		"id":          canvas.ID.String(),
+		"name":        canvas.Name,
+		"description": canvas.Description,
+		"url": fmt.Sprintf(
+			"%s/%s/apps/%s",
+			uiBaseURL(),
+			canvas.OrganizationID.String(),
+			canvas.ID.String(),
+		),
+	}, nil
+}
+
+// resolveWorkspacePayload exposes the factory workspace that owns this app.
+// It is intentionally unavailable for organization apps so expressions cannot
+// infer a workspace outside their execution scope.
+func (b *NodeConfigurationBuilder) resolveWorkspacePayload() (any, error) {
+	canvas, err := models.FindCanvasWithoutOrgScopeInTransaction(b.tx, b.workflowID)
+	if err != nil {
+		return nil, fmt.Errorf("workspace() could not resolve the current app: %w", err)
+	}
+	if canvas.FactoryID == nil {
+		return nil, fmt.Errorf("workspace() is only available in factory apps")
+	}
+
+	factory, err := models.FindFactory(b.tx, canvas.OrganizationID, *canvas.FactoryID)
+	if err != nil {
+		return nil, fmt.Errorf("workspace() could not resolve the current workspace: %w", err)
+	}
+	config := factory.OnboardingConfigValue()
+	return map[string]any{
+		"id":                 factory.ID.String(),
+		"key":                factory.Key,
+		"name":               factory.Name,
+		"repository":         config.AppRepository,
+		"backlog_repository": config.BacklogRepository,
+		"default_branch":     config.DefaultBranch,
+	}, nil
+}
+
+// resolveRunPayload exposes the current run to expressions via run().
+// It returns id, url, and started_at (a time.Time) for the run that the
+// current node belongs to, resolved from the builder's root event.
+func (b *NodeConfigurationBuilder) resolveRunPayload() (any, error) {
+	if b.rootEventID == nil {
+		return nil, fmt.Errorf("run() is not available in this context: no run found")
+	}
+
+	run, err := models.FindCanvasRunByRootEventInTransaction(b.tx, *b.rootEventID)
+	if err != nil {
+		return nil, fmt.Errorf("run() could not resolve the current run: %w", err)
+	}
+
+	payload := map[string]any{
+		"id": run.ID.String(),
+	}
+
+	if run.CreatedAt != nil {
+		payload["started_at"] = *run.CreatedAt
+	}
+
+	url, err := b.buildRunURL(run)
+	if err != nil {
+		return nil, err
+	}
+	payload["url"] = url
+
+	return payload, nil
+}
+
+// resolveOrderPayload exposes the work order driving this run via order()
+// and its task() alias. Returns nil when the run is not attached to a
+// factory work-order execution. The url, key, artifacts, comments,
+// assignees, and spec are loaded only when the expression AST references
+// those fields on order() or task(). Origin is attached whenever the work
+// order has one.
+func (b *NodeConfigurationBuilder) resolveOrderPayload(expression string) (any, error) {
+	if b.rootEventID == nil {
+		return nil, nil
+	}
+
+	run, err := models.FindCanvasRunByRootEventInTransaction(b.tx, *b.rootEventID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("order() could not resolve the current run: %w", err)
+	}
+
+	execution, err := models.FindWorkOrderExecutionByRunID(b.tx, run.ID)
+	if err != nil {
+		if errors.Is(err, models.ErrFactoryWorkOrderExecutionNotFound) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("order() could not resolve the work order execution: %w", err)
+	}
+
+	order, err := models.FindUnscopedWorkOrder(b.tx, execution.WorkOrderID)
+	if err != nil {
+		return nil, fmt.Errorf("order() could not resolve the work order: %w", err)
+	}
+	owningFactory, err := models.FindFactory(b.tx, order.OrganizationID, order.FactoryID)
+	if err != nil {
+		return nil, fmt.Errorf("order() could not resolve the workspace: %w", err)
+	}
+	config := owningFactory.OnboardingConfigValue()
+	repository, defaultBranch, repositoryFromOrder := resolveOrderRepository(order, config)
+	provider := config.EffectiveVCSProvider()
+	if repositoryFromOrder {
+		provider = orderRepositoryProvider(order)
+	}
+	payload := map[string]any{
+		"id":             order.ID.String(),
+		"title":          order.Title,
+		"description":    order.Description,
+		"factory_id":     order.FactoryID.String(),
+		"state":          order.State,
+		"result":         order.Result,
+		"repository":     repository,
+		"repository_url": models.VCSRepositoryCloneURL(provider, repository),
+		"default_branch": defaultBranch,
+		// Keep this compatibility value until stored canvases no longer reference it.
+		"visual_evidence_enabled": false,
+	}
+
+	if err := attachOrderSource(b.tx, order, payload); err != nil {
+		return nil, err
+	}
+	attachOrderOrigin(order, payload)
+	if err := attachOrderFiles(b.tx, order, payload); err != nil {
+		return nil, err
+	}
+
+	usesURL, err := expressionvalidation.ExpressionUsesOrderURL(expression)
+	if err != nil {
+		return nil, fmt.Errorf("order() could not inspect expression: %w", err)
+	}
+	usesKey, err := expressionvalidation.ExpressionUsesOrderKey(expression)
+	if err != nil {
+		return nil, fmt.Errorf("order() could not inspect expression: %w", err)
+	}
+	if usesURL {
+		payload["url"] = uiBaseURL() + order.URLPath(owningFactory.RouteSegment())
+	}
+	if usesKey {
+		payload["key"] = owningFactory.WorkOrderKey(order.Number)
+	}
+
+	usesArtifacts, err := expressionvalidation.ExpressionUsesOrderArtifacts(expression)
+	if err != nil {
+		return nil, fmt.Errorf("order() could not inspect expression: %w", err)
+	}
+	if usesArtifacts {
+		artifacts, err := order.ListArtifacts(b.tx)
+		if err != nil {
+			return nil, fmt.Errorf("order() could not load artifacts: %w", err)
+		}
+
+		artifactPayloads := make([]any, 0, len(artifacts))
+		for i := range artifacts {
+			item, err := artifactExpressionPayload(&artifacts[i])
+			if err != nil {
+				return nil, err
+			}
+			artifactPayloads = append(artifactPayloads, item)
+		}
+		payload["artifacts"] = artifactPayloads
+	}
+
+	usesComments, err := expressionvalidation.ExpressionUsesOrderComments(expression)
+	if err != nil {
+		return nil, fmt.Errorf("order() could not inspect expression: %w", err)
+	}
+	if usesComments {
+		comments, err := order.ListComments(b.tx)
+		if err != nil {
+			return nil, fmt.Errorf("order() could not load comments: %w", err)
+		}
+
+		commentPayloads := make([]any, 0, len(comments))
+		for i := range comments {
+			item, err := commentExpressionPayload(&comments[i])
+			if err != nil {
+				return nil, err
+			}
+			commentPayloads = append(commentPayloads, item)
+		}
+		payload["comments"] = commentPayloads
+	}
+
+	usesPullRequests, err := expressionvalidation.ExpressionUsesOrderPullRequests(expression)
+	if err != nil {
+		return nil, fmt.Errorf("order() could not inspect expression: %w", err)
+	}
+	if usesPullRequests {
+		pullRequests, err := owningFactory.ListPullRequests(b.tx, models.FactoryPullRequestFilter{WorkOrderID: &order.ID})
+		if err != nil {
+			return nil, fmt.Errorf("order() could not load pull requests: %w", err)
+		}
+
+		payloads := make([]any, 0, len(pullRequests))
+		for i := range pullRequests {
+			payloads = append(payloads, pullRequestExpressionPayload(&pullRequests[i]))
+		}
+		payload["pullRequests"] = payloads
+	}
+
+	usesAssignees, err := expressionvalidation.ExpressionUsesOrderAssignees(expression)
+	if err != nil {
+		return nil, fmt.Errorf("order() could not inspect expression: %w", err)
+	}
+	if usesAssignees {
+		assignees, err := order.ListAssignees(b.tx)
+		if err != nil {
+			return nil, fmt.Errorf("order() could not load assignees: %w", err)
+		}
+
+		assigneePayloads := make([]any, 0, len(assignees))
+		for i := range assignees {
+			assigneePayloads = append(assigneePayloads, assigneeExpressionPayload(&assignees[i]))
+		}
+		payload["assignees"] = assigneePayloads
+	}
+
+	usesSpec, err := expressionvalidation.ExpressionUsesOrderSpec(expression)
+	if err != nil {
+		return nil, fmt.Errorf("order() could not inspect expression: %w", err)
+	}
+	if usesSpec {
+		spec, err := b.resolveOrderSpec(order)
+		if err != nil {
+			return nil, err
+		}
+		payload["spec"] = spec
+	}
+
+	return payload, nil
+}
+
+func (b *NodeConfigurationBuilder) resolveOrderSpec(order *models.FactoryWorkOrder) (string, error) {
+	artifact, err := order.FindArtifactByKey(b.tx, models.PlanningSpecArtifactKey+":"+order.ID.String())
+	if errors.Is(err, models.ErrFactoryWorkOrderArtifactNotFound) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("order() could not load the refinement spec: %w", err)
+	}
+	return planningSpecArtifactBody(artifact), nil
+}
+
+func planningSpecArtifactBody(artifact *models.FactoryWorkOrderArtifact) string {
+	if artifact == nil || artifact.Type != models.FactoryWorkOrderArtifactTypeMarkdown {
+		return ""
+	}
+	var data map[string]any
+	if err := json.Unmarshal(artifact.Data, &data); err != nil {
+		return ""
+	}
+	body, _ := data["body"].(string)
+	return strings.TrimSpace(body)
+}
+
+func attachOrderFiles(tx *gorm.DB, order *models.FactoryWorkOrder, payload map[string]any) error {
+	_, files, err := storedfiles.DescriptionForDispatch(
+		context.Background(),
+		tx,
+		blob.Current(),
+		order.OrganizationID,
+		order.FactoryID,
+		order.ID,
+		order.Description,
+		blob.DispatchDownloadTTL(0),
+	)
+	if err != nil {
+		return fmt.Errorf("order() could not mint a file URL: %w", err)
+	}
+	// Local runner containers cannot fetch localhost file URLs. A remote
+	// broker skips this rewrite; public hosts stay unchanged.
+	_, files = runner.RewriteLoopbackTaskFileURLs("", files)
+
+	filePayloads := make([]any, 0, len(files))
+	for _, file := range files {
+		filePayloads = append(filePayloads, file.Map())
+	}
+	payload["files"] = filePayloads
+	return nil
+}
+
+// resolveOrderRepository keeps orders created before repository snapshots
+// compatible with workflow templates that use order().repository.
+func resolveOrderRepository(order *models.FactoryWorkOrder, config models.FactoryOnboardingConfig) (string, string, bool) {
+	repository := stringValue(order.Repository)
+	defaultBranch := stringValue(order.DefaultBranch)
+	if repository != "" && defaultBranch != "" {
+		return repository, defaultBranch, true
+	}
+
+	// Repository and branch are one snapshot. Do not combine a saved value
+	// with current workspace settings when a legacy row contains only one.
+	repository = config.AppRepository
+	defaultBranch = config.DefaultBranch
+	if defaultBranch == "" {
+		defaultBranch = "main"
+	}
+
+	return repository, defaultBranch, false
+}
+
+func attachOrderOrigin(order *models.FactoryWorkOrder, payload map[string]any) {
+	origin := order.Origin()
+	if origin == nil {
+		return
+	}
+
+	item := map[string]any{"url": origin.URL}
+	if origin.Label != "" {
+		item["label"] = origin.Label
+	}
+	payload["origin"] = item
+}
+
+func attachOrderSource(tx *gorm.DB, order *models.FactoryWorkOrder, payload map[string]any) error {
+	if order.SourceRunID == nil {
+		return nil
+	}
+
+	rootEvent, err := models.FindRootEventForRun(tx, *order.SourceRunID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil
+		}
+		return fmt.Errorf("order() could not resolve source: %w", err)
+	}
+	if rootEvent == nil {
+		return nil
+	}
+
+	if source := models.RootEventSourcePayload(rootEvent.Data.Data()); source != nil {
+		payload["source"] = normalizeExpressionValue(source)
+	}
+	return nil
+}
+
+func assigneeExpressionPayload(assignee *models.FactoryWorkOrderAssignee) map[string]any {
+	payload := map[string]any{
+		"id":    assignee.UserID.String(),
+		"name":  "",
+		"email": "",
+	}
+	if assignee.User != nil {
+		payload["name"] = assignee.User.Name
+		payload["email"] = assignee.User.GetEmail()
+	}
+	return payload
+}
+
+func artifactExpressionPayload(artifact *models.FactoryWorkOrderArtifact) (map[string]any, error) {
+	data := map[string]any{}
+	if len(artifact.Data) > 0 {
+		if err := json.Unmarshal(artifact.Data, &data); err != nil {
+			return nil, fmt.Errorf("order() could not decode artifact data: %w", err)
+		}
+	}
+
+	return map[string]any{
+		"id":   artifact.ID.String(),
+		"type": artifact.Type,
+		"data": normalizeExpressionValue(data),
+	}, nil
+}
+
+func pullRequestExpressionPayload(pullRequest *models.FactoryPullRequest) map[string]any {
+	payload := map[string]any{
+		"id":          pullRequest.ID.String(),
+		"workOrderId": pullRequest.WorkOrderID.String(),
+		"provider":    pullRequest.Provider,
+		"repository":  pullRequest.Repository,
+		"number":      pullRequest.Number,
+		"url":         pullRequest.URL,
+		"title":       pullRequest.Title,
+		"state":       pullRequest.State,
+	}
+	if pullRequest.ExternalID != nil {
+		payload["externalId"] = *pullRequest.ExternalID
+	}
+	return payload
+}
+
+func commentExpressionPayload(comment *models.FactoryWorkOrderComment) (map[string]any, error) {
+	author := comment.Author()
+	payload := map[string]any{
+		"id":         comment.ID.String(),
+		"body":       comment.Body,
+		"created_at": comment.CreatedAt,
+		"author":     commentAuthorExpressionPayload(&author),
+	}
+
+	if run := comment.RunRef(); run != nil {
+		payload["run"] = map[string]any{"id": run.ID.String()}
+	}
+
+	return normalizeExpressionValue(payload).(map[string]any), nil
+}
+
+func commentAuthorExpressionPayload(author *factory.WorkOrderCommentAuthor) map[string]any {
+	authorPayload := map[string]any{
+		"kind": author.Kind,
+	}
+
+	if author.UserID != nil {
+		authorPayload["user_id"] = *author.UserID
+	}
+
+	if automation := author.Automation; automation != nil {
+		automationPayload := map[string]any{}
+		if automation.NodeID != "" {
+			automationPayload["node_id"] = automation.NodeID
+		}
+		if automation.NodeName != "" {
+			automationPayload["node_name"] = automation.NodeName
+		}
+		if automation.AppID != uuid.Nil {
+			automationPayload["app_id"] = automation.AppID.String()
+		}
+		if automation.AppName != "" {
+			automationPayload["app_name"] = automation.AppName
+		}
+		if automation.LineID != uuid.Nil {
+			automationPayload["line_id"] = automation.LineID.String()
+		}
+		if automation.LineName != "" {
+			automationPayload["line_name"] = automation.LineName
+		}
+		if automation.StepIndex != nil {
+			automationPayload["step_index"] = *automation.StepIndex
+		}
+		if automation.StepName != "" {
+			automationPayload["step_name"] = automation.StepName
+		}
+		authorPayload["automation"] = automationPayload
+	}
+
+	return authorPayload
+}
+
+func (b *NodeConfigurationBuilder) buildRunURL(run *models.CanvasRun) (string, error) {
+	canvas, err := models.FindCanvasWithoutOrgScopeInTransaction(b.tx, b.workflowID)
+	if err != nil {
+		return "", fmt.Errorf("run() could not resolve the organization for the run: %w", err)
+	}
+
+	return fmt.Sprintf(
+		"%s/%s/apps/%s?run=%s",
+		uiBaseURL(),
+		canvas.OrganizationID.String(),
+		b.workflowID.String(),
+		run.ID.String(),
+	), nil
+}
+
+// uiBaseURL mirrors the server's base URL resolution so app()/run() URLs
+// point at the SuperPlane UI both in production (BASE_URL) and local development.
+func uiBaseURL() string {
+	baseURL := os.Getenv("BASE_URL")
+	if baseURL != "" {
+		return baseURL
+	}
+
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8000"
+	}
+
+	return fmt.Sprintf("http://localhost:%s", port)
+}
+
+func populateFromInputOrRoot(messageChain map[string]any, inputMap map[string]any, rootEvent *models.CanvasEvent, refToNodeID map[string]string) map[string]string {
+	chainRefs := make(map[string]string, len(refToNodeID))
+	for nodeRef, nodeID := range refToNodeID {
+		if value, ok := inputMap[nodeID]; ok {
+			if _, exists := messageChain[nodeRef]; !exists {
+				messageChain[nodeRef] = value
+			}
+			continue
+		}
+
+		if rootEvent != nil && rootEvent.NodeID == nodeID {
+			if _, exists := messageChain[nodeRef]; !exists {
+				messageChain[nodeRef] = normalizeExpressionValue(rootEvent.Data.Data())
+			}
+			continue
+		}
+
+		chainRefs[nodeRef] = nodeID
+	}
+
+	return chainRefs
+}
+
+// injectConfig merges config into payload. payload must already be normalized; configData is normalized here.
+func injectConfig(payload any, configData map[string]any) any {
+	if len(configData) == 0 {
+		return payload
+	}
+
+	payloadMap, ok := payload.(map[string]any)
+	if !ok {
+		return payload
+	}
+
+	if _, exists := payloadMap["config"]; exists {
+		return payload
+	}
+
+	withConfig := make(map[string]any, len(payloadMap)+1)
+	for key, value := range payloadMap {
+		withConfig[key] = value
+	}
+	withConfig["config"] = normalizeExpressionValue(configData)
+	return withConfig
+}
+
+func (b *NodeConfigurationBuilder) populateFromExecutions(
+	messageChain map[string]any,
+	chainRefs map[string]string,
+	executionByNode map[string]models.CanvasNodeExecution,
+) error {
+	if len(executionByNode) == 0 {
+		executionsInChain, err := b.listExecutionsInChain()
+		if err != nil {
+			return err
+		}
+
+		executionByNode = make(map[string]models.CanvasNodeExecution, len(executionsInChain))
+		for _, execution := range executionsInChain {
+			executionByNode[execution.NodeID] = execution
+		}
+	}
+
+	executionIDs := make([]uuid.UUID, 0, len(chainRefs))
+	executionIDByRef := make(map[string]uuid.UUID, len(chainRefs))
+	for nodeRef, nodeID := range chainRefs {
+		execution, ok := executionByNode[nodeID]
+		if !ok {
+			messageChain[nodeRef] = nil
+			continue
+		}
+		executionIDs = append(executionIDs, execution.ID)
+		executionIDByRef[nodeRef] = execution.ID
+	}
+
+	chainExecutions, err := b.listLinearExecutionsInChain()
+	if err != nil {
+		return err
+	}
+
+	referencedExecutionIDs := make([]uuid.UUID, 0, len(executionIDByRef))
+	for _, executionID := range executionIDByRef {
+		referencedExecutionIDs = append(referencedExecutionIDs, executionID)
+	}
+
+	outputs, err := newExecutionOutputLookup(
+		b.tx,
+		chainExecutions,
+		unionExecutionIDs(referencedExecutionIDs, executionIDsFromExecutions(chainExecutions)),
+		b.incomingEventID,
+	)
+	if err != nil {
+		return err
+	}
+
+	for nodeRef, executionID := range executionIDByRef {
+		event, ok, err := outputs.outputEvent(executionID)
+		if err != nil {
+			return fmt.Errorf("node %s: %w", nodeRef, err)
+		}
+		if !ok {
+			messageChain[nodeRef] = nil
+			continue
+		}
+
+		messageChain[nodeRef] = normalizeExpressionValue(event.Data.Data())
+	}
+
+	return nil
+}
+
+var reservedExpressionIdentifiers = map[string]struct{}{
+	"$":         {},
+	"memory":    {},
+	"config":    {},
+	"root":      {},
+	"previous":  {},
+	"run":       {},
+	"app":       {},
+	"order":     {},
+	"task":      {},
+	"workspace": {},
+	"ctx":       {},
+}
+
+func isReservedExpressionIdentifier(name string) bool {
+	_, ok := reservedExpressionIdentifiers[name]
+	return ok
+}
+
+func noArgExpressionFunc(name string, resolve func() (any, error)) func(params ...any) (any, error) {
+	return func(params ...any) (any, error) {
+		if len(params) != 0 {
+			return nil, fmt.Errorf("%s() takes no arguments", name)
+		}
+		return resolve()
+	}
+}
+
+func stringValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
+}
+
+func parseDepth(param any) (int, error) {
+	switch value := param.(type) {
+	case int:
+		if value < 1 {
+			return 0, fmt.Errorf("depth must be >= 1")
+		}
+		return value, nil
+	case int64:
+		if value < 1 {
+			return 0, fmt.Errorf("depth must be >= 1")
+		}
+		return int(value), nil
+	case float64:
+		parsed := int(value)
+		if value != float64(parsed) {
+			return 0, fmt.Errorf("depth must be an integer")
+		}
+		if parsed < 1 {
+			return 0, fmt.Errorf("depth must be >= 1")
+		}
+		return parsed, nil
+	case json.Number:
+		parsed, err := value.Int64()
+		if err != nil {
+			return 0, fmt.Errorf("depth must be an integer")
+		}
+		if parsed < 1 {
+			return 0, fmt.Errorf("depth must be >= 1")
+		}
+		return int(parsed), nil
+	default:
+		return 0, fmt.Errorf("depth must be an integer")
+	}
+}
+
+func (b *NodeConfigurationBuilder) resolvePreviousPayload(depth int) (any, error) {
+	if depth < 1 {
+		return nil, fmt.Errorf("depth must be >= 1")
+	}
+
+	inputPayload, hasInput, err := b.singleInputPayload()
+	if err != nil {
+		return nil, err
+	}
+	step := 0
+	var currentOutput currentOutputRef
+	if hasInput {
+		step++
+		currentOutput = b.currentInputOutputRef()
+		if step >= depth && inputPayload != nil {
+			return b.injectConfigFromPreviousExecution(inputPayload), nil
+		}
+	}
+
+	if !hasInput {
+		incomingPayload, ok, err := b.incomingEventPayload()
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			step++
+			currentOutput = currentOutputRef{eventID: b.incomingEventID}
+			if step >= depth {
+				return incomingPayload, nil
+			}
+		}
+	}
+
+	payloads, err := b.latestDirectUpstreamOutputPayloads()
+	if err != nil {
+		return nil, err
+	}
+	for _, payload := range payloads {
+		if currentOutput.matches(payload.event) {
+			continue
+		}
+		step++
+		if step >= depth {
+			return payload.data, nil
+		}
+	}
+
+	step, payload, err := b.resolveFromExecutions(depth, step, step > 0)
+	if err != nil {
+		return nil, err
+	}
+	if payload != nil {
+		return payload, nil
+	}
+
+	return b.resolveFromRoot(depth, step)
+}
+
+func (b *NodeConfigurationBuilder) incomingEventPayload() (any, bool, error) {
+	if b.incomingEventID == nil {
+		return nil, false, nil
+	}
+
+	event, err := models.FindCanvasEventInTransaction(b.tx, *b.incomingEventID)
+	if err != nil {
+		return nil, false, err
+	}
+
+	return b.payloadFromEvent(*event), true, nil
+}
+
+type canvasEventPayload struct {
+	event models.CanvasEvent
+	data  any
+}
+
+type currentOutputRef struct {
+	eventID     *uuid.UUID
+	executionID *uuid.UUID
+}
+
+func (b *NodeConfigurationBuilder) currentInputOutputRef() currentOutputRef {
+	if b.incomingEventID != nil {
+		return currentOutputRef{eventID: b.incomingEventID}
+	}
+
+	return currentOutputRef{executionID: b.previousExecutionID}
+}
+
+func (r currentOutputRef) matches(event models.CanvasEvent) bool {
+	if r.eventID != nil {
+		return event.ID == *r.eventID
+	}
+
+	return r.executionID != nil && event.ExecutionID != nil && *event.ExecutionID == *r.executionID
+}
+
+func (b *NodeConfigurationBuilder) latestDirectUpstreamOutputPayloads() ([]canvasEventPayload, error) {
+	if b.nodeID == "" || b.rootEventID == nil {
+		return nil, nil
+	}
+
+	directExecutions, err := b.listDirectUpstreamExecutions()
+	if err != nil {
+		return nil, err
+	}
+	if len(directExecutions) == 0 {
+		return nil, nil
+	}
+
+	linearExecutions, err := b.listLinearExecutionsInChain()
+	if err != nil {
+		return nil, err
+	}
+	executions := selectCurrentExecutionsByNode(directExecutions, linearExecutions)
+
+	outputs, err := newExecutionOutputLookup(
+		b.tx,
+		linearExecutions,
+		executionIDsFromExecutions(executions),
+		b.incomingEventID,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	payloads := make([]canvasEventPayload, 0, len(executions))
+	for _, execution := range executions {
+		event, ok, err := outputs.outputEvent(execution.ID)
+		if err != nil {
+			return nil, fmt.Errorf("node %s: %w", execution.NodeID, err)
+		}
+		if !ok {
+			continue
+		}
+
+		payloads = append(payloads, canvasEventPayload{
+			event: event,
+			data:  injectConfig(normalizeExpressionValue(event.Data.Data()), execution.Configuration.Data()),
+		})
+	}
+	sort.Slice(payloads, func(i, j int) bool {
+		return canvasEventAfter(payloads[i].event, payloads[j].event)
+	})
+
+	return payloads, nil
+}
+
+func selectCurrentExecutionsByNode(
+	executions []models.CanvasNodeExecution,
+	linearExecutions []models.CanvasNodeExecution,
+) []models.CanvasNodeExecution {
+	linearByNode := make(map[string]models.CanvasNodeExecution, len(linearExecutions))
+	for _, execution := range linearExecutions {
+		if _, exists := linearByNode[execution.NodeID]; exists {
+			continue
+		}
+		linearByNode[execution.NodeID] = execution
+	}
+
+	selectedByNode := make(map[string]models.CanvasNodeExecution, len(executions))
+	for _, execution := range executions {
+		if linear, ok := linearByNode[execution.NodeID]; ok {
+			selectedByNode[execution.NodeID] = linear
+			continue
+		}
+
+		selected, exists := selectedByNode[execution.NodeID]
+		if !exists || executionCreatedAfter(execution, selected) {
+			selectedByNode[execution.NodeID] = execution
+		}
+	}
+
+	selected := make([]models.CanvasNodeExecution, 0, len(selectedByNode))
+	for _, execution := range selectedByNode {
+		selected = append(selected, execution)
+	}
+	return selected
+}
+
+func executionCreatedAfter(left models.CanvasNodeExecution, right models.CanvasNodeExecution) bool {
+	if left.CreatedAt == nil && right.CreatedAt == nil {
+		return left.ID.String() > right.ID.String()
+	}
+	if left.CreatedAt == nil {
+		return false
+	}
+	if right.CreatedAt == nil {
+		return true
+	}
+	if left.CreatedAt.Equal(*right.CreatedAt) {
+		return left.ID.String() > right.ID.String()
+	}
+	return left.CreatedAt.After(*right.CreatedAt)
+}
+
+func canvasEventAfter(left models.CanvasEvent, right models.CanvasEvent) bool {
+	if left.CreatedAt == nil && right.CreatedAt == nil {
+		return left.ID.String() > right.ID.String()
+	}
+	if left.CreatedAt == nil {
+		return false
+	}
+	if right.CreatedAt == nil {
+		return true
+	}
+	if left.CreatedAt.Equal(*right.CreatedAt) {
+		return left.ID.String() > right.ID.String()
+	}
+	return left.CreatedAt.After(*right.CreatedAt)
+}
+
+func (b *NodeConfigurationBuilder) payloadFromEvent(event models.CanvasEvent) any {
+	payload := normalizeExpressionValue(event.Data.Data())
+	if event.ExecutionID == nil {
+		return payload
+	}
+
+	execution, err := models.FindNodeExecutionInTransaction(b.tx, b.workflowID, *event.ExecutionID)
+	if err != nil || execution == nil {
+		return payload
+	}
+
+	return injectConfig(payload, execution.Configuration.Data())
+}
+
+func (b *NodeConfigurationBuilder) injectConfigFromPreviousExecution(payload any) any {
+	if b.previousExecutionID == nil {
+		return payload
+	}
+
+	execution, err := models.FindNodeExecutionInTransaction(b.tx, b.workflowID, *b.previousExecutionID)
+	if err != nil || execution == nil {
+		return payload
+	}
+
+	return injectConfig(payload, execution.Configuration.Data())
+}
+
+func (b *NodeConfigurationBuilder) resolveFromExecutions(depth int, step int, hasCurrentPayload bool) (int, any, error) {
+	if b.previousExecutionID == nil {
+		return step, nil, nil
+	}
+
+	executionsInChain, err := b.listLinearExecutionsInChain()
+	if err != nil {
+		return step, nil, err
+	}
+	if len(executionsInChain) == 0 {
+		return step, nil, nil
+	}
+
+	startIndex := 0
+	if hasCurrentPayload {
+		startIndex = 1
+	}
+
+	outputs, err := newExecutionOutputLookup(
+		b.tx,
+		executionsInChain,
+		executionIDsFromExecutions(executionsInChain),
+		b.incomingEventID,
+	)
+	if err != nil {
+		return step, nil, err
+	}
+
+	for _, execution := range executionsInChain[startIndex:] {
+		step++
+		if step < depth {
+			continue
+		}
+
+		event, ok, err := outputs.outputEvent(execution.ID)
+		if err != nil {
+			return step, nil, err
+		}
+		if !ok {
+			continue
+		}
+
+		if payload := event.Data.Data(); payload != nil {
+			return step, injectConfig(normalizeExpressionValue(payload), execution.Configuration.Data()), nil
+		}
+	}
+
+	return step, nil, nil
+}
+
+func (b *NodeConfigurationBuilder) resolveFromRoot(depth int, step int) (any, error) {
+	rootEvent, err := b.fetchRootEvent()
+	if err != nil {
+		return nil, err
+	}
+	if rootEvent == nil {
+		return nil, nil
+	}
+
+	step++
+	if step < depth {
+		return nil, nil
+	}
+
+	if payload := rootEvent.Data.Data(); payload != nil {
+		payload = normalizeExpressionValue(payload)
+		if rootEvent.ExecutionID != nil {
+			execution, err := models.FindNodeExecutionInTransaction(b.tx, b.workflowID, *rootEvent.ExecutionID)
+			if err == nil && execution != nil {
+				return injectConfig(payload, execution.Configuration.Data()), nil
+			}
+		}
+
+		return payload, nil
+	}
+
+	return nil, nil
+}
+
+func (b *NodeConfigurationBuilder) buildMemoryExpressionNamespace() map[string]any {
+	return map[string]any{
+		"find": func(params ...any) (any, error) {
+			namespace, matches, err := parseMemoryFindParams(params)
+			if err != nil {
+				return nil, err
+			}
+
+			records, err := models.ListCanvasMemoriesByNamespaceAndMatchesInTransaction(b.tx, b.workflowID, namespace, matches)
+			if err != nil {
+				return nil, err
+			}
+
+			values := make([]any, 0, len(records))
+			for _, record := range records {
+				values = append(values, normalizeExpressionValue(record.Values.Data()))
+			}
+
+			return values, nil
+		},
+		"findFirst": func(params ...any) (any, error) {
+			namespace, matches, err := parseMemoryFindParams(params)
+			if err != nil {
+				return nil, err
+			}
+
+			record, err := models.FindFirstCanvasMemoryByNamespaceAndMatchesInTransaction(b.tx, b.workflowID, namespace, matches)
+			if err != nil {
+				return nil, err
+			}
+			if record != nil {
+				return normalizeExpressionValue(record.Values.Data()), nil
+			}
+
+			return nil, nil
+		},
+	}
+}
+
+func parseMemoryFindParams(params []any) (string, map[string]any, error) {
+	if len(params) == 0 || len(params) > 2 {
+		return "", nil, fmt.Errorf("memory.find() and memory.findFirst() require a namespace and matches")
+	}
+
+	namespace, ok := params[0].(string)
+	if !ok {
+		return "", nil, fmt.Errorf("memory namespace must be a string")
+	}
+
+	namespace = strings.TrimSpace(namespace)
+	if namespace == "" {
+		return "", nil, fmt.Errorf("memory namespace is required")
+	}
+
+	if len(params) == 1 {
+		return namespace, nil, fmt.Errorf("at least one match expression is required")
+	}
+
+	matches, ok := params[1].(map[string]any)
+	if !ok {
+		return "", nil, fmt.Errorf("match expression must be an object")
+	}
+
+	return namespace, matches, nil
+}
+
+func (b *NodeConfigurationBuilder) singleInputPayload() (any, bool, error) {
+	inputMap := extractInputMap(b.input)
+	if len(inputMap) == 0 {
+		return nil, false, nil
+	}
+	if len(inputMap) > 1 {
+		return nil, false, fmt.Errorf("previous() is not available when multiple inputs are present")
+	}
+
+	for _, value := range inputMap {
+		return value, true, nil
+	}
+
+	return nil, false, nil
+}
+
+func (b *NodeConfigurationBuilder) listExecutionsInChain() ([]models.CanvasNodeExecution, error) {
+	executions, err := b.listLinearExecutionsInChain()
+	if err != nil {
+		return nil, err
+	}
+
+	if b.nodeID == "" || b.rootEventID == nil {
+		return executions, nil
+	}
+
+	upstreamNodeIDs, err := b.listUpstreamNodeIDs()
+	if err != nil {
+		return nil, err
+	}
+	if len(upstreamNodeIDs) == 0 {
+		return executions, nil
+	}
+
+	var upstreamExecutions []models.CanvasNodeExecution
+	err = b.tx.
+		Where("workflow_id = ? AND root_event_id = ? AND node_id IN ?", b.workflowID, *b.rootEventID, upstreamNodeIDs).
+		Find(&upstreamExecutions).
+		Error
+	if err != nil {
+		return nil, err
+	}
+
+	executionByID := make(map[uuid.UUID]models.CanvasNodeExecution, len(executions)+len(upstreamExecutions))
+	for _, execution := range executions {
+		executionByID[execution.ID] = execution
+	}
+	for _, execution := range upstreamExecutions {
+		executionByID[execution.ID] = execution
+	}
+
+	combined := make([]models.CanvasNodeExecution, 0, len(executionByID))
+	for _, execution := range executionByID {
+		combined = append(combined, execution)
+	}
+	sort.Slice(combined, func(i, j int) bool {
+		left := combined[i].CreatedAt
+		right := combined[j].CreatedAt
+		if left == nil && right == nil {
+			return combined[i].ID.String() > combined[j].ID.String()
+		}
+		if left == nil {
+			return false
+		}
+		if right == nil {
+			return true
+		}
+		if left.Equal(*right) {
+			return combined[i].ID.String() > combined[j].ID.String()
+		}
+		return left.After(*right)
+	})
+
+	return combined, nil
+}
+
+func (b *NodeConfigurationBuilder) listLinearExecutionsInChain() ([]models.CanvasNodeExecution, error) {
+	if b.previousExecutionID == nil {
+		return nil, nil
+	}
+
+	var executions []models.CanvasNodeExecution
+
+	err := b.tx.Raw(`
+		WITH RECURSIVE execution_chain AS (
+			SELECT
+				id,
+				workflow_id,
+				node_id,
+				root_event_id,
+				event_id,
+				previous_execution_id,
+				state,
+				result,
+				result_reason,
+				result_message,
+				metadata,
+				configuration,
+				created_at,
+				updated_at
+			FROM workflow_node_executions
+			WHERE id = ? AND workflow_id = ?
+
+			UNION ALL
+
+			-- Recursive case: Get the previous execution
+			SELECT
+				wne.id,
+				wne.workflow_id,
+				wne.node_id,
+				wne.root_event_id,
+				wne.event_id,
+				wne.previous_execution_id,
+				wne.state,
+				wne.result,
+				wne.result_reason,
+				wne.result_message,
+				wne.metadata,
+				wne.configuration,
+				wne.created_at,
+				wne.updated_at
+			FROM workflow_node_executions wne
+			INNER JOIN execution_chain ec ON wne.id = ec.previous_execution_id
+			WHERE wne.workflow_id = ?
+		)
+		SELECT *
+		FROM execution_chain
+		ORDER BY created_at DESC;
+	`, b.previousExecutionID, b.workflowID, b.workflowID).Scan(&executions).Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	return executions, nil
+}
+
+func (b *NodeConfigurationBuilder) listUpstreamNodeIDs() ([]string, error) {
+	if b.nodeID == "" {
+		return nil, nil
+	}
+
+	canvas, err := models.FindCanvasWithoutOrgScopeInTransaction(b.tx, b.workflowID)
+	if err != nil {
+		return nil, err
+	}
+
+	_, liveEdges, err := models.FindLiveCanvasSpecInTransaction(b.tx, canvas.ID)
+	if err != nil {
+		return nil, err
+	}
+	if len(liveEdges) == 0 {
+		return nil, nil
+	}
+
+	incoming := make(map[string][]string, len(liveEdges))
+	for _, edge := range liveEdges {
+		incoming[edge.TargetID] = append(incoming[edge.TargetID], edge.SourceID)
+	}
+
+	seen := map[string]struct{}{}
+	queue := []string{b.nodeID}
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+
+		for _, source := range incoming[current] {
+			if _, exists := seen[source]; exists {
+				continue
+			}
+			seen[source] = struct{}{}
+			queue = append(queue, source)
+		}
+	}
+
+	ids := make([]string, 0, len(seen))
+	for nodeID := range seen {
+		ids = append(ids, nodeID)
+	}
+	sort.Strings(ids)
+	return ids, nil
+}
+
+func (b *NodeConfigurationBuilder) listDirectSourceNodeIDs() ([]string, error) {
+	if b.nodeID == "" {
+		return nil, nil
+	}
+
+	canvas, err := models.FindCanvasWithoutOrgScopeInTransaction(b.tx, b.workflowID)
+	if err != nil {
+		return nil, err
+	}
+
+	_, liveEdges, err := models.FindLiveCanvasSpecInTransaction(b.tx, canvas.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	seen := map[string]struct{}{}
+	ids := []string{}
+	for _, edge := range liveEdges {
+		if edge.TargetID != b.nodeID {
+			continue
+		}
+		if _, exists := seen[edge.SourceID]; exists {
+			continue
+		}
+		seen[edge.SourceID] = struct{}{}
+		ids = append(ids, edge.SourceID)
+	}
+
+	return ids, nil
+}
+
+func (b *NodeConfigurationBuilder) listDirectUpstreamExecutions() ([]models.CanvasNodeExecution, error) {
+	if b.rootEventID == nil {
+		return nil, nil
+	}
+
+	sourceIDs, err := b.listDirectSourceNodeIDs()
+	if err != nil {
+		return nil, err
+	}
+	if len(sourceIDs) == 0 {
+		return nil, nil
+	}
+
+	var executions []models.CanvasNodeExecution
+	err = b.tx.
+		Where("workflow_id = ? AND root_event_id = ? AND node_id IN ?", b.workflowID, *b.rootEventID, sourceIDs).
+		Find(&executions).
+		Error
+	if err != nil {
+		return nil, err
+	}
+
+	return executions, nil
+}
+
+func (b *NodeConfigurationBuilder) applyLineDispatchOverrides(resolved map[string]any) (map[string]any, error) {
+	dispatch, err := b.lineDispatch()
+	if err != nil || dispatch == nil {
+		return resolved, err
+	}
+	resolved, err = b.applyLineDispatchModel(resolved, dispatch)
+	if err != nil {
+		return resolved, err
+	}
+	return applyLineDispatchThinking(resolved, dispatch.ThinkingLevel), nil
+}
+
+func (b *NodeConfigurationBuilder) applyLineDispatchModel(
+	resolved map[string]any,
+	dispatch *models.FactoryWorkOrderLineDispatch,
+) (map[string]any, error) {
+	override := strings.TrimSpace(dispatch.Model)
+	if override == "" {
+		return resolved, nil
+	}
+
+	ok, err := b.nodeAcceptsDispatchModel(resolved, override)
+	if err != nil || !ok {
+		return resolved, err
+	}
+
+	resolved["model"] = override
+	return resolved, nil
+}
+
+func (b *NodeConfigurationBuilder) replaceClaudeModelAlias(resolved map[string]any) (map[string]any, error) {
+	model, _ := resolved["model"].(string)
+	if !models.IsClaudeFamilyAlias(model) {
+		return resolved, nil
+	}
+	candidates, err := b.claudeAliasCandidates(resolved)
+	if err != nil {
+		return nil, err
+	}
+	resolved["model"] = models.ConcreteClaudeModelID(model, candidates)
+	return resolved, nil
+}
+
+// claudeAliasCandidates lists models the executing node can run.
+// A Claude alias must not resolve to a model from another provider or funding source.
+func (b *NodeConfigurationBuilder) claudeAliasCandidates(resolved map[string]any) ([]string, error) {
+	if b.tx == nil || b.workflowID == uuid.Nil || b.nodeID == "" {
+		return nil, nil
+	}
+	node, err := models.FindCanvasNode(b.tx, b.workflowID, b.nodeID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	provider, ok := claudeRunnerProvider(node.ComponentName())
+	if !ok {
+		return nil, nil
+	}
+	canvas, err := models.FindCanvasWithoutOrgScopeInTransaction(b.tx, b.workflowID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return models.ResolveSelectableLLMModels(
+		b.tx,
+		canvas.OrganizationID,
+		canvas.FactoryID,
+		provider,
+		llmFundingSource(resolved),
+	)
+}
+
+func claudeRunnerProvider(component string) (string, bool) {
+	switch component {
+	case "runnerClaudeCode":
+		return models.UsageProviderAnthropic, true
+	case "runnerOpenRouter":
+		return models.UsageProviderOpenRouter, true
+	default:
+		return "", false
+	}
+}
+
+func llmFundingSource(configuration map[string]any) string {
+	credentials, _ := configuration["credentials"].(map[string]any)
+	source, _ := credentials["source"].(string)
+	switch strings.TrimSpace(source) {
+	case "secret", "integration":
+		return models.UsageFundingSourceBYOK
+	default:
+		return models.UsageFundingSourceHosted
+	}
+}
+
+func applyLineDispatchThinking(resolved map[string]any, dispatchThinking string) map[string]any {
+	agent, _ := resolved["thinkingLevel"].(string)
+	thinking, ok := runner.OverlayThinkingLevel(agent, dispatchThinking)
+	if !ok {
+		return resolved
+	}
+	resolved["thinkingLevel"] = thinking
+	return resolved
+}
+
+func (b *NodeConfigurationBuilder) lineDispatch() (*models.FactoryWorkOrderLineDispatch, error) {
+	if b.rootEventID == nil || b.tx == nil {
+		return nil, nil
+	}
+
+	run, err := models.FindCanvasRunByRootEventInTransaction(b.tx, *b.rootEventID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	execution, err := models.FindWorkOrderExecutionByRunID(b.tx, run.ID)
+	if err != nil {
+		if errors.Is(err, models.ErrFactoryWorkOrderExecutionNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	dispatch, err := models.FindWorkOrderLineDispatch(b.tx, execution.LineDispatchID)
+	if err != nil {
+		if errors.Is(err, models.ErrFactoryWorkOrderLineDispatchNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	return dispatch, nil
+}
+
+func (b *NodeConfigurationBuilder) nodeAcceptsDispatchModel(
+	resolved map[string]any,
+	model string,
+) (bool, error) {
+	if b.nodeID == "" {
+		return false, nil
+	}
+
+	node, err := models.FindCanvasNode(b.tx, b.workflowID, b.nodeID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return false, nil
+		}
+		return false, err
+	}
+
+	workflow, err := models.FindCanvasWithoutOrgScopeInTransaction(b.tx, b.workflowID)
+	if err != nil {
+		return false, err
+	}
+
+	if node.ComponentName() == models.SuperPlaneRunnerComponent {
+		return superPlaneAcceptsDispatchModel(b.tx, workflow.OrganizationID, workflow.FactoryID, model)
+	}
+
+	provider, ok := runnerProviderForComponent(node.ComponentName())
+	if !ok {
+		return false, nil
+	}
+
+	return models.ModelIsSelectable(
+		b.tx,
+		workflow.OrganizationID,
+		workflow.FactoryID,
+		provider,
+		runnerFundingSourceFromConfig(resolved),
+		model,
+	)
+}
+
+func superPlaneAcceptsDispatchModel(
+	tx *gorm.DB,
+	orgID uuid.UUID,
+	factoryID *uuid.UUID,
+	model string,
+) (bool, error) {
+	if parsed, err := models.ParseSelectableLLMModelKey(model); err == nil {
+		if parsed.Source.ID != models.UsageFundingSourceHosted {
+			return false, nil
+		}
+		return models.ModelIsSelectable(
+			tx,
+			orgID,
+			factoryID,
+			parsed.Provider.ID,
+			models.UsageFundingSourceHosted,
+			parsed.Model.ID,
+		)
+	}
+
+	hosted, err := models.ParseHostedLLMModelKey(model)
+	if err != nil || !hosted.IsSet() {
+		return false, nil
+	}
+	return models.ModelIsSelectable(
+		tx,
+		orgID,
+		factoryID,
+		hosted.Provider,
+		models.UsageFundingSourceHosted,
+		hosted.Model,
+	)
+}
+
+func runnerProviderForComponent(component string) (string, bool) {
+	switch component {
+	case "runnerClaudeCode":
+		return models.UsageProviderAnthropic, true
+	case "runnerCodex":
+		return models.UsageProviderOpenAI, true
+	case "runnerOpenRouter":
+		return models.UsageProviderOpenRouter, true
+	default:
+		return "", false
+	}
+}
+
+func runnerFundingSourceFromConfig(configuration map[string]any) string {
+	credentials, _ := configuration["credentials"].(map[string]any)
+	source, _ := credentials["source"].(string)
+	switch strings.TrimSpace(source) {
+	case "secret", "integration":
+		return models.UsageFundingSourceBYOK
+	default:
+		return models.UsageFundingSourceHosted
+	}
+}

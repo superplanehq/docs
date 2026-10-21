@@ -1,0 +1,190 @@
+import { Heading } from "@/components/Heading/heading";
+import { usePageTitle } from "@/hooks/usePageTitle";
+import { useReportPageReady } from "@/hooks/useReportPageReady";
+import React, { useEffect, useMemo, useState } from "react";
+import { Link, useNavigate, useParams } from "react-router";
+import { Icon } from "../../../components/Icon";
+import { Input } from "../../../components/Input/input";
+import { useCreateGroup, useOrganizationRoles } from "../../../hooks/useOrganizationData";
+import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+
+export function CreateGroupPage() {
+  const navigate = useNavigate();
+  const { organizationId } = useParams<{ organizationId: string }>();
+  const orgId = organizationId;
+  usePageTitle(["Create Group"]);
+
+  const [groupName, setGroupName] = useState("");
+  const [selectedRole, setSelectedRole] = useState("");
+  const [isCreating, setIsCreating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const { data: roles = [], isLoading: loadingRoles } = useOrganizationRoles(orgId || "");
+  const createGroupMutation = useCreateGroup(orgId || "");
+
+  useReportPageReady(!loadingRoles);
+
+  const sortedRoles = useMemo(() => {
+    const defaultRoles = new Set(["org_admin", "org_maintainer", "org_operator"]);
+    const customRoles = roles
+      .filter((role) => !defaultRoles.has(role.metadata?.name || ""))
+      .sort((a, b) => (a.spec?.displayName || "").localeCompare(b.spec?.displayName || ""));
+    const baseRoles = roles
+      .filter((role) => defaultRoles.has(role.metadata?.name || ""))
+      .sort((a, b) => (a.spec?.displayName || "").localeCompare(b.spec?.displayName || ""));
+
+    return [...customRoles, ...baseRoles];
+  }, [roles]);
+
+  useEffect(() => {
+    if (sortedRoles.length > 0 && !selectedRole) {
+      setSelectedRole(sortedRoles[0].metadata?.name || "");
+    }
+  }, [sortedRoles, selectedRole]);
+
+  const handleCreateGroup = async () => {
+    if (!groupName.trim() || !selectedRole || !orgId) return;
+
+    setIsCreating(true);
+    setError(null);
+
+    try {
+      await createGroupMutation.mutateAsync({
+        organizationId: orgId,
+        groupName: groupName.trim().toLocaleLowerCase().replace(/\s+/g, "_"),
+        role: selectedRole,
+        displayName: groupName,
+      });
+
+      navigate(`/${orgId}/settings/groups`);
+    } catch {
+      setError("Failed to create group. Please try again.");
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
+  const handleKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleCreateGroup();
+    }
+  };
+
+  return (
+    <div className="min-h-screen text-left">
+      <div className="max-w-6xl mx-auto py-8">
+        {/* Header */}
+        <div className="mb-6">
+          <div className="text-left">
+            <Heading level={2} className="mb-2">
+              Create New Group
+            </Heading>
+          </div>
+        </div>
+
+        {/* Create Group Form */}
+        <div className="space-y-6">
+          <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-300 dark:border-gray-800 p-6">
+            {error && (
+              <div className="bg-white border border-red-300 text-red-500 px-4 py-2 rounded mb-6">
+                <p className="text-sm">{error}</p>
+              </div>
+            )}
+
+            <div className="space-y-6">
+              {/* Group Name */}
+              <div>
+                <label
+                  htmlFor="group-name-input"
+                  className="block text-sm font-medium text-gray-800 dark:text-white mb-2"
+                >
+                  Group Name *
+                </label>
+                <Input
+                  id="group-name-input"
+                  type="text"
+                  placeholder="Enter group name"
+                  value={groupName}
+                  onChange={(e) => setGroupName(e.target.value)}
+                  onKeyPress={handleKeyPress}
+                  className="w-full max-w-lg"
+                />
+              </div>
+
+              {/* Role Selection */}
+              <div>
+                <label
+                  htmlFor="group-role-select"
+                  className="block text-sm font-medium text-gray-800 dark:text-white mb-2"
+                >
+                  Role *
+                </label>
+                {loadingRoles ? (
+                  <div className="flex justify-center items-center h-12">
+                    <p className="text-gray-500 dark:text-gray-400">Loading roles...</p>
+                  </div>
+                ) : roles.length === 0 ? (
+                  <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4">
+                    <div className="flex max-w-lg">
+                      <Icon name="warning" className="h-5 w-5 text-yellow-600 dark:text-yellow-400 mr-3 mt-0.5" />
+                      <div className="text-sm">
+                        <p className="text-yellow-800 dark:text-yellow-200 font-medium">No roles available</p>
+                        <p className="text-yellow-700 dark:text-yellow-300 mt-1">
+                          Create a role first to assign it to this group.
+                        </p>
+                        <Link
+                          to={`/${orgId}/settings/create-role`}
+                          className="inline-flex items-center gap-1 mt-2 text-yellow-800 dark:text-yellow-200 hover:text-yellow-900 dark:hover:text-yellow-100 font-medium"
+                        >
+                          <Icon name="plus" size="sm" />
+                          Create Role
+                        </Link>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <Select value={selectedRole} onValueChange={setSelectedRole}>
+                      <SelectTrigger id="group-role-select" className="w-auto min-w-56">
+                        <SelectValue placeholder="Select Role" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {sortedRoles.map((role) => (
+                          <SelectItem key={role.metadata?.name} value={role.metadata?.name || ""}>
+                            {role.spec?.displayName || role.metadata?.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {selectedRole && (
+                      <p className="mt-2 max-w-lg text-xs text-gray-500 dark:text-gray-400">
+                        {sortedRoles.find((role) => role.metadata?.name === selectedRole)?.spec?.description || ""}
+                      </p>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Action Buttons */}
+          <div className="flex items-center gap-3">
+            <Button
+              onClick={handleCreateGroup}
+              disabled={!groupName.trim() || !selectedRole || isCreating || roles.length === 0}
+              className="flex items-center gap-2"
+            >
+              {isCreating ? "Creating..." : "Create Group"}
+            </Button>
+
+            <Link to={`/${orgId}/settings/groups`}>
+              <Button variant="outline">Cancel</Button>
+            </Link>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

@@ -1,5 +1,5 @@
 {
-  "chartVersion": "1.0.0-rc1",
-  "imageTag": "v1.0.0-rc1",
+  "chartVersion": "1.0.0-rc3",
+  "imageTag": "v1.0.0-rc3",
   "token": "@@SUPERPLANE_CHART_VERSION@@"
 }

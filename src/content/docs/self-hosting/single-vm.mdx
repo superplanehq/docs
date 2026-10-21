@@ -113,13 +113,13 @@ Open `https://superplane.example.com/setup`.
 
 Runner nodes, including Run Bash and factory agents, need Fleet Manager. Skip this step when you do not need those nodes.
 
-Open **Profile** from the user menu. Under **API tokens**, select **Create token**, and copy the token. The token belongs to the owner, who is an installation administrator.
+1. On **Set up runner fleets**, select **Set up fleets**.
+2. Select **This VM**, then select **Continue**.
+3. On **Start runners on this VM**, copy the command. Run it in the install directory.
 
-```bash
-./enable-runners.sh your_installation_admin_token
-```
+The command starts with `./enable-runners.sh` and includes an installation admin token. The page creates that token. Do not type a token by hand.
 
-The script writes `fleet-manager.env` with mode `600`, pulls the runner image, and starts Fleet Manager. The first pull is large. Fleet Manager then starts a runner container on the `superplane_default` network for each task and removes it when the task finishes.
+The script writes `fleet-manager.env` with mode `600`, pulls the runner image, and starts Fleet Manager. The first pull is large. Fleet Manager then starts a runner container on the `superplane_default` network for each task and removes it when the task finishes. The page shows **Finish installation** when the fleet is ready.
 
 <Aside type="caution" title="Docker socket">
 Fleet Manager mounts the Docker socket. That socket can control every container on the VM. Enable runners only on a machine you administer.

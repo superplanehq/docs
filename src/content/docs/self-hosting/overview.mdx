@@ -1,11 +1,11 @@
 ---
 title: Self-host SuperPlane
-description: What a self-hosted SuperPlane installation includes on AWS, Azure, and Google Cloud.
+description: Install SuperPlane on one VM with Docker Compose, or on AWS, Azure, and Google Cloud.
 ---
 
 import { LinkCard, CardGrid } from "@astrojs/starlight/components";
 
-Run SuperPlane in your own cloud account. [Install SuperPlane](/self-hosting/install) is the procedure. Terraform creates the cluster and the application. You then create the owner account and install Fleet Manager from the browser.
+Run SuperPlane on your own machines. [Install on a single VM](/self-hosting/single-vm) uses Docker Compose on one Linux machine. [Install on your cloud](/self-hosting/install) uses Terraform and Kubernetes on AWS, Azure, or Google Cloud. You then create the owner account. Cloud installs also install Fleet Manager from the browser.
 
 ```mermaid
 flowchart LR
@@ -29,7 +29,12 @@ The cloud account pays for the cluster, the database, the load balancer, and any
 
 <CardGrid>
   <LinkCard
-    title="Install SuperPlane"
+    title="Install on a single VM"
+    href="/self-hosting/single-vm"
+    description="Install Docker Compose on one Linux machine, create the owner account, and start runners."
+  />
+  <LinkCard
+    title="Install on your cloud"
     href="/self-hosting/install"
     description="Clone the Terraform stack, apply it, create the owner account, and install Fleet Manager."
   />

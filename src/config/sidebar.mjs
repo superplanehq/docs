@@ -85,6 +85,7 @@ export const sidebar = [
     collapsed: true,
     items: [
       { label: "Overview", slug: "self-hosting/overview" },
+      { label: "Install on a single VM", slug: "self-hosting/single-vm" },
       { label: "Install on your cloud", slug: "self-hosting/install" },
       { label: "Troubleshooting", slug: "self-hosting/troubleshooting" },
       { label: "Upgrade and uninstall", slug: "self-hosting/upgrade-and-uninstall" },

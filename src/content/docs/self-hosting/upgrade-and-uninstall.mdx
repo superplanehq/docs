@@ -1,13 +1,48 @@
 ---
 title: Upgrade or uninstall
-description: Upgrade the SuperPlane chart and Fleet Manager, or remove a self-hosted installation.
+description: Upgrade or remove a single-VM install, or a Terraform install on AWS, Azure, or Google Cloud.
 ---
 
 import { Aside, Tabs, TabItem } from "@astrojs/starlight/components";
 
-Run Terraform from the same directory and cloud account you used to [install](/self-hosting/install).
+Use the section that matches the install. A [single VM](/self-hosting/single-vm) upgrades with `./install.sh`. A [cloud install](/self-hosting/install) upgrades with Terraform.
 
-## Upgrade
+## Upgrade a single VM
+
+Download the new `superplane-single-host.tar.gz` from the [SuperPlane releases](https://github.com/superplanehq/superplane/releases). From the existing install directory, replace the Compose file and the scripts. Leave `superplane.env`, `oidc/`, `fleet-manager.env`, and `Caddyfile` in place.
+
+```bash
+mkdir -p /tmp/superplane-release
+tar -C /tmp/superplane-release -xzf superplane-single-host.tar.gz
+cp /tmp/superplane-release/superplane/docker-compose.yml .
+cp /tmp/superplane-release/superplane/install.sh .
+cp /tmp/superplane-release/superplane/enable-runners.sh .
+chmod +x install.sh enable-runners.sh
+./install.sh
+```
+
+`./install.sh` keeps the existing secrets, pulls the new images, and migrates the database when the app starts. Confirm the health check:
+
+```bash
+docker compose ps
+curl -fsS "https://superplane.example.com/health"
+```
+
+When runners are enabled, open **Start runners on this VM** and run the command again.
+
+## Uninstall a single VM
+
+<Aside type="danger" title="Uninstall deletes the data">
+Copy a backup off the VM first. `docker compose down -v` deletes the database, uploaded files, and certificates.
+</Aside>
+
+```bash
+docker compose --profile runners down -v --remove-orphans
+```
+
+Delete `superplane.env`, `fleet-manager.env`, and `oidc/` after the backup is stored somewhere else.
+
+## Upgrade a cloud install
 
 1. Pull the Terraform stack. Set `superplane_chart_version` to `@@SUPERPLANE_CHART_VERSION@@`. Leave `superplane_image_tag` empty. The chart version has no `v` prefix.
 2. Set the new runner image IDs from the release notes. On Google Cloud, leave the runner image variables empty until images are published.
@@ -27,7 +62,7 @@ kubectl get certificate -n superplane
 
 To change how many runner machines stay up, edit `warmCapacity` and `maxCapacity` in `fleet-manager-values.yaml` and run that same Helm command. Each AWS or Azure machine uses 2 vCPUs. The Google Cloud default machine type uses 4.
 
-## Uninstall
+## Uninstall a cloud install
 
 Export anything you need first. This deletes the cluster, the database, and file storage.
 

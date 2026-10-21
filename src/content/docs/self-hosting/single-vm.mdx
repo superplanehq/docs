@@ -69,7 +69,7 @@ Run the installer from the `superplane` directory. Enter the DNS name when it as
 ./install.sh
 ```
 
-The installer writes `superplane.env` with mode `600`, creates an OIDC key in `oidc/`, and starts the stack. Postgres, RabbitMQ, and file storage use Docker volumes. RabbitMQ is not published on the host.
+The installer writes `superplane.env` and `rabbitmq.env` with mode `600`, creates an OIDC key in `oidc/`, and starts the stack. `rabbitmq.env` holds only the RabbitMQ user and password. Postgres, RabbitMQ, and file storage use Docker volumes. RabbitMQ is not published on the host.
 
 Caddy requests a certificate from Let's Encrypt. The DNS name must already point at this VM, and ports 80 and 443 must be open.
 
@@ -177,7 +177,7 @@ Run the backup from the install directory. Copy the backup directory off the VM.
 ```bash
 mkdir -p "$HOME/superplane-backup"
 docker compose exec -T db pg_dump -U postgres -Fc superplane >"$HOME/superplane-backup/superplane.dump"
-tar -czf "$HOME/superplane-backup/config.tar.gz" superplane.env oidc fleet-manager.yaml fleet-manager.env Caddyfile
+tar -czf "$HOME/superplane-backup/config.tar.gz" superplane.env rabbitmq.env oidc fleet-manager.yaml fleet-manager.env Caddyfile
 docker run --rm \
   -v superplane_blob-data:/data:ro \
   -v "$HOME/superplane-backup":/backup \
@@ -228,4 +228,4 @@ chmod +x install.sh enable-runners.sh
 docker compose --profile runners down -v --remove-orphans
 ```
 
-Delete `superplane.env`, `fleet-manager.env`, and `oidc/` after the backup is stored somewhere else. Those files can decrypt the database.
+Delete `superplane.env`, `rabbitmq.env`, `fleet-manager.env`, and `oidc/` after the backup is stored somewhere else. Those files can decrypt the database.

@@ -14,7 +14,7 @@ flowchart LR
   tf --> app["SuperPlane Helm release"]
   app --> setup["Owner setup at /setup"]
   setup --> fm["Fleet Manager Helm release"]
-  fm --> vms["Runner VMs from public images"]
+  fm --> vms["Runner VMs from runner images"]
 ```
 
 Terraform creates the cluster and the application. Owner setup installs Fleet Manager, which starts the runner virtual machines.
@@ -23,7 +23,7 @@ The browser steps are the same on each cloud. Three things differ:
 
 - **AWS.** DNS is a CNAME to the load balancer, after Terraform. Runner images are public AMIs in `us-east-1`.
 - **Azure.** DNS is an A record to the load balancer, after Terraform. Runner images are in the SuperPlane community gallery.
-- **Google Cloud.** Create the static IP and the A record before Terraform. Public runner images are not published yet, so skip Fleet Manager until they are.
+- **Google Cloud.** Create the static IP and the A record before Terraform. Public runner images are not published yet. Build the runner image with Packer before Terraform.
 
 The cloud account pays for the cluster, the database, the load balancer, and any runner machines that stay running.
 

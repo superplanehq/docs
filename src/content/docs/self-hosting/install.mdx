@@ -140,16 +140,18 @@ The answer must be the static IP. Google Cloud has no public runner image yet, s
 
 ## 3. Set the Terraform variables
 
+Clone the Terraform installer at a fixed release tag. This keeps the infrastructure configuration stable until you choose to upgrade it.
+
 ```bash
-git clone https://github.com/superplanehq/superplane.git
-cd superplane
+git clone --branch v0.1.0 --depth 1 https://github.com/superplanehq/terraform.git
+cd terraform
 ```
 
 <Tabs syncKey="cloud">
   <TabItem label="AWS">
 
 ```bash
-cd release/terraform/eks
+cd aws
 cp terraform.tfvars.example terraform.tfvars
 ```
 
@@ -168,7 +170,7 @@ Use the AMI IDs from the command above. `x86_64` is amd64. Leave `superplane_ima
   <TabItem label="Azure">
 
 ```bash
-cd release/terraform/aks
+cd azure
 cp terraform.tfvars.example terraform.tfvars
 ```
 
@@ -191,19 +193,20 @@ Use the image ids from the list command. Leave `superplane_image_tag` and `helm_
 Terraform requires a runner image before the apply. Build the amd64 image from the repository root:
 
 ```bash
-packer init release/runner/packer/gce/runner.pkr.hcl
+git clone https://github.com/superplanehq/superplane.git ../superplane
+packer init ../superplane/release/runner/packer/gce/runner.pkr.hcl
 packer build \
   -var project_id="$PROJECT_ID" \
   -var architecture=amd64 \
   -var machine_type=e2-standard-4 \
-  release/runner/packer/gce/runner.pkr.hcl
-echo "projects/$PROJECT_ID/global/images/$(jq -r '.builds[-1].artifact_id' release/runner/packer/gce/manifest.json)"
+  ../superplane/release/runner/packer/gce/runner.pkr.hcl
+echo "projects/$PROJECT_ID/global/images/$(jq -r '.builds[-1].artifact_id' ../superplane/release/runner/packer/gce/manifest.json)"
 ```
 
-The build connects over SSH from a public IP in the `default` network. When the network blocks inbound SSH, use the Identity-Aware Proxy steps in the [GKE README](https://github.com/superplanehq/superplane/blob/main/release/terraform/gke/README.md#2-build-the-runner-image).
+The build connects over SSH from a public IP in the `default` network. When the network blocks inbound SSH, use the Identity-Aware Proxy steps in the [GCE runner image guide](https://github.com/superplanehq/superplane/blob/main/release/runner/packer/gce/README.md).
 
 ```bash
-cd release/terraform/gke
+cd gcp
 cp terraform.tfvars.example terraform.tfvars
 ```
 

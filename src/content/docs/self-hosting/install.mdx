@@ -47,7 +47,7 @@ az account show --query id -o tsv
   </TabItem>
   <TabItem label="Google Cloud">
 
-Install the [gcloud CLI](https://cloud.google.com/sdk/docs/install). You need Owner on the project, and billing must be on. Terraform uses application-default credentials.
+Install the [gcloud CLI](https://cloud.google.com/sdk/docs/install), [Packer](https://developer.hashicorp.com/packer/install) 1.16.1 or later, and `jq`. You need Owner on the project, and billing must be on. Terraform and Packer use application-default credentials.
 
 ```bash
 export PROJECT_ID=your_gcp_project
@@ -133,7 +133,7 @@ Create an A record from your domain to that address.
 dig +short superplane.example.com @8.8.8.8
 ```
 
-The answer must be the static IP. Public runner images are not published yet. Leave the runner image variables empty and skip Fleet Manager in step 8.
+The answer must be the static IP. Google Cloud has no public runner image yet, so you build one in step 3.
 
   </TabItem>
 </Tabs>
@@ -162,7 +162,7 @@ runner_image_arm64       = "latest_arm64_ami"
 superplane_chart_version = "@@SUPERPLANE_CHART_VERSION@@"
 ```
 
-Use the AMI IDs from the command above. `x86_64` is amd64. Leave `superplane_image_tag` and `helm_chart_path` empty. The chart version has no `v` prefix. An empty image tag selects the image for that chart. An empty AMI disables that architecture in the fleet wizard.
+Use the AMI IDs from the command above. `x86_64` is amd64. Leave `superplane_image_tag` and `helm_chart_path` empty. The chart version has no `v` prefix. An empty image tag selects the image for that chart. The plan stops when `runner_image_amd64` is empty. An empty arm64 AMI disables that architecture in the fleet wizard.
 
   </TabItem>
   <TabItem label="Azure">
@@ -188,6 +188,20 @@ Use the image ids from the list command. Leave `superplane_image_tag` and `helm_
   </TabItem>
   <TabItem label="Google Cloud">
 
+Terraform requires a runner image before the apply. Build the amd64 image from the repository root:
+
+```bash
+packer init release/runner/packer/gce/runner.pkr.hcl
+packer build \
+  -var project_id="$PROJECT_ID" \
+  -var architecture=amd64 \
+  -var machine_type=e2-standard-4 \
+  release/runner/packer/gce/runner.pkr.hcl
+echo "projects/$PROJECT_ID/global/images/$(jq -r '.builds[-1].artifact_id' release/runner/packer/gce/manifest.json)"
+```
+
+The build connects over SSH from a public IP in the `default` network. When the network blocks inbound SSH, use the Identity-Aware Proxy steps in the [GKE README](https://github.com/superplanehq/superplane/blob/main/release/terraform/gke/README.md#2-build-the-runner-image).
+
 ```bash
 cd release/terraform/gke
 cp terraform.tfvars.example terraform.tfvars
@@ -198,10 +212,11 @@ project_id               = "your_gcp_project"
 domain_name              = "superplane.example.com"
 static_ip_name           = "superplane-ip"
 letsencrypt_email        = "you@example.com"
+runner_image_amd64       = "projects/your_gcp_project/global/images/image_name"
 superplane_chart_version = "@@SUPERPLANE_CHART_VERSION@@"
 ```
 
-Leave `superplane_image_tag` and `superplane_chart_path` empty. The chart version has no `v` prefix. An empty image tag selects the image for that chart. A plain commit SHA in `superplane_image_tag` loads the UI from `assets.superplane.com`, and the browser blocks it on your domain. Keep `machine_type` at `e2-standard-2` or larger.
+Use the image path that the build printed. The plan stops when `runner_image_amd64` is empty. To install without runners, set `enable_runners = false` and skip Fleet Manager in step 8. Leave `superplane_image_tag` and `superplane_chart_path` empty. The chart version has no `v` prefix. An empty image tag selects the image for that chart. A plain commit SHA in `superplane_image_tag` loads the UI from `assets.superplane.com`, and the browser blocks it on your domain. Keep `machine_type` at `e2-standard-2` or larger.
 
   </TabItem>
 </Tabs>
@@ -404,7 +419,7 @@ The amd64 size is `Standard_D2ds_v4`. For arm64, set `vmSize` to `Standard_D2pds
   </TabItem>
   <TabItem label="Google Cloud">
 
-Skip Fleet Manager until a runner image is published. The wizard disables a fleet whose image is empty.
+The default machine type is `e2-standard-4`. The fleet uses the image from `runner_image_amd64`. For an arm64 fleet, build an arm64 image in a zone that has T2A machines, set `runner_image_arm64`, and run `terraform apply` again.
 
   </TabItem>
 </Tabs>

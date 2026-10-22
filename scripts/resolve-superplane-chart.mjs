@@ -13,9 +13,22 @@ function parseVersion(tag) {
     major: Number(major),
     minor: Number(minor),
     patch: Number(patch),
-    pre: pre ? pre.split(".") : [],
+    pre: pre ? prereleaseParts(pre) : [],
     chartVersion: `${major}.${minor}.${patch}${pre ? `-${pre}` : ""}`,
   };
+}
+
+function prereleaseParts(pre) {
+  const parts = [];
+  for (const piece of pre.split(".")) {
+    const releaseCandidate = /^rc(\d+)$/i.exec(piece);
+    if (releaseCandidate) {
+      parts.push("rc", releaseCandidate[1]);
+      continue;
+    }
+    parts.push(piece);
+  }
+  return parts;
 }
 
 function comparePart(left, right) {
@@ -74,6 +87,8 @@ function assertSelection() {
   if (selectChartVersion([...old, "1.0.0-rc2", "1.0.0"]) !== "1.0.0") throw new Error("stable");
   if (selectChartVersion(["1.0.0", "1.1.0-rc1", "1.1.0"]) !== "1.1.0") throw new Error("newer stable");
   if (selectChartVersion(["0.31.0", "1.0.0-rc1"]) !== "1.0.0-rc1") throw new Error("ignore pre-v1 stable");
+  if (selectChartVersion(["1.0.0-rc4", "1.0.0-rc10"]) !== "1.0.0-rc10") throw new Error("rc10");
+  if (selectChartVersion(["1.0.0", "1.2.0-rc1"]) !== "1.0.0") throw new Error("stable hides later rc");
 }
 
 async function listTags() {
@@ -109,6 +124,10 @@ if (process.argv.includes("--self-test")) {
     const tags = await listTags();
     writeRelease(selectChartVersion(tags));
   } catch (error) {
+    if (process.argv.includes("--require")) {
+      console.error(error.message);
+      process.exit(1);
+    }
     try {
       const current = JSON.parse(readFileSync(OUTPUT, "utf8"));
       console.warn(`Kept ${current.chartVersion}. Chart lookup failed: ${error.message}`);

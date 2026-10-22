@@ -44,7 +44,7 @@ Delete `superplane.env`, `fleet-manager.env`, and `oidc/` after the backup is st
 
 ## Upgrade a cloud install
 
-1. Pull the Terraform stack. Set `superplane_chart_version` to `@@SUPERPLANE_CHART_VERSION@@`. Leave `superplane_image_tag` empty. The chart version has no `v` prefix.
+1. In your Terraform checkout, set `superplane_chart_version` to `@@SUPERPLANE_CHART_VERSION@@`. Leave `superplane_image_tag` empty. The chart version has no `v` prefix. Move to a newer Terraform installer tag only when the release notes require it.
 2. Set the new runner image IDs from the release notes. On Google Cloud, build a new image with Packer when the runner tools change, or keep the current image. `runner_image_amd64` must not be empty while runners are enabled. Google Cloud now enables runners and GCS blob storage by default. To keep an older install without them, set `enable_runners = false` and `enable_gcs_blob_storage = false`.
 3. Apply, then run the Fleet Manager Helm command from **Fleet setup** again:
 
@@ -146,4 +146,4 @@ terraform plan -destroy -out tfplan
 terraform apply tfplan
 ```
 
-`terraform apply tfplan` deletes resources because the plan is a destroy plan. If the AWS destroy stops on the load balancer, use the [EKS README](https://github.com/superplanehq/superplane/blob/main/release/terraform/eks/README.md#destroy). Do not delete the Terraform state while a destroy is incomplete.
+`terraform apply tfplan` deletes resources because the plan is a destroy plan. If the AWS destroy stops on the load balancer, use the [AWS installer README](https://github.com/superplanehq/terraform/blob/v0.1.0/aws/README.md#destroy). Do not delete the Terraform state while a destroy is incomplete.

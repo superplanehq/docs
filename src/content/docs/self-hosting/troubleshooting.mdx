@@ -36,6 +36,6 @@ kubectl logs -n superplane deploy/fleet-manager-fleet-manager --tail=20
 | Certificate stays pending | AWS, Azure, Google Cloud | The DNS name must be the host in `domain_name`. On AWS, `dig +short your_domain CNAME @8.8.8.8` must print the load balancer hostname. On Azure and Google Cloud, `dig +short your_domain @8.8.8.8` must print the address. |
 | No runner machine appears | AWS, Azure | Run `helm list -n superplane`. Raise `maxCapacity` when every machine is busy. |
 | `fleet not found` (404) once in the log | AWS, Azure, Google Cloud | Ignore that line when later lines show reconciliation. |
-| `terraform destroy` stops on the load balancer | AWS | Follow the [EKS README](https://github.com/superplanehq/superplane/blob/main/release/terraform/eks/README.md#if-traefik-or-the-internet-gateway-does-not-delete). Do not delete the Terraform state. |
+| `terraform destroy` stops on the load balancer | AWS | Follow the [AWS installer README](https://github.com/superplanehq/terraform/blob/v0.1.0/aws/README.md#if-traefik-or-the-internet-gateway-does-not-delete). Do not delete the Terraform state. |
 
 A first task with warm capacity `0` waits while the machine boots. That wait is the cold start, not a failed install.

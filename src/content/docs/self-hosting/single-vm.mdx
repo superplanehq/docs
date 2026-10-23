@@ -17,16 +17,26 @@ Complete the DNS and host requirements before you start.
 - Bash, cURL, tar, and OpenSSL.
 - Outbound HTTPS access to GitHub Releases, GitHub Container Registry (`ghcr.io`), and Docker Hub.
 - A hostname that you control, such as `superplane.example.com`.
-- An A or AAAA record that points the hostname to the VM.
 - Inbound TCP ports 80 and 443.
-
-If the hostname has multiple A or AAAA records, each address must reach the VM on ports 80 and 443.
-
-Create the DNS records before installation. Wait until public DNS returns the VM addresses.
 
 If you enable local runners, reserve 2 vCPUs, 8 GB of memory, and 30 GB of disk for each concurrent runner. The default fleet permits two concurrent runners.
 
-## 1. Download the release
+## 1. Configure DNS
+
+Create an A record for IPv4 or an AAAA record for IPv6. Point the record to the VM's public address.
+
+If you publish both record types, point both records to the VM. Check the public records before installation:
+
+```bash
+dig +short superplane.example.com A @8.8.8.8
+dig +short superplane.example.com AAAA @8.8.8.8
+```
+
+The commands must return the VM's public addresses. A blank result is valid when you do not publish that record type.
+
+If DNS returns multiple addresses, each address must reach the VM on ports 80 and 443.
+
+## 2. Download the release
 
 Connect to the VM. Download and extract the current SuperPlane release:
 
@@ -40,7 +50,7 @@ cd superplane
 
 The release uses Fleet Manager `@@FLEET_MANAGER_VERSION@@` and Runner `@@RUNNER_VERSION@@`. Do not change these image versions.
 
-## 2. Install SuperPlane
+## 3. Install SuperPlane
 
 Run the installer from the extracted `superplane` directory:
 
@@ -56,7 +66,7 @@ The installer creates the configuration, pulls the required images, and starts S
 The installer writes secrets to `superplane.env`. Restrict access to the installation directory. Store a secure backup of this file.
 </Aside>
 
-## 3. Verify the installation
+## 4. Verify the installation
 
 Check the services and the health endpoint:
 
@@ -67,7 +77,7 @@ curl -fsS "https://superplane.example.com/health"
 
 Each service must show `running` or `healthy`. The health endpoint must return HTTP 200.
 
-## 4. Create the owner account
+## 5. Create the owner account
 
 Open `https://superplane.example.com/setup`.
 
@@ -94,7 +104,7 @@ Open `https://superplane.example.com/setup`.
 
 </Steps>
 
-## 5. Start local runners
+## 6. Start local runners
 
 Local runners execute Run Bash and factory agent nodes. Skip this section if you do not need these nodes.
 
@@ -116,7 +126,7 @@ Fleet Manager uses the Docker socket to start runner containers. Enable local ru
 
 Create a canvas with a Run Bash node and start a run. A runner container appears while the node runs.
 
-## 6. Next steps
+## 7. Next steps
 
 Use the [quickstart](/get-started/quickstart) to connect a repository and create your first task.
 

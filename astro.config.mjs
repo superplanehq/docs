@@ -20,7 +20,7 @@ export default defineConfig({
     starlight({
       plugins: [starlightImageZoom()],
       title: "SuperPlane Factory Docs",
-      customCss: ["./src/styles/custom.css"],
+      customCss: ["./src/styles/custom.css", "./src/styles/branding.css"],
       editLink: {
         base: "https://github.com/superplanehq/docs/edit/main/",
       },

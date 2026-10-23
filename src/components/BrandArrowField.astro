@@ -1,0 +1,88 @@
+<div class="brand-arrow-field" aria-hidden="true">
+  <img src="/brand/arrow-field.svg" alt="" class="brand-arrow-fallback" />
+  <div class="brand-arrow-canvas"></div>
+</div>
+<script>
+  type ArtInstance = { destroy: () => void };
+  type ArtWindow = Window & { SuperplaneArt?: { mount: (element: Element, options: Record<string, unknown>) => ArtInstance } };
+  const artWindow = window as ArtWindow;
+  let renderer: Promise<void> | undefined;
+  function loadScript(src: string) {
+    return new Promise<void>((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = src;
+      script.onload = () => resolve();
+      script.onerror = () => { script.remove(); reject(new Error('Arrow renderer unavailable')); };
+      document.head.append(script);
+    });
+  }
+  for (const field of document.querySelectorAll<HTMLElement>('.brand-arrow-field')) {
+    const target = field.querySelector<HTMLElement>('.brand-arrow-canvas');
+    if (!target) continue;
+    const motion = matchMedia('(prefers-reduced-motion: reduce)');
+    const headingArea = field.closest<HTMLElement>('.brand-title');
+    function followPointer(event: PointerEvent) {
+      if (!instance || motion.matches || event.pointerType === 'touch' || !headingArea) return;
+      const canvas = target!.querySelector('canvas');
+      if (!canvas) return;
+      const section = headingArea.getBoundingClientRect();
+      const art = canvas.getBoundingClientRect();
+      if (!section.width || !section.height || !art.width || !art.height) return;
+      // Map the whole heading region onto its decorative right half.
+      const x = Math.max(0, Math.min(1, (event.clientX - section.left) / section.width));
+      const y = Math.max(0, Math.min(1, (event.clientY - section.top) / section.height));
+      canvas.dispatchEvent(new PointerEvent('pointermove', {
+        clientX: art.left + x * art.width,
+        clientY: art.top + y * art.height,
+        pointerType: event.pointerType,
+      }));
+    }
+    function leavePointer() {
+      target!.querySelector('canvas')?.dispatchEvent(new PointerEvent('pointerleave'));
+    }
+    headingArea?.addEventListener('pointermove', followPointer, { passive: true });
+    headingArea?.addEventListener('pointerleave', leavePointer);
+    let instance: ArtInstance | undefined;
+    let visible = false;
+    let pending = false;
+    let disposed = false;
+    async function update() {
+      if (disposed || !visible || motion.matches || document.hidden) {
+        instance?.destroy(); instance = undefined;
+        field.classList.remove('is-animated');
+        return;
+      }
+      if (instance || pending) return;
+      pending = true;
+      try {
+        renderer ??= loadScript('https://superplane.com/vendor/three-r128.min.js')
+          .then(() => loadScript('https://superplane.com/vendor/superplane-art.js'));
+        await renderer;
+        if (disposed || !visible || motion.matches || document.hidden) return;
+        instance = artWindow.SuperplaneArt?.mount(target!, {
+          mode: 'school', panel: false, interactive: true,
+          cameraLocked: true, flatMode: true,
+          camera: { theta: 6.223844112611779, phi: 1.616174887346749, radius: 4.6 },
+          overrides: {
+            global: { arrowStyle: 'flat', arrowScale: 1.8, lineThickness: .25, accentRadius: 0 },
+            school: { count: 180, cohesion: .35, separation: 4, alignment: 1, cursorPull: 1.8, speed: .7 }
+          },
+          height: '100%'
+        });
+        if (instance) field.classList.add('is-animated');
+      } catch { field.classList.remove('is-animated'); }
+      finally { pending = false; }
+    }
+    const observer = new IntersectionObserver(([entry]) => { visible = entry.isIntersecting; void update(); });
+    observer.observe(field);
+    motion.addEventListener('change', update);
+    document.addEventListener('visibilitychange', update);
+    window.addEventListener('pagehide', () => {
+      disposed = true; instance?.destroy(); observer.disconnect();
+      motion.removeEventListener('change', update);
+      document.removeEventListener('visibilitychange', update);
+      headingArea?.removeEventListener('pointermove', followPointer);
+      headingArea?.removeEventListener('pointerleave', leavePointer);
+    }, { once: true });
+  }
+</script>

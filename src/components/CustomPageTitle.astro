@@ -1,74 +1,19 @@
 ---
+import BrandArrowField from "./BrandArrowField.astro";
 const { entry } = Astro.locals.starlightRoute;
-
-const sectionLabels: Record<string, string> = {
-  "get-started": "Getting started",
-  fundamentals: "Software Factory fundamentals",
-  "use-cases": "Use cases",
-  integrations: "Integrations and components",
-  components: "Integrations and components",
-  billing: "Billing",
-  expressions: "Expressions",
-  operate: "Operate SuperPlane",
-  security: "Security",
-  reference: "Reference",
-  "open-source": "Open source",
-  troubleshooting: "Support and help",
-  "release-notes": "Release notes",
+const labels: Record<string,string> = {
+  'get-started': 'Get started', fundamentals: 'Software factory fundamentals',
+  'use-cases': 'Use cases', integrations: 'Integrations and components',
+  components: 'Components', billing: 'Billing', 'open-source': 'Open source',
+  troubleshooting: 'Support and help', 'release-notes': 'Release notes',
+  expressions: 'Expressions', operate: 'Operate SuperPlane', security: 'Security', reference: 'Reference'
 };
-
-const section = entry.slug.split("/")[0];
-const sectionLabel = sectionLabels[section] ?? "Documentation";
-const description = entry.data.description ?? `Learn how to use ${entry.data.title} with SuperPlane.`;
+const section = entry.slug.split('/')[0];
+const isIntro = entry.slug === 'get-started/overview';
 ---
-
-<div class="documentation-title">
-  <p>{sectionLabel}</p>
+<div class:list={['brand-title', { 'brand-title--intro': isIntro }]}>
+  <p class="brand-eyebrow">{labels[section] ?? 'Documentation'} <span>/</span> {entry.data.title}</p>
   <h1 id="_top">{entry.data.title}</h1>
-  <span>{description}</span>
+  <p class="brand-description">{entry.data.description}</p>
+  <BrandArrowField />
 </div>
-
-<style>
-  @layer starlight.core {
-    h1 {
-      margin-top: 1rem;
-      color: var(--sl-color-white);
-      font-size: var(--sl-text-h1);
-      font-weight: 600;
-      line-height: var(--sl-line-height-headings);
-    }
-
-    .documentation-title {
-      padding-block: 1.5rem 0;
-    }
-
-    .documentation-title p {
-      margin: 0;
-      color: var(--sl-color-text-accent);
-      font-size: var(--sl-text-sm);
-      font-weight: 600;
-    }
-
-    .documentation-title h1 {
-      margin-block: 0.75rem 0.5rem;
-      max-width: 24ch;
-      font-size: clamp(1.9rem, 7vw, var(--sl-text-h1));
-      text-wrap: balance;
-      white-space: normal;
-    }
-
-    .documentation-title span {
-      display: block;
-      color: var(--sl-color-gray-3);
-      font-size: clamp(1rem, 3vw, var(--sl-text-lg));
-      line-height: 1.5;
-    }
-
-    @media (max-width: 40rem) {
-      .documentation-title {
-        padding-block: 1rem 0.25rem;
-      }
-    }
-
-  }
-</style>

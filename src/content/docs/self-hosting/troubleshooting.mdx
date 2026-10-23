@@ -20,7 +20,8 @@ kubectl logs -n superplane deploy/fleet-manager-fleet-manager --tail=20
 | Certificate stays pending | Single VM | The DNS A record must point at the VM. Ports 80 and 443 must reach Caddy. Run `docker compose logs caddy --tail=50`. |
 | `app` is not healthy | Single VM | Run `docker compose logs app --tail=80`. `superplane.env` must set `BLOB_STORAGE_PROVIDER=filesystem`. Run `./install.sh` again. It keeps the existing secrets. |
 | No runner container starts | Single VM | On **Set up runner fleets**, select **This VM** and run the command from that page. Then run `docker compose --profile runners ps`. |
-| `runner version does not match` | Single VM | `runnerVersion` in `fleet-manager.yaml` must equal the tag of `ghcr.io/superplanehq/runner`. Run `./install.sh`, then run the command on **Start runners on this VM** again. |
+| `runner version does not match` | Single VM | Set `runnerVersion` in `fleet-manager.yaml` to `@@RUNNER_VERSION@@`. That tag must match `ghcr.io/superplanehq/runner`. Run `./install.sh`, then run the command on **Start runners on this VM** again. |
+| Azure or AWS fleet setup fails after a new Fleet Manager chart | AWS, Azure, Google Cloud | This SuperPlane release supports Fleet Manager `@@FLEET_MANAGER_VERSION@@` and Runner `@@RUNNER_VERSION@@`. Set `image.tag` to `@@FLEET_MANAGER_VERSION@@`. Set every `runnerVersion` to `@@RUNNER_VERSION@@`. Set Helm `--version` to `@@FLEET_MANAGER_CHART_VERSION@@`. Run Helm again. |
 | `SkuNotAvailable` or `NotAvailableForSubscription` | Azure | Change the region or `runner_zones`. See the region table in the install guide. |
 | `QuotaExceeded` | Azure | Request quota for DDSv4 or Dpdsv6, or lower maximum capacity. A new subscription often has 4 regional vCPUs, which fits one node and one runner. |
 | On-Demand vCPU limit reached | AWS | Request more Standard vCPU quota (quota code `L-1216C47A`), or lower maximum capacity. |

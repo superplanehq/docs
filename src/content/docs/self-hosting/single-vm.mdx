@@ -51,7 +51,7 @@ Open a new login shell so your user can run Docker. `docker compose version` pri
 
 ## 2. Download the release
 
-`@@SUPERPLANE_IMAGE_TAG@@` is the current SuperPlane release. The archive contains Compose, the installer, and Caddy.
+`@@SUPERPLANE_IMAGE_TAG@@` is the current SuperPlane release. The archive contains Compose, the installer, and Caddy. That release installs Fleet Manager `@@FLEET_MANAGER_VERSION@@` and Runner `@@RUNNER_VERSION@@`. Do not pull a newer Fleet Manager or Runner image.
 
 ```bash
 VERSION=@@SUPERPLANE_IMAGE_TAG@@

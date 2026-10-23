@@ -19,7 +19,9 @@ Complete the DNS and host requirements before you start.
 - A hostname that you control, such as `superplane.example.com`.
 - Inbound TCP ports 80 and 443.
 
-If you enable local runners, reserve 2 vCPUs, 8 GB of memory, and 30 GB of disk for each concurrent runner. The default fleet permits two concurrent runners.
+Reserve 2 vCPUs, 8 GB of memory, and 30 GB of disk for each concurrent runner. The default fleet keeps one runner ready and permits five concurrent runners.
+
+At full capacity, the runners can use 10 vCPUs, 40 GB of memory, and 150 GB of disk. These values exclude the core SuperPlane services.
 
 ## 1. Configure DNS
 
@@ -64,8 +66,22 @@ Enter the hostname when the installer asks for it. Do not include `https://`.
 
 The installer also requests an HTTPS certificate for the hostname.
 
+The installer starts Fleet Manager and the local runner fleet. Fleet Manager uses the Docker socket to start runner containers.
+
+To change runner capacity, set these variables when you run the installer:
+
+```bash
+SUPERPLANE_RUNNER_MAX_CAPACITY=8 \
+SUPERPLANE_RUNNER_WARM_CAPACITY=2 \
+./install.sh
+```
+
+The maximum capacity must be a positive integer. The warm capacity must be between zero and the maximum capacity.
+
 <Aside type="caution">
 The installer writes secrets to `superplane.env`. Restrict access to the installation directory. Store a secure backup of this file.
+
+Fleet Manager can control Docker through the host socket. Install SuperPlane only on a VM that you administer.
 </Aside>
 
 ## 4. Verify the installation
@@ -106,29 +122,7 @@ Open `https://superplane.example.com/setup`.
 
 </Steps>
 
-## 6. Start local runners
-
-Local runners execute Run Bash and factory agent nodes. Skip this section if you do not need these nodes.
-
-<Steps>
-
-1. On **Set up runner fleets**, select **Set up fleets**.
-2. Select **This VM**, then select **Continue**.
-3. On **Start runners on this VM**, copy the command. Run it from the installation directory.
-
-</Steps>
-
-The setup page creates an installation admin token and includes it in the command. Run the command without changes.
-
-The command starts Fleet Manager and pulls the runner image. The first image download can take several minutes.
-
-<Aside type="caution" title="Docker socket access">
-Fleet Manager uses the Docker socket to start runner containers. Enable local runners only on a VM that you administer.
-</Aside>
-
-Create a canvas with a Run Bash node and start a run. A runner container appears while the node runs.
-
-## 7. Next steps
+## 6. Next steps
 
 Use the [quickstart](/get-started/quickstart) to connect a repository and create your first task.
 

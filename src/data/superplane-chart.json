@@ -1,5 +1,11 @@
 {
   "chartVersion": "1.0.0-rc4",
   "imageTag": "v1.0.0-rc4",
-  "token": "@@SUPERPLANE_CHART_VERSION@@"
+  "token": "@@SUPERPLANE_CHART_VERSION@@",
+  "fleetManagerVersion": "v0.1.4",
+  "fleetManagerChartVersion": "0.1.4",
+  "fleetManagerToken": "@@FLEET_MANAGER_VERSION@@",
+  "fleetManagerChartToken": "@@FLEET_MANAGER_CHART_VERSION@@",
+  "runnerVersion": "v0.2.0",
+  "runnerToken": "@@RUNNER_VERSION@@"
 }

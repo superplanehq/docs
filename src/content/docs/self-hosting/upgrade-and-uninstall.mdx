@@ -46,7 +46,7 @@ Delete `superplane.env`, `fleet-manager.env`, and `oidc/` after the backup is st
 
 1. Pull the Terraform stack. Set `superplane_chart_version` to `@@SUPERPLANE_CHART_VERSION@@`. Leave `superplane_image_tag` empty. The chart version has no `v` prefix.
 2. Set the new runner image IDs from the release notes. On Google Cloud, leave the runner image variables empty until images are published.
-3. Apply, then run the Fleet Manager Helm command from **Fleet setup** again:
+3. Apply, then run the Fleet Manager Helm command from **Fleet setup** again. Set `image.tag` to `@@FLEET_MANAGER_VERSION@@`. Set every `runnerVersion` to `@@RUNNER_VERSION@@`. Set Helm `--version` to `@@FLEET_MANAGER_CHART_VERSION@@`. Do not install a newer Fleet Manager chart or Runner.
 
 ```bash
 terraform plan -out tfplan

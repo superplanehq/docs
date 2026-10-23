@@ -64,7 +64,7 @@ gcloud config set project "$PROJECT_ID"
 <Tabs syncKey="cloud">
   <TabItem label="AWS">
 
-Use `us-east-1`. Copy the newest public AMI for each architecture into `terraform.tfvars`:
+Use `us-east-1`. Copy the newest public AMI for each architecture into `terraform.tfvars`. The AMI does not select the Runner release. Fleet Manager installs Runner `@@RUNNER_VERSION@@`.
 
 ```bash
 aws ec2 describe-images \
@@ -89,7 +89,7 @@ done
 
 Stay in `eastus` with `runner_zones = ["1"]` unless you need another region. `eastus` and `westus3` have both architectures. In `eastus`, arm64 is not offered in zone 2.
 
-List the public runner images. Copy the newest id for each architecture into `terraform.tfvars`. Run the command in `eastus` or `westus3`.
+List the public runner images. Copy the newest id for each architecture into `terraform.tfvars`. Run the command in `eastus` or `westus3`. The image does not select the Runner release. Fleet Manager installs Runner `@@RUNNER_VERSION@@`.
 
 ```bash
 for arch in amd64 arm64; do
@@ -379,7 +379,11 @@ SuperPlane creates an organization named Demo for this account.
      <img src="https://docs-assets.superplane.com/images/self-hosting/fleet-values.webp" alt="Create the chart values" />
    </figure>
 
-5. On **Install the chart**, run the Helm command in the same directory. When the page says Fleet Manager created the selected fleets, select **Finish installation**.
+5. On **Install the chart**, check the command before you run it. This SuperPlane release supports Fleet Manager `@@FLEET_MANAGER_VERSION@@` and Runner `@@RUNNER_VERSION@@`.
+
+   In `fleet-manager-values.yaml`, set `image.tag` to `@@FLEET_MANAGER_VERSION@@`. Set every `runnerVersion` to `@@RUNNER_VERSION@@`. In the Helm command, set `--version` to `@@FLEET_MANAGER_CHART_VERSION@@`. The setup page can show a newer Fleet Manager or Runner. Use the versions on this page.
+
+   Run the command in the same directory. When the page says Fleet Manager created the selected fleets, select **Finish installation**.
 
    <figure class="sp-media-figure not-content">
      <img src="https://docs-assets.superplane.com/images/self-hosting/fleet-verified.webp" alt="Install the chart with Finish installation" />

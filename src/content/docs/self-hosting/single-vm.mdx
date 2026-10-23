@@ -55,12 +55,14 @@ The release uses Fleet Manager `@@FLEET_MANAGER_VERSION@@` and Runner `@@RUNNER_
 Run the installer from the extracted `superplane` directory:
 
 ```bash
+# Create the configuration and secrets.
+# Pull the required images and start SuperPlane.
 ./install.sh
 ```
 
 Enter the hostname when the installer asks for it. Do not include `https://`.
 
-The installer creates the configuration, pulls the required images, and starts SuperPlane. It also requests an HTTPS certificate for the hostname.
+The installer also requests an HTTPS certificate for the hostname.
 
 <Aside type="caution">
 The installer writes secrets to `superplane.env`. Restrict access to the installation directory. Store a secure backup of this file.

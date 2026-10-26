@@ -9,14 +9,15 @@ Use the section that matches the install. A [single VM](/self-hosting/single-vm)
 
 ## Upgrade a single VM
 
-Download the new `superplane-single-host.tar.gz` from the [SuperPlane releases](https://github.com/superplanehq/superplane/releases). From the existing install directory, replace the Compose file and `install.sh`. Leave `superplane.env`, `oidc/`, `fleet-manager.env`, and `Caddyfile` in place.
+Download the new `superplane-single-host.tar.gz` from the [SuperPlane releases](https://github.com/superplanehq/superplane/releases). From the existing install directory, replace the Compose file, `install.sh`, and `uninstall.sh`. Leave `superplane.env`, `oidc/`, `fleet-manager.env`, and `Caddyfile` in place.
 
 ```bash
 mkdir -p /tmp/superplane-release
 tar -C /tmp/superplane-release -xzf superplane-single-host.tar.gz
 cp /tmp/superplane-release/superplane/docker-compose.yml .
 cp /tmp/superplane-release/superplane/install.sh .
-chmod +x install.sh
+cp /tmp/superplane-release/superplane/uninstall.sh .
+chmod +x install.sh uninstall.sh
 ./install.sh
 ```
 
@@ -29,15 +30,31 @@ curl -fsS "https://superplane.example.com/health"
 
 ## Uninstall a single VM
 
-<Aside type="danger" title="Uninstall deletes the data">
-Copy a backup off the VM first. `docker compose down -v` deletes the database, uploaded files, and certificates.
-</Aside>
+Stop new work and wait for current tasks to finish. From the installation directory, remove the services, managed runners, and project network:
 
 ```bash
-docker compose down -v --remove-orphans
+./uninstall.sh --force
 ```
 
-Delete `superplane.env`, `fleet-manager.env`, and `oidc/` after the backup is stored somewhere else.
+The script preserves data volumes, configuration, and OIDC keys. The `--force` flag permits interruption of running runners, including idle runners. Review the confirmation before you continue. Add `--yes` to skip confirmation for unattended removal.
+
+When preserving data, the script uses the application API to retire runners before removing their containers. If retirement fails, run `./install.sh` to resume before you retry removal.
+
+Run `./install.sh` from the same directory to restart with preserved data. Confirm service health and runner availability before you accept new work.
+
+<Aside type="danger" title="Purge deletes project data">
+Copy a backup off the VM first. The `--purge` option deletes this installation’s Docker data volumes. Configuration and OIDC keys remain.
+</Aside>
+
+To remove the installation and its data, use:
+
+```bash
+./uninstall.sh --force --purge
+```
+
+If you already removed the services while preserving volumes, run `./install.sh` before purging so the script can verify resource ownership. Delete retained configuration and secrets only when you no longer need them.
+
+The script does not delete the VM or its cloud disks. Remove those resources separately when you no longer need the installation.
 
 ## Upgrade a cloud install
 

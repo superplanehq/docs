@@ -22,6 +22,7 @@ export const sidebar = [
         items: [
           { label: "Pipeline overview", slug: "fundamentals/factory-pipeline" },
           { label: "Work intake and backlog", slug: "fundamentals/work-intake" },
+          { label: "Intelligent task assignment", slug: "fundamentals/intelligent-task-assignment" },
           { label: "Implement", slug: "fundamentals/implement" },
           { label: "Verify", slug: "fundamentals/verify" },
           { label: "Done", slug: "fundamentals/done" },

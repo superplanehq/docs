@@ -1,54 +1,58 @@
 ---
 title: Intelligent task assignment
-description: Learn how SuperPlane picks an owner for each new task from code history and board load.
+description: Learn how the planning agent finds reviewers and assigns task owners from code history, roles, and board load.
 ---
 
-SuperPlane assigns an owner to each task that arrives without one. The agent picks the person who changed the code that the task touches. When nobody changed that code, SuperPlane picks the member with the fewest open tasks. This page explains how the owner is picked, what each person must set up, and how a repository can change the rules.
+The planning agent has two tools to find the right person for a task. One tool finds the people who can review or own the task. The other tool sets the task owner. You decide when the agent uses them. Write your rules in the planning instructions.
 
 ## Why tasks need an owner
 
-Exceptions, production problems, and security reports arrive at any hour. A task without an owner stays on the board, and nobody drives the fix to production. With an owner, a CVE that arrives at 3 AM has a plan and a responsible person in the morning.
+Exceptions, production problems, and security reports arrive at any hour. A task without an owner stays on the board, and nobody drives the fix to production. Each team has its own rules for who reviews and who owns a task.
 
-## How SuperPlane picks the owner
+## Tell the agent what to do
 
-Assignment runs during task refinement, when the agent reads the repository and writes the plan. It runs once, on the first refinement turn, and only when the task has no owner.
+The agent uses the tools only when the task or your instructions ask for a reviewer or an owner.
 
-```mermaid
-flowchart TD
-  A[Task arrives without an owner] --> B{Repository owner rules exist?}
-  B -->|Yes| C[Agent follows the rules]
-  B -->|No| D[Agent lists the files that the task touches]
-  D --> E[SuperPlane ranks people by commits to those files]
-  E --> F{Code owner found?}
-  F -->|Yes| G[Assign the top code owner]
-  F -->|No| H[Assign the member with the fewest open tasks]
-  C --> I[Owner gets a notification]
-  G --> I
-  H --> I
+1. Open the **Planning** settings of the workspace.
+2. In **Additional instructions**, write your rules.
+3. Save the settings. New planning conversations use the rules.
+
+To name a reviewer in each plan:
+
+```text
+When creating a plan, write down at the top of the plan which user is best suited to review this task. Base it on the commit history of the files that need to be changed. Write down their SuperPlane name and their GitHub account.
 ```
 
-The agent follows the repository rules when the file exists. Otherwise, SuperPlane ranks people by code history, and board load breaks ties or fills in when no code owner exists.
+To assign an owner with team rules:
+
+```text
+Assign one owner while you plan this task. Always assign a person.
+
+CVE security problems go to Mijat.
+Sentry exceptions in payments go to Pedro.
+A production problem in the web app goes to the person who last changed that screen.
+
+Everything else goes to the person with the fewest assigned tasks on the board.
+```
+
+## What the agent can see
+
+The `suggest_owners` tool returns:
+
+- **Members**: each human member of the organization, with the name, the email, the GitHub account, the roles, and the number of open tasks the member owns. Draft and open tasks in the same workspace count as open. The list starts with the member who has the fewest open tasks.
+- **Current owners**: the people who own the task now.
+- **Code owners**: the members who changed the files that the task touches, ranked by their recent commits. The agent gets this list when it sends the file paths.
 
 SuperPlane ranks code owners with the GitHub commit history of the files:
 
 - It reads commits from the last 180 days.
 - Recent commits count more than old commits.
 - It skips bots and commits that the SuperPlane agent co-authored.
-- It breaks ties by the number of open tasks. Draft and open tasks in the same workspace count as open.
+- It breaks ties by the number of open tasks.
 
-If the agent does not assign an owner, SuperPlane assigns the member with the fewest open tasks when the first plan is published. Every task that goes through refinement gets an owner.
+## Link your GitHub account
 
-## Who can own a task
-
-A person can own a task when all of these are true:
-
-- The person is an active member of the organization.
-- The person is a human user, not a service account.
-- The person has a GitHub account in **Settings > Account > Associated accounts**.
-
-The associated GitHub account connects commit authors to SuperPlane members. Without it, SuperPlane cannot match code history to you, and you do not get tasks from board load either. Your sign-in method does not count. Link the account in **Associated accounts** even if you sign in with GitHub.
-
-To make yourself eligible:
+The associated GitHub account connects commit authors to SuperPlane members. Without it, you can still own a task, but you never appear as a code owner. Your sign-in method does not count. Link the account in **Associated accounts** even if you sign in with GitHub.
 
 1. Open **Settings > Account**.
 2. In **Associated accounts**, click **Link GitHub**.
@@ -56,45 +60,12 @@ To make yourself eligible:
 
 ## Assignment never replaces a person
 
-SuperPlane only assigns an owner when the task has none. These owners stay in place:
+The `assign_owner` tool sets the owner only when the task has no owner. If the task already has an owner, the tool changes nothing. Change the owner from the task at any time.
 
-- the person who created the task
-- the default owner of an intake
-- a person who sent a refinement message or answered a question
-
-Change the owner from the task at any time. SuperPlane does not change it back.
-
-## Write owner rules for your repository
-
-Add `.superplane/skills/task-owner.md` to the repository of the workspace to set your own rules. The runner reads the file and adds it to the first refinement prompt. The agent follows these rules before it looks at code history.
-
-Name people by GitHub login. First names can match more than one person.
-
-```markdown
-CVE security problems go to @mijat.
-Sentry exceptions in payments go to @pedro.
-A production problem in the web app goes to the person who last changed that screen.
-
-Everything else goes to the person with the fewest open tasks.
-```
-
-The rules only pick from people who can own a task. If a rule names a person without an associated GitHub account, SuperPlane rejects that choice.
-
-**Note:** The runner reads at most 8 KB of the file. It ignores symbolic links and files outside the repository.
-
-## Notifications for the new owner
-
-When a person becomes the owner of a task, SuperPlane notifies that person. The notification names the task and shows the reason for the choice, for example: "You changed `pkg/payments/refunds.go` 6 times in the last 30 days."
-
-The notification type is **Tasks assigned to you**. It applies to automatic and manual assignments. The person who makes a manual change does not get a notification.
-
-Default settings send this notification by email. If you saved a custom list of notification types before this feature, turn on **Tasks assigned to you** in **Settings > Notifications**.
-
-The task activity also shows the assignment. An automatic assignment reads "SuperPlane assigned" with the reason below it.
+The task activity shows the assignment. An agent assignment reads "SuperPlane assigned", with the reason below it.
 
 ## Limits
 
-- Code history uses the GitHub integration of the workspace. Bitbucket repositories use board load only.
-- Assignment runs during refinement. Tasks that skip refinement keep the owner they arrived with.
-- The agent sends at most 10 paths for each task. A task that touches more code ranks owners by those 10 paths.
-- SuperPlane ignores owner instructions inside the task text, attachments, and intake data. Only the repository file and a person can set the owner.
+- Code history uses the GitHub integration of the workspace. Bitbucket repositories do not have code owners. The agent can still use members, roles, and open tasks.
+- The agent sends at most 10 file paths for each task.
+- The tools work during task planning only.

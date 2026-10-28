@@ -1,0 +1,71 @@
+---
+title: Intelligent task assignment
+description: Learn how the planning agent finds reviewers and assigns task owners from code history, roles, and board load.
+---
+
+The planning agent has two tools to find the right person for a task. One tool finds the people who can review or own the task. The other tool sets the task owner. You decide when the agent uses them. Write your rules in the planning instructions.
+
+## Why tasks need an owner
+
+Exceptions, production problems, and security reports arrive at any hour. A task without an owner stays on the board, and nobody drives the fix to production. Each team has its own rules for who reviews and who owns a task.
+
+## Tell the agent what to do
+
+The agent uses the tools only when the task or your instructions ask for a reviewer or an owner.
+
+1. Open the **Planning** settings of the workspace.
+2. In **Additional instructions**, write your rules.
+3. Save the settings. New planning conversations use the rules.
+
+To name a reviewer in each plan:
+
+```text
+When creating a plan, write down at the top of the plan which user is best suited to review this task. Base it on the commit history of the files that need to be changed. Write down their SuperPlane name and their GitHub account.
+```
+
+To assign an owner with team rules:
+
+```text
+Assign one owner while you plan this task. Always assign a person.
+
+CVE security problems go to Mijat.
+Sentry exceptions in payments go to Pedro.
+A production problem in the web app goes to the person who last changed that screen.
+
+Everything else goes to the person with the fewest assigned tasks on the board.
+```
+
+## What the agent can see
+
+The `suggest_owners` tool returns:
+
+- **Members**: each human member of the organization, with the name, the email, the GitHub account, the roles, and the number of open tasks the member owns. Draft and open tasks in the same workspace count as open. The list starts with the member who has the fewest open tasks.
+- **Current owners**: the people who own the task now.
+- **Code owners**: the members who changed the files that the task touches, ranked by their recent commits. The agent gets this list when it sends the file paths.
+
+SuperPlane ranks code owners with the GitHub commit history of the files:
+
+- It reads commits from the last 180 days.
+- Recent commits count more than old commits.
+- It skips bots and commits that the SuperPlane agent co-authored.
+- It breaks ties by the number of open tasks.
+
+## Link your GitHub account
+
+The associated GitHub account connects commit authors to SuperPlane members. Without it, you can still own a task, but you never appear as a code owner. Your sign-in method does not count. Link the account in **Associated accounts** even if you sign in with GitHub.
+
+1. Open **Settings > Account**.
+2. In **Associated accounts**, click **Link GitHub**.
+3. Approve access in GitHub.
+
+## Assignment never replaces a person
+
+The `assign_owner` tool sets the owner only when the task has no owner. If the task already has an owner, the tool changes nothing. Change the owner from the task at any time.
+
+The task activity shows the assignment. An agent assignment reads "SuperPlane assigned", with the reason below it.
+
+## Limits
+
+- Code history uses the GitHub integration of the workspace. Bitbucket repositories do not have code owners. The agent can still use members, roles, and open tasks.
+- The agent sends at most 10 file paths for each task.
+- The tools work during task planning only.

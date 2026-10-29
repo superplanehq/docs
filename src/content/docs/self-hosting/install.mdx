@@ -11,11 +11,16 @@ Install SuperPlane from published images. Terraform creates the cluster. You cre
 Installing SuperPlane on Kubernetes requires a SuperPlane Enterprise license.
 </Aside>
 
-Select **AWS**, **Azure**, or **Google Cloud** once. The tabs on this page stay in sync. Plan for 45 minutes. You need a domain you control, such as `superplane.example.com`.
+Select **AWS**, **Azure**, or **Google Cloud** once. The tabs on this page stay in sync. Plan for 45 minutes.
+
+## Before you begin
+
+- A domain you control, such as `superplane.example.com`.
+- Terraform 1.5 or later, kubectl, Helm 3.12 or later, and git.
+- Bash on Linux or macOS. On Windows, use [WSL](https://learn.microsoft.com/windows/wsl/install). The commands on this page do not run in PowerShell.
+- One machine for every step. Terraform keeps its state in the checkout, and later steps read it.
 
 ## 1. Sign in
-
-Install Terraform 1.5 or later, kubectl, Helm 3.12 or later, and git. Run every command on this page in Bash on Linux or macOS. On Windows, use [WSL](https://learn.microsoft.com/windows/wsl/install). The commands do not run in PowerShell. Run them all on the same machine, because Terraform keeps its state in the checkout.
 
 <Tabs syncKey="cloud">
   <TabItem label="AWS">

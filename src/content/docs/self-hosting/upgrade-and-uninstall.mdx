@@ -161,3 +161,14 @@ terraform apply tfplan
 ```
 
 `terraform apply tfplan` deletes resources because the plan is a destroy plan. If the AWS destroy stops on the load balancer, use the [AWS installer README](https://github.com/superplanehq/terraform/blob/v0.1.0/aws/README.md#destroy). Do not delete the Terraform state while a destroy is incomplete.
+
+### Remove an Azure install without the Terraform state
+
+When the Terraform state is lost, delete the installation's resource groups. Azure deletes the cluster's node resource group, which starts with `MC_`, together with the cluster. Use the names from `resource_group_name`. The default is `superplane`.
+
+```bash
+az group delete --name your_install_name-runners --yes
+az group delete --name your_install_name --yes
+```
+
+This also deletes any runner machines that are still in the runner group. Delete the DNS record for the installation separately.

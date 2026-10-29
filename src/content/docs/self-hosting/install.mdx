@@ -15,7 +15,7 @@ Select **AWS**, **Azure**, or **Google Cloud** once. The tabs on this page stay 
 
 ## 1. Sign in
 
-Install Terraform 1.5 or later, kubectl, Helm 3.12 or later, and git.
+Install Terraform 1.5 or later, kubectl, Helm 3.12 or later, and git. Run every command on this page in Bash on Linux or macOS. On Windows, use [WSL](https://learn.microsoft.com/windows/wsl/install). The commands do not run in PowerShell. Run them all on the same machine, because Terraform keeps its state in the checkout.
 
 <Tabs syncKey="cloud">
   <TabItem label="AWS">
@@ -40,13 +40,18 @@ Clear `AWS_PROFILE` so Terraform uses the exported credentials. Run the export a
   </TabItem>
   <TabItem label="Azure">
 
-Install the [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli). You need Owner on the subscription, or Contributor plus User Access Administrator.
+Install the [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli). You need Owner on the subscription, or Contributor plus User Access Administrator. Assign the roles on the subscription, not on a resource group. Terraform creates resource groups and role assignments.
+
+List the subscriptions you can use, then select one. Copy the value from the `SubscriptionId` column.
 
 ```bash
 az login
+az account list -o table
 az account set --subscription your_subscription_id
 az account show --query id -o tsv
 ```
+
+After a role change, run `az login` again so the CLI picks up the new role.
 
   </TabItem>
   <TabItem label="Google Cloud">
@@ -82,18 +87,24 @@ aws ec2 describe-images \
   </TabItem>
   <TabItem label="Azure">
 
-Register the resource providers once per subscription:
+Check the resource providers. Every namespace must print `Registered`:
 
 ```bash
-for p in Microsoft.ContainerService Microsoft.Compute \
-  Microsoft.Network Microsoft.Storage Microsoft.DBforPostgreSQL; do
-  az provider register --namespace "$p"
+for p in Microsoft.ContainerService Microsoft.Compute Microsoft.Network \
+  Microsoft.Storage Microsoft.DBforPostgreSQL Microsoft.ManagedIdentity; do
+  echo "$p $(az provider show --namespace "$p" --query registrationState -o tsv)"
 done
+```
+
+Register each namespace that is not `Registered`, then run the check again. Registration can take a few minutes.
+
+```bash
+az provider register --namespace namespace_name
 ```
 
 Stay in `eastus` with `runner_zones = ["1"]` unless you need another region. `eastus` and `westus3` have both architectures. In `eastus`, arm64 is not offered in zone 2.
 
-List the public runner images. Copy the newest id for each architecture into `terraform.tfvars`. Run the command in `eastus` or `westus3`. The image does not select the Runner release. Fleet Manager installs Runner `@@RUNNER_VERSION@@`.
+List the public runner images. Copy the newest `ImageId` for each architecture into `terraform.tfvars`. Run the command in `eastus` or `westus3`. The image does not select the Runner release. Fleet Manager installs Runner `@@RUNNER_VERSION@@`.
 
 ```bash
 for arch in amd64 arm64; do
@@ -102,7 +113,7 @@ for arch in amd64 arm64; do
     --location eastus \
     --public-gallery-name Superplane-ba852f02-dd01-43eb-b8c4-67a57fdd8af8 \
     --gallery-image-definition "superplane-runner-${arch}" \
-    --query "[].{version:name,id:uniqueId}" \
+    --query "[].{Version:name,ImageId:uniqueId}" \
     -o table
 done
 ```
@@ -191,6 +202,16 @@ superplane_chart_version = "@@SUPERPLANE_CHART_VERSION@@"
 
 Use the image ids from the list command. Leave `superplane_image_tag` and `helm_chart_path` empty. The chart version has no `v` prefix. An empty image tag selects the image for that chart.
 
+Terraform names the resource groups and the cluster `superplane` by default. When the subscription already has an installation, give this one its own names. The PostgreSQL server name must be unique across Azure:
+
+```hcl
+resource_group_name = "your_install_name"
+cluster_name        = "your_install_name"
+db_server_name      = "your_install_name-db"
+```
+
+Terraform also creates `your_install_name-runners` for the runner machines.
+
   </TabItem>
   <TabItem label="Google Cloud">
 
@@ -262,15 +283,7 @@ The command updates kubeconfig for the EKS cluster.
   </TabItem>
   <TabItem label="Azure">
 
-Add `--overwrite-existing` so an older cluster named `superplane` does not block the update:
-
-```bash
-az aks get-credentials \
-  --resource-group superplane \
-  --name superplane \
-  --admin \
-  --overwrite-existing
-```
+The command uses the resource group and cluster from `terraform.tfvars`. When it reports that the context already exists, check that the existing context belongs to a cluster you removed. Then run the printed command again with `--overwrite-existing`.
 
   </TabItem>
   <TabItem label="Google Cloud">
@@ -281,10 +294,11 @@ The command gets credentials for zone `us-central1-a` unless you changed `zone`.
 </Tabs>
 
 ```bash
+kubectl config current-context
 kubectl get nodes
 ```
 
-Every node is `Ready`.
+The context names the cluster Terraform created, and every node is `Ready`. Every `kubectl` and `helm` command after this step runs against that context.
 
 ## 6. Point DNS at SuperPlane
 
@@ -391,7 +405,7 @@ SuperPlane creates an organization named Demo for this account.
      <figcaption>The machine type list follows the provider. Capacity is the same on every cloud.</figcaption>
    </figure>
 
-4. On **Create the chart values**, copy the command and run it. It writes `fleet-manager-values.yaml`. Select **Continue**.
+4. On **Create the chart values**, copy the command. Run it on the machine where you ran Terraform, from the cloud directory, such as `terraform/azure`. It writes `fleet-manager-values.yaml` in that directory. Select **Continue**.
 
    <figure class="sp-media-figure not-content">
      <img src="https://docs-assets.superplane.com/images/self-hosting/fleet-values.webp" alt="Create the chart values" />
@@ -400,6 +414,14 @@ SuperPlane creates an organization named Demo for this account.
 5. On **Install the chart**, check the command before you run it. This SuperPlane release supports Fleet Manager `@@FLEET_MANAGER_VERSION@@` and Runner `@@RUNNER_VERSION@@`.
 
    In `fleet-manager-values.yaml`, set `image.tag` to `@@FLEET_MANAGER_VERSION@@`. Set every `runnerVersion` to `@@RUNNER_VERSION@@`. In the Helm command, set `--version` to `@@FLEET_MANAGER_CHART_VERSION@@`. The setup page can show a newer Fleet Manager or Runner. Use the versions on this page.
+
+   Helm installs into the current kubectl context. Before you run Helm, confirm that the context is the one from step 5:
+
+   ```bash
+   kubectl config current-context
+   ```
+
+   When you manage more than one cluster, add `--kube-context your_context` to the Helm command.
 
    Run the command in the same directory. When the page says Fleet Manager created the selected fleets, select **Finish installation**.
 

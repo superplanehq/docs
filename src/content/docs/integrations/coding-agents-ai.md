@@ -20,3 +20,5 @@ Use SuperPlane-hosted credit when it is available, or connect provider credentia
 ## Control agent work
 
 Give the agent a focused task, explicit repository, validation commands and scope limits. Require human attention when a decision is ambiguous or can affect production.
+
+During a run, the agent changes its task through [agent tools](/integrations/agent-tools): owners, checks, artifacts, plans and visual evidence.

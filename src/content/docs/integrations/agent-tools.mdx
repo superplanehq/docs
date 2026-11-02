@@ -3,7 +3,7 @@ title: Agent tools
 description: Reference for the tools that SuperPlane gives coding agents during a run.
 ---
 
-When SuperPlane starts a coding agent on a fleet runner, the agent gets a set of SuperPlane tools. The agent uses them to change the task it works on: owners, checks, artifacts and surveys.
+When SuperPlane starts a coding agent on a fleet runner, the agent gets a set of SuperPlane tools. The agent uses them to change the task it works on: owners, checks and artifacts.
 
 ## All tools
 
@@ -19,8 +19,6 @@ When SuperPlane starts a coding agent on a fleet runner, the agent gets a set of
 - [`get_artifact`](#get_artifact): Read one artifact or task file. The agent sees images.
 - [`add_artifact`](#add_artifact): Attach a markdown note, a link or a file to the task.
 - [`remove_artifact`](#remove_artifact): Remove an artifact from the task.
-- [`add_survey`](#add_survey): Ask the person on the task questions with options.
-
 ## How access works
 
 - Each run gets its own token. The agent sees only the tools that its run can use.
@@ -179,16 +177,3 @@ Removes one artifact from the task.
 - **key** or **title** (one is required). A title removes the newest artifact with that title and no key.
 
 **Output:** **id** and **title** of the removed artifact.
-
-## add_survey
-
-Asks the person on the task questions with options. Use it when the agent needs a decision that only a person can make. The survey replaces the current survey on the task.
-
-**Input:**
-
-- **questions** (required): 1 to 5 questions. Each question has:
-  - **prompt**: The question.
-  - **options**: Up to 6 answers that the person can pick.
-  - **recommended_option** (optional): The option that the agent recommends. It must match one option exactly.
-
-**Output:** **status** is `shown`.

@@ -3,585 +3,274 @@ title: Agent tools
 description: Reference for the tools that SuperPlane gives coding agents during a run.
 ---
 
-When SuperPlane starts a coding agent on a fleet runner (Claude Code, Codex, OpenRouter or a SuperPlane-hosted model), the agent gets the `superplane_global` Model Context Protocol (MCP) server. Its tools let the agent read and change the task it works on: owners, checks, artifacts, plans and visual evidence. This page is for people who write agent prompts and review agent runs.
+When SuperPlane starts a coding agent on a fleet runner, the agent gets a set of SuperPlane tools. The agent uses them to change the task it works on: owners, checks, artifacts, plans and screenshots.
 
-import { CardGrid, LinkCard } from "@astrojs/starlight/components";
+## All tools
+
+Every run gets these tools:
+
+- [`list_members`](#list_members): List the people in the organization, with their roles.
+- [`suggest_task_owners`](#suggest_task_owners): Find the people who can own or review the task.
+- [`assign_task_owner`](#assign_task_owner): Set the owner of the task.
+- [`list_tasks`](#list_tasks): List the tasks in the workspace.
+- [`create_task`](#create_task): Create a draft task.
+- [`close_task`](#close_task): Close the task.
+- [`add_checks`](#add_checks): Add checks with a score and a reason to the task.
+- [`remove_checks`](#remove_checks): Remove checks from the task.
+- [`list_artifacts`](#list_artifacts): List the artifacts on the task.
+- [`get_artifact`](#get_artifact): Read one artifact.
+- [`add_artifact`](#add_artifact): Attach a markdown note, a link or a file to the task.
+- [`remove_artifact`](#remove_artifact): Remove an artifact from the task.
+
+Planning runs also get:
+
+- [`propose_update`](#propose_update): Publish the plan scores, the specification and a survey.
+- [`inspect_attachment`](#inspect_attachment): View an image that a person attached to the task.
+
+Task runs also get these tools when the step turns them on:
+
+- [`publish_link`](#publish_link): Attach a link to the task, for example a preview environment.
+- [`inspect_screenshot`](#inspect_screenshot): View a screenshot before the upload.
+- [`upload_screenshot`](#upload_screenshot): Upload a screenshot or a video to the task.
+- [`report_visual_evidence_unavailable`](#report_visual_evidence_unavailable): Tell why the run could not capture screenshots.
+
+Merge confidence runs also get:
+
+- [`report_merge_check`](#report_merge_check): Publish one merge confidence check for the pull request.
 
 ## How access works
 
-- Each run gets its own token. The token decides which tools the agent can see.
-- `tools/list` returns only the tools that the run can use. SuperPlane checks the token again on every call.
-- A tool acts on the task of the run. On a planning run, that task is the draft of the planning session.
-- Each tool also has a `superplane task` command in the run's shell. Run `superplane task --help` to see the commands.
-- A failed call returns the error text as the tool result, for example `title is required`. The agent can fix the input and call the tool again.
-
-## Tools by run
-
-- **Every run**: the [people](#people), [task](#tasks) and [artifact](#artifacts) tools, plus `add_checks` and `remove_checks`.
-- **Planning runs** also get `propose_update` and `inspect_attachment`.
-- **Task runs** also get `publish_link` when the step publishes links, and the [visual evidence](#visual-evidence) tools when the step collects visual evidence.
-- **Merge confidence runs** also get `report_merge_check`.
-
-## People
-
-<CardGrid>
-  <LinkCard title="list_members" href="#list_members" description="List the members of the organization with their roles" />
-</CardGrid>
-
-## Tasks
-
-<CardGrid>
-  <LinkCard title="suggest_task_owners" href="#suggest_task_owners" description="Find the people who can own or review this task" />
-  <LinkCard title="assign_task_owner" href="#assign_task_owner" description="Set one person as the only owner of this task" />
-  <LinkCard title="list_tasks" href="#list_tasks" description="List tasks in this workspace" />
-  <LinkCard title="create_task" href="#create_task" description="Create a draft task in this workspace" />
-  <LinkCard title="close_task" href="#close_task" description="Close the task of this run" />
-</CardGrid>
-
-## Checks
-
-<CardGrid>
-  <LinkCard title="add_checks" href="#add_checks" description="Add or replace checks on this task" />
-  <LinkCard title="remove_checks" href="#remove_checks" description="Remove checks from this task" />
-  <LinkCard title="report_merge_check" href="#report_merge_check" description="Publish one merge confidence check for the pull request" />
-</CardGrid>
-
-## Plan
-
-<CardGrid>
-  <LinkCard title="propose_update" href="#propose_update" description="Publish scores, the specification and a survey" />
-  <LinkCard title="inspect_attachment" href="#inspect_attachment" description="View an image that a person attached to the task" />
-</CardGrid>
-
-## Artifacts
-
-<CardGrid>
-  <LinkCard title="list_artifacts" href="#list_artifacts" description="List the artifacts on this task" />
-  <LinkCard title="get_artifact" href="#get_artifact" description="Read one artifact and its content" />
-  <LinkCard title="add_artifact" href="#add_artifact" description="Attach a markdown note, link or file to this task" />
-  <LinkCard title="publish_link" href="#publish_link" description="Attach an http or https link to this task" />
-  <LinkCard title="remove_artifact" href="#remove_artifact" description="Remove one artifact from this task" />
-</CardGrid>
-
-## Visual evidence
-
-<CardGrid>
-  <LinkCard title="inspect_screenshot" href="#inspect_screenshot" description="View a screenshot before you upload it" />
-  <LinkCard title="upload_screenshot" href="#upload_screenshot" description="Upload a screenshot or video to this task" />
-  <LinkCard title="report_visual_evidence_unavailable" href="#report_visual_evidence_unavailable" description="Record why the run could not capture visual evidence" />
-</CardGrid>
-
-<a id="list_members"></a>
+- Each run gets its own token. The agent sees only the tools that its run can use.
+- A tool always acts on the task of the run.
+- Each tool also has a `superplane task` command in the shell of the run. Run `superplane task --help` to see them.
+- When a call fails, the agent gets the error, for example `title is required`. The agent can fix the input and try again.
 
 ## list_members
 
-Lists the human members of the organization. Use it to find a person by name, role or GitHub login.
+Lists the people in the organization.
 
-### Input
+**Input:** none.
 
-This tool takes no input.
-
-### Output
-
-- **members**: One entry per member, sorted by name. Each entry has:
-  - **user_id**: The SuperPlane user ID.
-  - **name** and **email**: The name and email of the member.
-  - **github_login**: The linked GitHub login. Empty when the member has no linked GitHub account.
-  - **roles**: The organization roles of the member, for example `Owner` or `Admin`.
-  - **open_tasks**: The number of draft and open tasks that the member owns in this workspace.
-
-### Example output
-
-```json
-{
-  "members": [
-    {
-      "user_id": "6f1c2a4e-8d3b-4c1a-9b7e-2f5d8a0c1e34",
-      "name": "Ana Souza",
-      "email": "ana@example.com",
-      "github_login": "anasouza",
-      "roles": ["Owner"],
-      "open_tasks": 2
-    }
-  ]
-}
-```
-
-<a id="suggest_task_owners"></a>
+**Output:** **members**, sorted by name. Each member has **user_id**, **name**, **email**, **github_login**, **roles** (for example `Owner`) and **open_tasks** (the draft and open tasks that the person owns in the workspace).
 
 ## suggest_task_owners
 
-Finds the people who can own or review this task. Pass the repository paths that the change touches to rank members by their recent commits on those paths.
+Finds the people who can own or review the task. Give it the paths that the change touches, and it ranks people by their recent commits on those paths.
 
-`suggest_owners` is the previous name of this tool. It takes the same input.
+Previous name: `suggest_owners`.
 
-### Input
+**Input:**
 
-- **paths** (optional): Up to 10 repository-relative files or directories, most specific first, for example `pkg/payments` or `web_src/src/pages/checkout.tsx`. Empty paths and paths that contain `..` are ignored.
+- **paths** (optional): Up to 10 files or directories in the repository, for example `pkg/payments`.
 
-### Output
+**Output:**
 
-- **paths**: The paths that SuperPlane used.
-- **current_owners**: The current owners of the task. Each entry has the same fields as a [`list_members`](#list_members) entry.
-- **code_owners**: Members ranked by their recent commits on the paths. Empty when you pass no paths. Each entry has:
-  - **user_id**, **name**, **github_login**, **roles** and **open_tasks**.
-  - **commits**: The number of commits on the paths.
-  - **last_commit_at**: The time of the latest commit.
-  - **paths**: The paths that the member changed.
-  - **score**: A ranking score. Recent commits count more.
-- **members**: All members that can own tasks, fewest open tasks first.
-- **history_note**: Empty, or a message when SuperPlane cannot read the code history. When it is set, use **members**.
+- **current_owners**: The current owners of the task.
+- **code_owners**: People ranked by their commits on the paths, with **commits**, **last_commit_at** and **score**. Empty when you give no paths.
+- **members**: All people who can own tasks, fewest open tasks first.
+- **history_note**: A message when SuperPlane cannot read the code history. Then use **members**.
 
-### Notes
-
-- Code history covers the last 180 days and up to 50 commits per path. A commit loses half its weight every 30 days.
-- Only members with a linked GitHub account can appear in **code_owners**.
-- Bot commits and commits from the SuperPlane agent do not count.
-
-### Example output
-
-```json
-{
-  "paths": ["pkg/payments"],
-  "current_owners": [],
-  "code_owners": [
-    {
-      "user_id": "6f1c2a4e-8d3b-4c1a-9b7e-2f5d8a0c1e34",
-      "name": "Ana Souza",
-      "github_login": "anasouza",
-      "roles": ["Owner"],
-      "commits": 3,
-      "last_commit_at": "2026-10-28T14:02:11Z",
-      "paths": ["pkg/payments"],
-      "open_tasks": 2,
-      "score": 2.71
-    }
-  ],
-  "members": [],
-  "history_note": ""
-}
-```
-
-<a id="assign_task_owner"></a>
+SuperPlane looks at the last 180 days of commits. Recent commits count more. Bot commits do not count. Only people with a linked GitHub account can be code owners.
 
 ## assign_task_owner
 
-Sets one person as the only owner of this task. The new owner replaces all current owners, including owners that a person assigned by hand.
+Sets one person as the owner of the task. That person replaces all current owners.
 
-`assign_owner` is the previous name of this tool. It takes the same input.
+Previous name: `assign_owner`.
 
-### Input
+**Input:**
 
-- **user** (required): A `user_id` or `github_login` from [`suggest_task_owners`](#suggest_task_owners) or [`list_members`](#list_members). A leading `@` is allowed.
-- **reason** (optional): One sentence that SuperPlane shows on the task, for example `You changed pkg/payments/charge.go 3 times in the last 30 days.` SuperPlane removes links and keeps the first 280 characters.
-- **only_if_unassigned** (optional): When `true`, keep the current owners if the task already has one.
+- **user** (required): A `user_id` or `github_login` from `list_members` or `suggest_task_owners`.
+- **reason** (optional): One sentence that people see on the task, for example `You changed pkg/payments/charge.go 3 times this month.` Up to 280 characters.
+- **only_if_unassigned** (optional): When `true`, do nothing if the task already has an owner.
 
-### Output
+**Output:** **status** is `assigned` with the new **owner**, or `kept` with the current **owners**.
 
-- **status**: `assigned` when the person is now the owner. `kept` when **only_if_unassigned** is `true` and the task already had an owner.
-- **owner**: The new owner, when **status** is `assigned`.
-- **owners**: The current owners, when **status** is `kept`.
-
-### Notes
-
-- The person must be a member of the organization who can own tasks.
-- A closed or archived task cannot change owners.
-
-### Example output
-
-```json
-{
-  "status": "assigned",
-  "owner": {
-    "user_id": "6f1c2a4e-8d3b-4c1a-9b7e-2f5d8a0c1e34",
-    "name": "Ana Souza",
-    "email": "ana@example.com",
-    "github_login": "anasouza",
-    "roles": ["Owner"],
-    "open_tasks": 3
-  }
-}
-```
-
-<a id="list_tasks"></a>
+A closed or archived task cannot change owners.
 
 ## list_tasks
 
-Lists tasks in this workspace, newest update first.
+Lists the tasks in the workspace, newest update first. Archived tasks are not listed.
 
-### Input
+**Input:**
 
-- **state** (optional): `draft`, `open` or `closed`. Pass one value or a list to combine them.
-- **limit** (optional): The maximum number of tasks, from 1 to 100. The default is 100.
+- **state** (optional): `draft`, `open` or `closed`. Give one value or a list.
+- **limit** (optional): 1 to 100. The default is 100.
 
-### Output
-
-- **tasks**: One entry per task. Each entry has **id**, **key**, **title**, **state** and **url**.
-
-### Notes
-
-- Archived tasks are not listed.
-- There is no offset. Use **state** to narrow the list.
-
-### Example output
-
-```json
-{
-  "tasks": [
-    {
-      "id": "0b9a7c52-3e1d-4f6a-8c2b-91d4e7a5f013",
-      "key": "PAY-42",
-      "title": "Retry failed refunds",
-      "state": "open",
-      "url": "https://app.superplane.com/your_org_id/workspaces/payments/task/42"
-    }
-  ]
-}
-```
-
-<a id="create_task"></a>
+**Output:** **tasks**. Each task has **id**, **key**, **title**, **state** and **url**.
 
 ## create_task
 
-Creates a draft task in this workspace. The new task has no owner.
+Creates a draft task in the workspace, with no owner.
 
-### Input
+**Input:**
 
 - **title** (required): Up to 256 characters.
 - **description** (optional): Up to 20000 characters.
 
-### Output
-
-The new task with **id**, **key**, **title**, **state** and **url**. **state** is `draft`.
-
-<a id="close_task"></a>
+**Output:** The new task with **id**, **key**, **title**, **state** and **url**.
 
 ## close_task
 
-Closes the task of this run. On a planning run, it closes the draft of the planning session.
+Closes the task. Other runs on the task stop.
 
-### Input
+**Input:**
 
-- **result** (optional): `completed`, `rejected` or `failed`. The default is `completed`.
+- **result** (optional): `completed`, `rejected` or `failed`. The default is `completed`. A draft task can only be `rejected`.
 
-### Output
-
-The closed task with **id**, **key**, **title**, **state**, **result** and **url**.
-
-### Notes
-
-- A draft task can only be `rejected`. An open task can be `completed`, `rejected` or `failed`.
-- A closed or archived task cannot close again.
-- Other runs on the task stop. The run that calls the tool continues.
-
-<a id="add_checks"></a>
+**Output:** The closed task with **id**, **key**, **title**, **state**, **result** and **url**.
 
 ## add_checks
 
-Adds checks to this task. A check shows a score and a reason on the task, like the scores of a plan or a merge confidence check. Use it from any step to report your own checks.
+Adds checks to the task. A check shows a score and a reason on the task. Use it from any step to report your own checks.
 
-### Input
+**Input:**
 
-- **checks** (required): The list of checks. Each check has:
-  - **key** (required): A stable ID for the check, for example `api-latency`. A check with the same key on this task is replaced.
-  - **name** (required): The label that people see, for example `API latency`.
-  - **score** (required): A number from 0 to **max_score**.
-  - **max_score** (required): The highest possible score, for example `5`.
-  - **level** (required): `positive`, `caution` or `critical`. It sets the color of the check.
-  - **reason** (required): One sentence that explains the score.
+- **checks** (required): A list of checks. Each check has:
+  - **key**: A stable ID, for example `api-latency`. A check with the same key is replaced.
+  - **name**: The label that people see, for example `API latency`.
+  - **score** and **max_score**: For example `2` of `5`.
+  - **level**: `positive`, `caution` or `critical`. It sets the color.
+  - **reason**: One sentence that explains the score.
 
-### Output
-
-- **checks**: The saved checks with **key**, **name**, **score**, **max_score** and **level**.
-
-### Example output
-
-```json
-{
-  "checks": [
-    {
-      "key": "api-latency",
-      "name": "API latency",
-      "score": 2,
-      "max_score": 5,
-      "level": "caution"
-    }
-  ]
-}
-```
-
-<a id="remove_checks"></a>
+**Output:** **checks**, the saved checks.
 
 ## remove_checks
 
-Removes checks from this task.
+Removes checks from the task.
 
-### Input
+**Input:**
 
 - **keys** (required): The keys of the checks to remove.
 
-### Output
-
-- **removed**: The keys that SuperPlane removed.
-
-<a id="report_merge_check"></a>
-
-## report_merge_check
-
-Publishes one merge confidence check for the pull request of this task. Call it once for the check that the step prompt names.
-
-### Input
-
-- **check** (required): The ID from the `Merge check:` line of the prompt, for example `risk` or `api-latency`.
-- **score** (required): An integer from 1 to 5.
-- **summary** (required): One sentence. Do not repeat the score. Up to 1000 bytes.
-
-### Output
-
-- **status**: `reported`.
-
-### Built-in checks
-
-| ID | Name | Better score |
-| --- | --- | --- |
-| `risk` | Blast radius | Lower |
-| `drift` | Drift from Specification | Lower |
-| `performance` | Performance | Higher |
-| `security` | Security | Higher |
-| `reversibility` | Reversibility | Higher |
-
-A custom check ID uses the step name as its label. A lower score is better.
-
-### Notes
-
-- The check must be on in this step. Other IDs return `merge confidence check is off`.
-- The score sets the level. When lower is better, 1 or 2 is positive, 3 is caution and 4 or 5 is critical. When higher is better, 4 or 5 is positive, 3 is caution and 1 or 2 is critical.
-- A second report for the same check replaces the score and keeps the previous score.
-- The step must still be running. A report after the step ends fails.
-
-<a id="propose_update"></a>
-
-## propose_update
-
-Publishes the plan of a planning session: scores, the specification and an optional survey. Pass at least one of them.
-
-### Input
-
-- **scores**: The three plan scores. Each score is an integer from 1 to 3 with a one-sentence **summary**:
-  - **clarity**: The outcome, scope and done condition are defined.
-  - **complexity**: One agent can finish the task in one run.
-  - **verifiability**: Tests or checks can prove the change.
-- **spec**: The full specification in markdown.
-- **survey**: Questions for the person who plans the task. **questions** has 1 to 5 entries. Each entry has a **prompt**, up to 6 **options** and an optional **recommended_option** that matches one option exactly.
-
-### Output
-
-- **status**: `shown`.
-
-### Notes
-
-- The first call of a session must include **scores**.
-- **scores** show as the Clarity score, Complexity and Verifiability checks on the draft task. A score of 3 is positive, 2 is caution and 1 is critical.
-- **spec** is saved as the `plan.md` artifact. The next call replaces it.
-- **survey** replaces the current survey. A survey is refused when all three scores are 3.
-
-<a id="inspect_attachment"></a>
-
-## inspect_attachment
-
-Shows an image that a person attached to the task, so the agent can see it. Call it for every PNG, JPEG, GIF or WebP attachment. Do not use OCR or the `file` command.
-
-### Input
-
-- **path** (required): The path of the image in the task attachments directory. A relative path starts in that directory.
-
-### Output
-
-The image, plus **path**, **filename**, **mimeType**, **sizeBytes** and **sha256**.
-
-### Notes
-
-- The file must be inside the task attachments directory, up to 70 MiB.
-
-<a id="list_artifacts"></a>
+**Output:** **removed**, the keys that SuperPlane removed.
 
 ## list_artifacts
 
-Lists the artifacts on this task, newest first. The list does not include content. Use [`get_artifact`](#get_artifact) to read one artifact.
+Lists the artifacts on the task, newest first, without their content.
 
-### Input
+**Input:**
 
 - **type** (optional): `markdown`, `link` or `file`.
 
-### Output
-
-- **artifacts**: One entry per artifact. Each entry has **id**, **key**, **type**, **title**, **url** and **created_at**.
-
-### Example output
-
-```json
-{
-  "artifacts": [
-    {
-      "id": "c3e8a1f0-5b2d-4e7c-9a6f-0d1b2c3e4f50",
-      "key": "staging",
-      "type": "link",
-      "title": "Staging",
-      "url": "https://staging.example.com/pr-42",
-      "created_at": "2026-10-30T18:21:07Z"
-    }
-  ]
-}
-```
-
-<a id="get_artifact"></a>
+**Output:** **artifacts**. Each artifact has **id**, **key**, **type**, **title**, **url** and **created_at**.
 
 ## get_artifact
 
-Reads one artifact on this task and its content.
+Reads one artifact and its content.
 
-### Input
+**Input:**
 
-- **id** or **key** (one is required): The artifact from [`list_artifacts`](#list_artifacts).
+- **id** or **key** (one is required).
 
-### Output
-
-The fields from `list_artifacts`, plus the content:
-
-- **body**: The markdown, for a `markdown` artifact.
-- **url**: The link, for a `link` artifact.
-- **public_url**, **content_type** and **size_bytes**: The file, for a `file` artifact.
-
-<a id="add_artifact"></a>
+**Output:** The artifact, plus **body** for markdown, **url** for a link, or **public_url**, **content_type** and **size_bytes** for a file.
 
 ## add_artifact
 
-Attaches an artifact to this task: a markdown note, a link or a file.
+Attaches a markdown note, a link or a file to the task.
 
-### Input
+**Input:**
 
 - **type** (required): `markdown`, `link` or `file`.
-- **title** (optional): The label that people see. Up to 1024 characters.
-- **key** (optional): A stable ID, up to 512 bytes. An artifact with the same key on this task is replaced. Without a key, each call adds a new artifact.
-- **body**: The markdown. Required when **type** is `markdown`.
-- **url**: An `http` or `https` URL. Required when **type** is `link`.
-- **path**: The path of a file in the task directory. Required when **type** is `file`.
-
-### Output
-
-The saved artifact with **artifact_id**, **type**, **title**, **key** and **url**.
-
-<a id="publish_link"></a>
-
-## publish_link
-
-Attaches an `http` or `https` link to this task, for example a preview environment.
-
-### Input
-
-- **url** (required): An `http` or `https` URL.
+- **body**: The markdown, for `markdown`.
+- **url**: An `http` or `https` URL, for `link`.
+- **path**: A file in the task directory, for `file`.
 - **title** (optional): The label that people see.
-- **key** (optional): A stable ID. A later call with the same key replaces the link.
+- **key** (optional): A stable ID. An artifact with the same key is replaced. Without a key, each call adds a new artifact.
 
-### Output
-
-**artifact_id**, **url**, **title** and **key**.
-
-<a id="remove_artifact"></a>
+**Output:** The saved artifact with **artifact_id**, **type**, **title**, **key** and **url**.
 
 ## remove_artifact
 
-Removes one artifact from this task. On a planning run, it changes the draft of the planning session.
+Removes one artifact from the task.
 
-### Input
+**Input:**
 
-- **key** or **title** (one is required): A key selects that artifact. A title selects the newest artifact with that title and no key. Keys are up to 512 bytes and titles up to 1024 characters.
+- **key** or **title** (one is required). A title removes the newest artifact with that title and no key.
 
-### Output
+**Output:** **id** and **title** of the removed artifact.
 
-**id** and **title** of the removed artifact.
+## propose_update
 
-### Notes
+Publishes the plan of a planning session. Give at least one of scores, spec or survey.
 
-- A closed or archived task cannot change.
+**Input:**
 
-<a id="inspect_screenshot"></a>
+- **scores**: **clarity**, **complexity** and **verifiability**. Each is 1 to 3, with a one-sentence **summary**. The first call must include scores.
+- **spec**: The full specification in markdown. It is saved as the `plan.md` artifact.
+- **survey**: 1 to 5 questions for the person who plans the task. Each question has a **prompt**, up to 6 **options** and an optional **recommended_option**. There is no survey when all scores are 3.
+
+**Output:** **status** is `shown`.
+
+Each call replaces the previous spec and survey.
+
+## inspect_attachment
+
+Shows an image that a person attached to the task, so the agent can see it. Use it for every PNG, JPEG, GIF or WebP attachment.
+
+**Input:**
+
+- **path** (required): The image in the task attachments directory. Up to 70 MiB.
+
+**Output:** The image, plus **filename**, **mimeType**, **sizeBytes** and **sha256**.
+
+## publish_link
+
+Attaches an `http` or `https` link to the task, for example a preview environment.
+
+**Input:**
+
+- **url** (required): The link.
+- **title** (optional): The label that people see.
+- **key** (optional): A stable ID. A link with the same key is replaced.
+
+**Output:** **artifact_id**, **url**, **title** and **key**.
 
 ## inspect_screenshot
 
-Shows a screenshot before upload, so the agent can check it. Call it for every screenshot before [`upload_screenshot`](#upload_screenshot).
+Shows a screenshot so the agent can check it before the upload. Use it for every screenshot before `upload_screenshot`.
 
-### Input
+**Input:**
 
-- **path** (required): The path of a PNG, JPEG or WebP file in the task `evidence/` directory, up to 5 MiB.
+- **path** (required): A PNG, JPEG or WebP file in the task `evidence/` directory. Up to 5 MiB.
 
-### Output
-
-The image, plus **path**, **filename**, **mimeType**, **sizeBytes** and **sha256**.
-
-### Notes
-
-- SuperPlane records the size and hash of the inspected file.
-- A screenshot that is larger than 5 MiB fails. Capture a smaller or more focused image.
-
-<a id="upload_screenshot"></a>
+**Output:** The image, plus **filename**, **mimeType**, **sizeBytes** and **sha256**.
 
 ## upload_screenshot
 
-Uploads a screenshot or video from the task `evidence/` directory and attaches it to the task.
+Uploads a screenshot or a video from the task `evidence/` directory and attaches it to the task. Inspect each screenshot first. If the file changes, inspect it again.
 
-`upload_artifact` is the previous name of this tool. It takes the same input.
+Previous name: `upload_artifact`.
 
-### Input
+**Input:**
 
-- **path** (required): A `.png`, `.jpg`, `.jpeg`, `.webp`, `.webm` or `.mp4` file in the task `evidence/` directory, up to 100 MiB.
+- **path** (required): A `.png`, `.jpg`, `.jpeg`, `.webp`, `.webm` or `.mp4` file. Up to 100 MiB.
 - **title** (optional): The label that people see. The default is the filename.
-- **posterPath** (optional): For a video only. An inspected PNG, JPEG or WebP image that the task shows in place of the video.
+- **posterPath** (optional): For a video, an inspected image that the task shows in place of the video.
 
-### Output
-
-- **artifact_id** and **file_id**: The IDs of the new artifact and file.
-- **filename**, **content_type** and **size_bytes**: The uploaded file.
-- **public_url**: The URL of the file.
-- **title**: The label of the artifact.
-- **markdown**: A markdown snippet that shows the file, for example in a pull request description.
-
-### Notes
-
-- Inspect each screenshot with [`inspect_screenshot`](#inspect_screenshot) first. If the file changes after the inspection, inspect it again.
-- With **posterPath**, SuperPlane uploads the poster and then the video. **markdown** shows the poster as a link to the video.
-
-### Example output
-
-```json
-{
-  "artifact_id": "8a2d4f6b-1c3e-4a5b-9d7f-e0c1b2a3d4e5",
-  "file_id": "f1e2d3c4-b5a6-4978-8a9b-0c1d2e3f4a5b",
-  "filename": "checkout.png",
-  "content_type": "image/png",
-  "size_bytes": 184233,
-  "public_url": "https://app.superplane.com/api/v1/public/artifacts/2b7e9c1d-4a3f-4e8b-a1c5-d6f7e8a9b0c1/checkout.png",
-  "title": "Checkout page",
-  "markdown": "![Checkout page](https://app.superplane.com/api/v1/public/artifacts/2b7e9c1d-4a3f-4e8b-a1c5-d6f7e8a9b0c1/checkout.png)"
-}
-```
-
-<a id="report_visual_evidence_unavailable"></a>
+**Output:** **artifact_id**, **file_id**, **filename**, **content_type**, **size_bytes**, **public_url**, **title** and **markdown**, a snippet that shows the file in a pull request description.
 
 ## report_visual_evidence_unavailable
 
-Records why the run could not capture the required visual evidence. Call it only after you try an isolated preview and a Playwright capture.
+Tells why the run could not capture screenshots. Use it only after you try a preview environment and a Playwright capture.
 
-### Input
+**Input:**
 
-- **reason** (required): Why the evidence is not available.
-- **attempts** (required): What the agent tried. Include at least one `preview` attempt and one `playwright` attempt. Add an `upload` attempt when an upload failed. Each attempt has:
-  - **type**: `preview`, `playwright` or `upload`.
-  - **command**: The command that the agent ran.
-  - **outcome**: What happened.
+- **reason** (required): Why there are no screenshots.
+- **attempts** (required): What the agent tried. Each attempt has a **type** (`preview`, `playwright` or `upload`), the **command** and the **outcome**. Include at least one `preview` and one `playwright` attempt.
 
-### Output
+**Output:** **status** (`unavailable`, `partial` or `captured`), **reason**, **attempts** and the uploaded **artifacts**.
 
-- **status**: `unavailable` when nothing was uploaded. `captured` or `partial` when some files were uploaded.
-- **reason** and **attempts**: The recorded input.
-- **artifacts**: The files that the run uploaded.
+## report_merge_check
+
+Publishes one merge confidence check for the pull request. Use it once, for the check that the step prompt names.
+
+**Input:**
+
+- **check** (required): The ID from the `Merge check:` line of the prompt, for example `risk`.
+- **score** (required): 1 to 5.
+- **summary** (required): One sentence. Do not repeat the score.
+
+**Output:** **status** is `reported`.
+
+The built-in checks are `risk` (Blast radius), `drift` (Drift from Specification), `performance`, `security` and `reversibility`. For `risk`, `drift` and custom checks, a lower score is better. For the others, a higher score is better. A new report for the same check replaces the score. The step must still be running.

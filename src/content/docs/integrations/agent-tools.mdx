@@ -15,6 +15,7 @@ Every run gets these tools:
 - [`list_tasks`](#list_tasks): List the tasks in the workspace.
 - [`create_task`](#create_task): Create a draft task.
 - [`close_task`](#close_task): Close the task.
+- [`list_checks`](#list_checks): List the checks on a task.
 - [`add_checks`](#add_checks): Add checks with a score and a reason to the task.
 - [`remove_checks`](#remove_checks): Remove checks from the task.
 - [`list_artifacts`](#list_artifacts): List the artifacts on the task.
@@ -119,6 +120,16 @@ Closes the task. Other runs on the task stop.
 - **result** (optional): `completed`, `rejected` or `failed`. The default is `completed`. A draft task can only be `rejected`.
 
 **Output:** The closed task with **id**, **key**, **title**, **state**, **result** and **url**.
+
+## list_checks
+
+Lists all checks on a task: the plan scores, the merge confidence checks and the checks from `add_checks`.
+
+**Input:**
+
+- **task** (required): The **id** or **key** of the task, for example from `list_tasks`.
+
+**Output:** **checks**. Each check has **key**, **name**, **score**, **max_score**, **level** and **reason**.
 
 ## add_checks
 

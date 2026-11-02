@@ -27,10 +27,9 @@ Planning runs also get:
 
 - [`update_plan`](#update_plan): Publish the plan scores, the specification and a survey.
 
-Task runs also get these tools when the step turns them on:
+Task runs also get this tool when the step collects visual evidence:
 
 - [`upload_screenshot`](#upload_screenshot): Upload a screenshot or a video to the task.
-- [`report_visual_evidence_unavailable`](#report_visual_evidence_unavailable): Tell why the run could not capture screenshots.
 
 ## How access works
 
@@ -234,14 +233,3 @@ Previous name: `upload_artifact`.
 - **posterPath** (optional): For a video, an image that the agent read with `get_artifact`. The task shows it in place of the video.
 
 **Output:** **artifact_id**, **file_id**, **filename**, **content_type**, **size_bytes**, **public_url**, **title** and **markdown**, a snippet that shows the file in a pull request description.
-
-## report_visual_evidence_unavailable
-
-Tells why the run could not capture screenshots. Use it only after you try a preview environment and a Playwright capture.
-
-**Input:**
-
-- **reason** (required): Why there are no screenshots.
-- **attempts** (required): What the agent tried. Each attempt has a **type** (`preview`, `playwright` or `upload`), the **command** and the **outcome**. Include at least one `preview` and one `playwright` attempt.
-
-**Output:** **status** (`unavailable`, `partial` or `captured`), **reason**, **attempts** and the uploaded **artifacts**.

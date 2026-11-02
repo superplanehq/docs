@@ -30,14 +30,9 @@ Planning runs also get:
 
 Task runs also get these tools when the step turns them on:
 
-- [`publish_link`](#publish_link): Attach a link to the task, for example a preview environment.
 - [`inspect_screenshot`](#inspect_screenshot): View a screenshot before the upload.
 - [`upload_screenshot`](#upload_screenshot): Upload a screenshot or a video to the task.
 - [`report_visual_evidence_unavailable`](#report_visual_evidence_unavailable): Tell why the run could not capture screenshots.
-
-Merge confidence runs also get:
-
-- [`report_merge_check`](#report_merge_check): Publish one merge confidence check for the pull request.
 
 ## How access works
 
@@ -227,18 +222,6 @@ Shows an image that a person attached to the task, so the agent can see it. Use 
 
 **Output:** The image, plus **filename**, **mimeType**, **sizeBytes** and **sha256**.
 
-## publish_link
-
-Attaches an `http` or `https` link to the task, for example a preview environment.
-
-**Input:**
-
-- **url** (required): The link.
-- **title** (optional): The label that people see.
-- **key** (optional): A stable ID. A link with the same key is replaced.
-
-**Output:** **artifact_id**, **url**, **title** and **key**.
-
 ## inspect_screenshot
 
 Shows a screenshot so the agent can check it before the upload. Use it for every screenshot before `upload_screenshot`.
@@ -273,17 +256,3 @@ Tells why the run could not capture screenshots. Use it only after you try a pre
 - **attempts** (required): What the agent tried. Each attempt has a **type** (`preview`, `playwright` or `upload`), the **command** and the **outcome**. Include at least one `preview` and one `playwright` attempt.
 
 **Output:** **status** (`unavailable`, `partial` or `captured`), **reason**, **attempts** and the uploaded **artifacts**.
-
-## report_merge_check
-
-Publishes one merge confidence check for the pull request. Use it once, for the check that the step prompt names.
-
-**Input:**
-
-- **check** (required): The ID from the `Merge check:` line of the prompt, for example `risk`.
-- **score** (required): 1 to 5.
-- **summary** (required): One sentence. Do not repeat the score.
-
-**Output:** **status** is `reported`.
-
-The built-in checks are `risk` (Blast radius), `drift` (Drift from Specification), `performance`, `security` and `reversibility`. For `risk`, `drift` and custom checks, a lower score is better. For the others, a higher score is better. A new report for the same check replaces the score. The step must still be running.

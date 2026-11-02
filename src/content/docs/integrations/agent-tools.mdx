@@ -27,10 +27,6 @@ Planning runs also get:
 
 - [`update_plan`](#update_plan): Publish the plan scores, the specification and a survey.
 
-Task runs also get this tool when the step collects visual evidence:
-
-- [`upload_screenshot`](#upload_screenshot): Upload a screenshot or a video to the task.
-
 ## How access works
 
 - Each run gets its own token. The agent sees only the tools that its run can use.
@@ -162,7 +158,7 @@ Lists the artifacts on the task, newest first, without their content.
 
 Reads one artifact, or one file in the task directory. When it is a PNG, JPEG, GIF or WebP image, the agent sees the image.
 
-Use it for every image that a person attached to the task, and for every screenshot before `upload_screenshot`.
+Use it for every image that a person attached to the task, and for every screenshot before you attach it with `add_artifact`.
 
 Previous names: `inspect_attachment` and `inspect_screenshot`.
 
@@ -181,18 +177,23 @@ Screenshots in `evidence/` are up to 5 MiB. Other images are up to 70 MiB. Super
 
 ## add_artifact
 
-Attaches a markdown note, a link or a file to the task.
+Attaches a markdown note, a link or a file to the task. A file can be a screenshot or a video.
+
+Previous name for files: `upload_artifact`.
 
 **Input:**
 
 - **type** (required): `markdown`, `link` or `file`.
 - **body**: The markdown, for `markdown`.
 - **url**: An `http` or `https` URL, for `link`.
-- **path**: A file in the task directory, for `file`.
-- **title** (optional): The label that people see.
+- **path**: A file in the task directory, for `file`. Up to 100 MiB.
+- **posterPath** (optional): For a video, an image that the task shows in place of the video.
+- **title** (optional): The label that people see. For a file, the default is the filename.
 - **key** (optional): A stable ID. An artifact with the same key is replaced. Without a key, each call adds a new artifact.
 
-**Output:** The saved artifact with **artifact_id**, **type**, **title**, **key** and **url**.
+**Output:** The saved artifact with **artifact_id**, **type**, **title**, **key** and **url**. A file also has **file_id**, **filename**, **content_type**, **size_bytes**, **public_url** and **markdown**, a snippet that shows the file in a pull request description.
+
+Read each screenshot and poster with `get_artifact` first. If the file changes, read it again.
 
 ## remove_artifact
 
@@ -219,17 +220,3 @@ Previous name: `propose_update`.
 **Output:** **status** is `shown`.
 
 Each call replaces the previous spec and survey.
-
-## upload_screenshot
-
-Uploads a screenshot or a video from the task `evidence/` directory and attaches it to the task. Read each screenshot with `get_artifact` first. If the file changes, read it again.
-
-Previous name: `upload_artifact`.
-
-**Input:**
-
-- **path** (required): A `.png`, `.jpg`, `.jpeg`, `.webp`, `.webm` or `.mp4` file. Up to 100 MiB.
-- **title** (optional): The label that people see. The default is the filename.
-- **posterPath** (optional): For a video, an image that the agent read with `get_artifact`. The task shows it in place of the video.
-
-**Output:** **artifact_id**, **file_id**, **filename**, **content_type**, **size_bytes**, **public_url**, **title** and **markdown**, a snippet that shows the file in a pull request description.

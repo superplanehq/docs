@@ -19,18 +19,16 @@ Every run gets these tools:
 - [`add_checks`](#add_checks): Add checks with a score and a reason to the task.
 - [`remove_checks`](#remove_checks): Remove checks from the task.
 - [`list_artifacts`](#list_artifacts): List the artifacts on the task.
-- [`get_artifact`](#get_artifact): Read one artifact.
+- [`get_artifact`](#get_artifact): Read one artifact or task file. The agent sees images.
 - [`add_artifact`](#add_artifact): Attach a markdown note, a link or a file to the task.
 - [`remove_artifact`](#remove_artifact): Remove an artifact from the task.
 
 Planning runs also get:
 
 - [`update_plan`](#update_plan): Publish the plan scores, the specification and a survey.
-- [`inspect_attachment`](#inspect_attachment): View an image that a person attached to the task.
 
 Task runs also get these tools when the step turns them on:
 
-- [`inspect_screenshot`](#inspect_screenshot): View a screenshot before the upload.
 - [`upload_screenshot`](#upload_screenshot): Upload a screenshot or a video to the task.
 - [`report_visual_evidence_unavailable`](#report_visual_evidence_unavailable): Tell why the run could not capture screenshots.
 
@@ -163,13 +161,24 @@ Lists the artifacts on the task, newest first, without their content.
 
 ## get_artifact
 
-Reads one artifact and its content.
+Reads one artifact, or one file in the task directory. When it is a PNG, JPEG, GIF or WebP image, the agent sees the image.
 
-**Input:**
+Use it for every image that a person attached to the task, and for every screenshot before `upload_screenshot`.
 
-- **id** or **key** (one is required).
+Previous names: `inspect_attachment` and `inspect_screenshot`.
 
-**Output:** The artifact, plus **body** for markdown, **url** for a link, or **public_url**, **content_type** and **size_bytes** for a file.
+**Input:** give one of:
+
+- **id** or **key**: An artifact from `list_artifacts`.
+- **path**: A file in the task directory, for example an attachment or a screenshot in `evidence/`.
+
+**Output:**
+
+- For an artifact: the artifact, plus **body** for markdown, **url** for a link, or **public_url**, **content_type** and **size_bytes** for a file.
+- For a path: **filename**, **mimeType**, **sizeBytes** and **sha256**.
+- For an image: the image too.
+
+Screenshots in `evidence/` are up to 5 MiB. Other images are up to 70 MiB. SuperPlane records the hash of each screenshot that the agent reads.
 
 ## add_artifact
 
@@ -212,29 +221,9 @@ Previous name: `propose_update`.
 
 Each call replaces the previous spec and survey.
 
-## inspect_attachment
-
-Shows an image that a person attached to the task, so the agent can see it. Use it for every PNG, JPEG, GIF or WebP attachment.
-
-**Input:**
-
-- **path** (required): The image in the task attachments directory. Up to 70 MiB.
-
-**Output:** The image, plus **filename**, **mimeType**, **sizeBytes** and **sha256**.
-
-## inspect_screenshot
-
-Shows a screenshot so the agent can check it before the upload. Use it for every screenshot before `upload_screenshot`.
-
-**Input:**
-
-- **path** (required): A PNG, JPEG or WebP file in the task `evidence/` directory. Up to 5 MiB.
-
-**Output:** The image, plus **filename**, **mimeType**, **sizeBytes** and **sha256**.
-
 ## upload_screenshot
 
-Uploads a screenshot or a video from the task `evidence/` directory and attaches it to the task. Inspect each screenshot first. If the file changes, inspect it again.
+Uploads a screenshot or a video from the task `evidence/` directory and attaches it to the task. Read each screenshot with `get_artifact` first. If the file changes, read it again.
 
 Previous name: `upload_artifact`.
 
@@ -242,7 +231,7 @@ Previous name: `upload_artifact`.
 
 - **path** (required): A `.png`, `.jpg`, `.jpeg`, `.webp`, `.webm` or `.mp4` file. Up to 100 MiB.
 - **title** (optional): The label that people see. The default is the filename.
-- **posterPath** (optional): For a video, an inspected image that the task shows in place of the video.
+- **posterPath** (optional): For a video, an image that the agent read with `get_artifact`. The task shows it in place of the video.
 
 **Output:** **artifact_id**, **file_id**, **filename**, **content_type**, **size_bytes**, **public_url**, **title** and **markdown**, a snippet that shows the file in a pull request description.
 

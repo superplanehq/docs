@@ -8,7 +8,6 @@ When SuperPlane starts a coding agent on a fleet runner, the agent gets a set of
 ## All tools
 
 - [`list_members`](#list_members): List the people in the organization, with their roles.
-- [`suggest_task_owners`](#suggest_task_owners): Find the people who can own or review the task.
 - [`assign_task_owner`](#assign_task_owner): Set the owner of the task.
 - [`list_tasks`](#list_tasks): List the tasks in the workspace.
 - [`create_task`](#create_task): Create a draft task.
@@ -37,25 +36,6 @@ Lists the people in the organization.
 
 **Output:** **members**, sorted by name. Each member has **user_id**, **name**, **email**, **github_login**, **roles** (for example `Owner`) and **open_tasks** (the draft and open tasks that the person owns in the workspace).
 
-## suggest_task_owners
-
-Finds the people who can own or review the task. Give it the paths that the change touches, and it ranks people by their recent commits on those paths.
-
-Previous name: `suggest_owners`.
-
-**Input:**
-
-- **paths** (optional): Up to 10 files or directories in the repository, for example `pkg/payments`.
-
-**Output:**
-
-- **current_owners**: The current owners of the task.
-- **code_owners**: People ranked by their commits on the paths, with **commits**, **last_commit_at** and **score**. Empty when you give no paths.
-- **members**: All people who can own tasks, fewest open tasks first.
-- **history_note**: A message when SuperPlane cannot read the code history. Then use **members**.
-
-SuperPlane looks at the last 180 days of commits. Recent commits count more. Bot commits do not count. Only people with a linked GitHub account can be code owners.
-
 ## assign_task_owner
 
 Sets one person as the owner of the task. That person replaces all current owners.
@@ -64,7 +44,7 @@ Previous name: `assign_owner`.
 
 **Input:**
 
-- **user** (required): A `user_id` or `github_login` from `list_members` or `suggest_task_owners`.
+- **user** (required): A `user_id` or `github_login` from `list_members`.
 - **reason** (optional): One sentence that people see on the task, for example `You changed pkg/payments/charge.go 3 times this month.` Up to 280 characters.
 - **only_if_unassigned** (optional): When `true`, do nothing if the task already has an owner.
 

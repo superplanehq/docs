@@ -3,11 +3,9 @@ title: Agent tools
 description: Reference for the tools that SuperPlane gives coding agents during a run.
 ---
 
-When SuperPlane starts a coding agent on a fleet runner, the agent gets a set of SuperPlane tools. The agent uses them to change the task it works on: owners, checks, artifacts, plans and screenshots.
+When SuperPlane starts a coding agent on a fleet runner, the agent gets a set of SuperPlane tools. The agent uses them to change the task it works on: owners, checks, artifacts and surveys.
 
 ## All tools
-
-Every run gets these tools:
 
 - [`list_members`](#list_members): List the people in the organization, with their roles.
 - [`suggest_task_owners`](#suggest_task_owners): Find the people who can own or review the task.
@@ -22,10 +20,7 @@ Every run gets these tools:
 - [`get_artifact`](#get_artifact): Read one artifact or task file. The agent sees images.
 - [`add_artifact`](#add_artifact): Attach a markdown note, a link or a file to the task.
 - [`remove_artifact`](#remove_artifact): Remove an artifact from the task.
-
-Planning runs also get:
-
-- [`update_plan`](#update_plan): Publish the plan scores, the specification and a survey.
+- [`add_survey`](#add_survey): Ask the person on the task questions with options.
 
 ## How access works
 
@@ -205,18 +200,15 @@ Removes one artifact from the task.
 
 **Output:** **id** and **title** of the removed artifact.
 
-## update_plan
+## add_survey
 
-Publishes the plan of a planning session. Give at least one of scores, spec or survey.
-
-Previous name: `propose_update`.
+Asks the person on the task questions with options. Use it when the agent needs a decision that only a person can make. The survey replaces the current survey on the task.
 
 **Input:**
 
-- **scores**: **clarity**, **complexity** and **verifiability**. Each is 1 to 3, with a one-sentence **summary**. The first call must include scores.
-- **spec**: The full specification in markdown. It is saved as the `plan.md` artifact.
-- **survey**: 1 to 5 questions for the person who plans the task. Each question has a **prompt**, up to 6 **options** and an optional **recommended_option**. There is no survey when all scores are 3.
+- **questions** (required): 1 to 5 questions. Each question has:
+  - **prompt**: The question.
+  - **options**: Up to 6 answers that the person can pick.
+  - **recommended_option** (optional): The option that the agent recommends. It must match one option exactly.
 
 **Output:** **status** is `shown`.
-
-Each call replaces the previous spec and survey.

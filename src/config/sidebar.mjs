@@ -65,6 +65,7 @@ export const sidebar = [
     items: [
       { label: "Source control and work intake", slug: "integrations/source-control" },
       { label: "Coding agents and AI", slug: "integrations/coding-agents-ai" },
+      { label: "Agent tools", slug: "integrations/agent-tools" },
       { label: "CI/CD", slug: "integrations/ci-cd" },
       { label: "Observability", slug: "integrations/observability" },
       { label: "Cloud and infrastructure", slug: "integrations/cloud-infrastructure" },

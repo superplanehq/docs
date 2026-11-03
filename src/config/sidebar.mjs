@@ -51,7 +51,33 @@ export const sidebar = [
     ],
   },
   {
-    label: "3. Use Cases",
+    label: "3. Bring in work",
+    collapsed: true,
+    items: [
+      { label: "Intakes overview", slug: "intakes/overview" },
+      { label: "Source control and work intake", slug: "integrations/source-control" },
+      {
+        label: "Intake component references",
+        collapsed: true,
+        items: [
+          { label: "GitHub", slug: "components/github" },
+          { label: "Jira", slug: "components/jira" },
+          { label: "Linear", slug: "components/linear" },
+          { label: "Sentry", slug: "components/sentry" },
+        ],
+      },
+    ],
+  },
+  {
+    label: "4. Developer tools",
+    collapsed: true,
+    items: [
+      { label: "Connect an MCP client", slug: "agents/mcp" },
+      { label: "Install and connect the CLI", slug: "cli" },
+    ],
+  },
+  {
+    label: "5. Use Cases",
     collapsed: true,
     items: [
       { label: "Use cases overview", slug: "use-cases/overview" },
@@ -60,7 +86,7 @@ export const sidebar = [
     ],
   },
   {
-    label: "4. Integrations and Components",
+    label: "6. Integrations and Components",
     collapsed: true,
     items: [
       { label: "Source control and work intake", slug: "integrations/source-control" },
@@ -73,7 +99,7 @@ export const sidebar = [
     ],
   },
   {
-    label: "5. Billing",
+    label: "7. Billing",
     collapsed: true,
     items: [
       { label: "Overview", slug: "billing/overview" },
@@ -84,7 +110,7 @@ export const sidebar = [
     ],
   },
   {
-    label: "6. Self-hosting",
+    label: "8. Self-hosting",
     collapsed: true,
     items: [
       { label: "Overview", slug: "self-hosting/overview" },
@@ -95,7 +121,7 @@ export const sidebar = [
     ],
   },
   {
-    label: "7. Open Source",
+    label: "9. Open Source",
     collapsed: true,
     items: [
       { label: "Why SuperPlane is open source", slug: "open-source/why-open-source" },
@@ -109,7 +135,7 @@ export const sidebar = [
     ],
   },
   {
-    label: "8. Support and Help",
+    label: "10. Support and Help",
     collapsed: true,
     items: [
       {
@@ -121,7 +147,7 @@ export const sidebar = [
     ],
   },
   {
-    label: "9. Release Notes",
+    label: "11. Release Notes",
     collapsed: true,
     items: [
       { label: "Latest release", slug: "release-notes/latest" },

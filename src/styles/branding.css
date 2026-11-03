@@ -949,3 +949,71 @@
   .help-grid .help-card[class*="brand-card--"] .help-card__top { color: var(--card-ink); }
   .help-grid .help-card[class*="brand-card--"]:hover { border-color: var(--card-ink); }
 }
+
+/* Match how-it-works section headings to the introduction; override the base wrapper rule. */
+@layer starlight.user {
+  .sl-markdown-content .sl-heading-wrapper > :is([id="1-import-work-from-your-existing-tools"], [id="2-assess-which-tasks-are-ready-for-agents"], [id="3-track-task-progress-on-one-board"], [id="4-configure-agents-for-each-stage"], [id="5-verify-changes-and-handle-failures"], [id="6-keep-people-in-control-of-decisions"], [id="who-benefits-from-superplane"], [id="key-terms"], [id="next-steps"]) {
+    font-family: "Instrument Sans", sans-serif;
+    letter-spacing: -0.02em;
+    font-size: 28px !important;
+    font-weight: 600 !important;
+    line-height: 1.35;
+  }
+  @media (max-width: 49.999rem) {
+    .sl-markdown-content .sl-heading-wrapper > :is([id="1-import-work-from-your-existing-tools"], [id="2-assess-which-tasks-are-ready-for-agents"], [id="3-track-task-progress-on-one-board"], [id="4-configure-agents-for-each-stage"], [id="5-verify-changes-and-handle-failures"], [id="6-keep-people-in-control-of-decisions"], [id="who-benefits-from-superplane"], [id="key-terms"], [id="next-steps"]) { font-size: 24px !important; }
+  }
+}
+
+/* Keep the board-stage summary compact and aligned with the article. */
+@layer starlight.user {
+  .sl-markdown-content .factory-stage-table { overflow-x: auto; margin-block: 24px; }
+  .sl-markdown-content .factory-stage-table table {
+    display: table;
+    width: 100%;
+    margin: 0;
+    border-collapse: collapse;
+  }
+  .sl-markdown-content .factory-stage-table :is(th, td) {
+    padding: 14px 16px;
+    text-align: left;
+    vertical-align: top;
+    line-height: 1.6;
+  }
+  .sl-markdown-content .factory-stage-table :is(th, td):first-child { width: 24%; }
+}
+
+@layer starlight.user {
+  .sp-media-figure--captioned figcaption {
+    padding: 12px 16px;
+    margin: 0;
+    line-height: 1.6;
+  }
+}
+
+@layer starlight.user {
+  .sl-markdown-content a[href="/intakes/overview"] {
+    color: #d6b83c;
+    text-decoration-color: #d6b83c80;
+  }
+  .sl-markdown-content a[href="/intakes/overview"]:is(:hover, :focus-visible) {
+    color: #f3f3ea;
+    text-decoration-color: #d6b83c;
+  }
+}
+
+@layer starlight.user {
+  .sp-glossary { margin: 1.5rem 0 2rem; }
+  .sp-glossary > div {
+    display: grid;
+    grid-template-columns: minmax(9rem, 11rem) minmax(0, 1fr);
+    gap: 1.5rem;
+    padding: 1rem 0;
+    border-bottom: 1px solid #2b302d;
+  }
+  .sp-glossary > div:first-child { border-top: 1px solid #2b302d; }
+  .sp-glossary dt { color: #d6b83c; font-weight: 600; }
+  .sp-glossary dd { margin: 0; color: #bfc5c0; line-height: 1.6; }
+  @media (max-width: 39.999rem) {
+    .sp-glossary > div { grid-template-columns: 1fr; gap: 0.375rem; }
+  }
+}

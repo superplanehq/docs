@@ -64,7 +64,6 @@ export const sidebar = [
     collapsed: true,
     items: [
       { label: "Source control and work intake", slug: "integrations/source-control" },
-      { label: "Coding agents and AI", slug: "integrations/coding-agents-ai" },
       { label: "Agent tools", slug: "integrations/agent-tools" },
       { label: "CI/CD", slug: "integrations/ci-cd" },
       { label: "Observability", slug: "integrations/observability" },
@@ -79,6 +78,9 @@ export const sidebar = [
     items: [
       { label: "Overview", slug: "billing/overview" },
       { label: "Costs and budgets", slug: "billing/costs-budgets" },
+      { label: "Model sources", slug: "billing/model-sources" },
+      { label: "Bring your own key", slug: "billing/bring-your-own-key" },
+      { label: "Bring your own subscription", slug: "billing/bring-your-own-subscription" },
     ],
   },
   {

@@ -1,0 +1,546 @@
+---
+title: Agent tools
+description: Manage tasks, owners, checks and artifacts from agent prompts or runner Bash steps.
+---
+
+import { Tabs, TabItem } from "@astrojs/starlight/components";
+
+Use SuperPlane tools in your automations to manage tasks, owners, checks and artifacts. Describe the result in an agent prompt, or call `superplane task` from a runner Bash step. The agent receives tool descriptions through Model Context Protocol (MCP) and selects the tools it needs.
+
+SuperPlane supplies each run's credentials and adds the Bash command to its `PATH`. Changes apply to the current task; task queries and creation use its workspace. Check queries accept an explicit task. Both interfaces use the same permissions.
+
+Select **Prompt (MCP)** or **Bash** in any example to switch all examples on this page.
+
+## Tasks
+
+<span id="list_tasks"></span>
+
+### Find tasks
+
+Find tasks in the current workspace, with the most recently updated tasks first.
+
+<Tabs syncKey="agent-tool-interface">
+  <TabItem label="Prompt (MCP)">
+
+```text
+Find the 20 most recently updated open tasks in this workspace.
+Identify any that overlap with this task.
+```
+
+  </TabItem>
+  <TabItem label="Bash">
+
+```sh
+superplane task list --state open --limit 20
+```
+
+Repeat `--state` to query multiple states, for example `--state draft --state open`.
+
+  </TabItem>
+</Tabs>
+
+<details>
+<summary>Tool reference: <code>list_tasks</code></summary>
+
+**Input:**
+
+- **state** (optional): `draft`, `open` or `closed`. Give one value or a list.
+- **limit** (optional): 1 to 100. The default is 100.
+
+**Output:** **tasks**. Each task has **id**, **key**, **title**, **state** and **url**.
+
+</details>
+
+<span id="create_task"></span>
+
+### Create a task
+
+Create an unassigned draft task in the current workspace.
+
+<Tabs syncKey="agent-tool-interface">
+  <TabItem label="Prompt (MCP)">
+
+```text
+If this task is too complex to complete in one run, break it into smaller draft tasks.
+Give each task a clear scope and acceptance criteria.
+```
+
+  </TabItem>
+  <TabItem label="Bash">
+
+```sh
+superplane task create \
+  --title "Investigate slow queries" \
+  --description "Review the query results from the daily report."
+```
+
+  </TabItem>
+</Tabs>
+
+<details>
+<summary>Tool reference: <code>create_task</code></summary>
+
+**Input:**
+
+- **title** (required): Up to 256 characters.
+- **description** (optional): Up to 20000 characters.
+
+**Output:** The new task with **id**, **key**, **title**, **state** and **url**.
+
+</details>
+
+<span id="close_task"></span>
+
+### Close a task
+
+Close the current task and stop its other runs.
+
+<Tabs syncKey="agent-tool-interface">
+  <TabItem label="Prompt (MCP)">
+
+```text
+If this task meets all its acceptance criteria, close it as completed.
+Otherwise, leave it open and explain what remains.
+```
+
+  </TabItem>
+  <TabItem label="Bash">
+
+```sh
+superplane task close --result completed
+```
+
+To reject a draft task, use `--result rejected`.
+
+  </TabItem>
+</Tabs>
+
+<details>
+<summary>Tool reference: <code>close_task</code></summary>
+
+**Input:**
+
+- **result** (optional): `completed`, `rejected` or `failed`. The default is `completed`. A draft task can only be `rejected`.
+
+**Output:** The closed task with **id**, **key**, **title**, **state**, **result** and **url**.
+
+</details>
+
+## People and ownership
+
+<span id="list_members"></span>
+
+### List members
+
+List organization members, their roles and their open task counts.
+
+<Tabs syncKey="agent-tool-interface">
+  <TabItem label="Prompt (MCP)">
+
+```text
+List the people in this organization, their roles and their open task counts.
+Identify who has the fewest open tasks.
+```
+
+  </TabItem>
+  <TabItem label="Bash">
+
+```sh
+superplane task members
+```
+
+  </TabItem>
+</Tabs>
+
+<details>
+<summary>Tool reference: <code>list_members</code></summary>
+
+**Input:** none.
+
+**Output:** **members**, sorted by name. Each member has **user_id**, **name**, **email**, **github_login**, **roles** (for example `Owner`) and **open_tasks** (the draft and open tasks that the person owns in the workspace).
+
+</details>
+
+<span id="assign_task_owner"></span>
+
+### Assign an owner
+
+Set one person as the owner of the current task, replacing its current owners.
+
+<Tabs syncKey="agent-tool-interface">
+  <TabItem label="Prompt (MCP)">
+
+```text
+If this task has no owner, assign it to someone who recently changed the code it affects.
+Explain why you chose that person. Keep the existing owner if there is one.
+```
+
+  </TabItem>
+  <TabItem label="Bash">
+
+Use a user ID or GitHub login from `superplane task members`:
+
+```sh
+superplane task owner assign \
+  --user your_github_login \
+  --only-if-unassigned
+```
+
+  </TabItem>
+</Tabs>
+
+<details>
+<summary>Tool reference: <code>assign_task_owner</code></summary>
+
+Previous name: `assign_owner`.
+
+**Input:**
+
+- **user** (required): A `user_id` or `github_login` from `list_members`.
+- **reason** (optional): One sentence that people see on the task, for example `You changed pkg/payments/charge.go 3 times this month.` Up to 280 characters.
+- **only_if_unassigned** (optional): When `true`, do nothing if the task already has an owner.
+
+**Output:** **status** is `assigned` with the new **owner**, or `kept` with the current **owners**.
+
+A closed or archived task cannot change owners.
+
+</details>
+
+## Checks
+
+<span id="list_checks"></span>
+
+### Read checks
+
+Read the checks recorded on a task.
+
+<Tabs syncKey="agent-tool-interface">
+  <TabItem label="Prompt (MCP)">
+
+```text
+Review the checks on task SUPER-123.
+Summarize any warnings or critical findings that need attention.
+```
+
+  </TabItem>
+  <TabItem label="Bash">
+
+Replace `your_task_key` with a task key or ID from `superplane task list`:
+
+```sh
+superplane task check list --task your_task_key
+```
+
+  </TabItem>
+</Tabs>
+
+<details>
+<summary>Tool reference: <code>list_checks</code></summary>
+
+**Input:**
+
+- **task** (required): The **id** or **key** of the task, for example from `list_tasks`.
+
+**Output:** **checks**. Each check has **key**, **name**, **score**, **max_score**, **level** and **reason**.
+
+</details>
+
+<span id="add_checks"></span>
+
+### Report a check
+
+Record a score and a reason on the current task.
+
+<Tabs syncKey="agent-tool-interface">
+  <TabItem label="Prompt (MCP)">
+
+```text
+Review this change for UI changes.
+Record your findings as a check on this task, with a score and a reason.
+```
+
+  </TabItem>
+  <TabItem label="Bash">
+
+Report the test result before the Bash step exits:
+
+```sh
+if make test; then
+  superplane task check add \
+    --key tests --name Tests \
+    --score 1 --max-score 1 --level positive \
+    --reason "Tests passed."
+else
+  superplane task check add \
+    --key tests --name Tests \
+    --score 0 --max-score 1 --level critical \
+    --reason "Tests failed."
+  exit 1
+fi
+```
+
+  </TabItem>
+</Tabs>
+
+<details>
+<summary>Tool reference: <code>add_checks</code></summary>
+
+**Input:**
+
+- **checks** (required): A list of checks. Each check has:
+  - **key**: A stable ID, for example `api-latency`. A check with the same key is replaced.
+  - **name**: The label that people see, for example `API latency`.
+  - **score** and **max_score**: For example `2` of `5`.
+  - **level**: `positive`, `caution` or `critical`. It sets the color.
+  - **reason**: One sentence that explains the score.
+
+**Output:** **checks**, the saved checks.
+
+</details>
+
+<span id="remove_checks"></span>
+
+### Remove checks
+
+Remove custom checks from the current task.
+
+<Tabs syncKey="agent-tool-interface">
+  <TabItem label="Prompt (MCP)">
+
+```text
+Remove the check with key tests from this task because it belongs to an obsolete test run.
+```
+
+  </TabItem>
+  <TabItem label="Bash">
+
+```sh
+superplane task check remove --key tests
+```
+
+Repeat `--key` to remove multiple checks.
+
+  </TabItem>
+</Tabs>
+
+<details>
+<summary>Tool reference: <code>remove_checks</code></summary>
+
+**Input:**
+
+- **keys** (required): The keys of the checks to remove.
+
+**Output:** **removed**, the keys that SuperPlane removed.
+
+</details>
+
+## Artifacts
+
+<span id="list_artifacts"></span>
+
+### List artifacts
+
+List the current task's attachments without reading their content.
+
+<Tabs syncKey="agent-tool-interface">
+  <TabItem label="Prompt (MCP)">
+
+```text
+List the links attached to this task so I can find its previews and related work.
+```
+
+  </TabItem>
+  <TabItem label="Bash">
+
+```sh
+superplane task artifact list --type link
+```
+
+  </TabItem>
+</Tabs>
+
+<details>
+<summary>Tool reference: <code>list_artifacts</code></summary>
+
+**Input:**
+
+- **type** (optional): `markdown`, `link` or `file`.
+
+**Output:** **artifacts**. Each artifact has **id**, **key**, **type**, **title**, **url** and **created_at**.
+
+</details>
+
+<span id="get_artifact"></span>
+
+### Read an artifact
+
+Read an attachment or a local task file. An agent can also inspect images.
+
+<Tabs syncKey="agent-tool-interface">
+  <TabItem label="Prompt (MCP)">
+
+```text
+Read the test report attached to this task.
+Summarize the failures and suggest what to investigate next.
+```
+
+  </TabItem>
+  <TabItem label="Bash">
+
+```sh
+superplane task artifact get --key test-report
+```
+
+Use exactly one of `--id`, `--key` or `--path`. Shell paths start at the current working directory. Local files must stay inside `SUPERPLANE_TASK_DIR`.
+
+For images, the Bash command returns metadata and does not count as image inspection. An agent must use MCP `get_artifact` to inspect screenshots and posters before upload.
+
+  </TabItem>
+</Tabs>
+
+<details>
+<summary>Tool reference: <code>get_artifact</code></summary>
+
+Use it for every image that a person attached to the task, and for every screenshot before you attach it with `add_artifact`.
+
+Previous names: `inspect_attachment` and `inspect_screenshot`.
+
+**Input:** give one of:
+
+- **id** or **key**: An artifact from `list_artifacts`.
+- **path**: A file in the task directory, for example an attachment or a screenshot in `evidence/`.
+
+**Output:**
+
+- For an artifact: the artifact, plus **body** for markdown, **url** for a link, or **public_url**, **content_type** and **size_bytes** for a file.
+- For a path: **filename**, **mimeType**, **sizeBytes** and **sha256**.
+- For an image: the image too.
+
+Screenshots in `evidence/` are up to 5 MiB. Other images are up to 70 MiB. SuperPlane records the hash of each screenshot that the agent reads.
+
+</details>
+
+<span id="add_artifact"></span>
+
+### Attach an artifact
+
+Attach a link, a Markdown note, an image or a video to the current task.
+
+<Tabs syncKey="agent-tool-interface">
+  <TabItem label="Prompt (MCP)">
+
+```text
+Attach https://staging.example.com to this task as Staging.
+Replace the previous staging link if one exists.
+```
+
+  </TabItem>
+  <TabItem label="Bash">
+
+Run your deployment script, then attach its URL. Configure deployment credentials through the Bash step's secrets.
+
+```sh
+set -e
+./script/deploy staging
+superplane task artifact add-link \
+  --url https://staging.example.com \
+  --name Staging \
+  --key staging
+```
+
+The stable key replaces the previous staging artifact on later runs.
+
+To attach a Markdown note, read its body from a file:
+
+```sh
+superplane task artifact add-markdown \
+  --file ./REPORT.md --name "Test report" --key test-report
+```
+
+To upload a video, use a file in the task directory:
+
+```sh
+superplane task artifact add-file \
+  --file "$SUPERPLANE_TASK_DIR/evidence/demo.mp4" \
+  --name Demo --key demo
+```
+
+Shell file paths start at the current working directory. Uploads must stay inside `SUPERPLANE_TASK_DIR` and support PNG, JPEG, WebP, WebM and MP4 files, up to 100 MiB. Use `--poster path_to_poster` to attach an inspected poster to a video.
+
+An agent must inspect screenshots and posters through MCP `get_artifact` before upload. The Bash `artifact get` command does not record image inspection.
+
+  </TabItem>
+</Tabs>
+
+<details>
+<summary>Tool reference: <code>add_artifact</code></summary>
+
+Previous name for files: `upload_artifact`.
+
+**Input:**
+
+- **type** (required): `markdown`, `link` or `file`.
+- **body**: The markdown, for `markdown`.
+- **url**: An `http` or `https` URL, for `link`.
+- **path**: A file in the task directory, for `file`. Up to 100 MiB.
+- **posterPath** (optional): For a video, an image that the task shows in place of the video.
+- **title** (optional): The label that people see. For a file, the default is the filename.
+- **key** (optional): A stable ID. An artifact with the same key is replaced. Without a key, each call adds a new artifact.
+
+**Output:** The saved artifact with **artifact_id**, **type**, **title**, **key** and **url**. A file also has **file_id**, **filename**, **content_type**, **size_bytes**, **public_url** and **markdown**, a snippet that shows the file in a pull request description.
+
+Read each screenshot and poster with `get_artifact` first. If the file changes, read it again.
+
+</details>
+
+<span id="remove_artifact"></span>
+
+### Remove an artifact
+
+Remove an attachment from the current task.
+
+<Tabs syncKey="agent-tool-interface">
+  <TabItem label="Prompt (MCP)">
+
+```text
+Remove the staging link from this task because the environment is no longer available.
+```
+
+  </TabItem>
+  <TabItem label="Bash">
+
+```sh
+superplane task artifact remove --key staging
+```
+
+To remove an artifact without a key, use `--name Staging`.
+
+  </TabItem>
+</Tabs>
+
+<details>
+<summary>Tool reference: <code>remove_artifact</code></summary>
+
+**Input:**
+
+- **key** or **title** (one is required). A title removes the newest artifact with that title and no key.
+
+**Output:** **id** and **title** of the removed artifact.
+
+</details>
+
+## Runner command details
+
+SuperPlane supplies `superplane task` inside the run environment. The separately installed SuperPlane CLI has different commands and does not expose all these tools.
+
+List the runner commands:
+
+```sh
+superplane task --help
+```
+
+Most commands print JSON. Artifact creation commands print the link URL or artifact title. A failed command prints an error to standard error and exits with code `1`.
+
+### Current limits
+
+The runner tools cannot move tasks between columns or filter tasks by column. Owner assignment applies only to the current task, including when a run creates additional tasks.

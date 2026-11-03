@@ -1,0 +1,29 @@
+name: Update SuperPlane release
+
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Resolve the current SuperPlane release
+        run: node scripts/resolve-superplane-chart.mjs --require
+      - name: Commit when the release changes
+        run: |
+          if git diff --quiet -- src/data/superplane-chart.json; then
+            echo "Release is unchanged."
+            exit 0
+          fi
+          git add src/data/superplane-chart.json
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -m "chore: Show the current SuperPlane release"
+          git push

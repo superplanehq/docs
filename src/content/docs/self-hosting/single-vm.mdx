@@ -1,0 +1,129 @@
+---
+title: Install on a single VM
+description: Install SuperPlane with Docker Compose on one Linux virtual machine.
+---
+
+import { Aside, Steps } from "@astrojs/starlight/components";
+
+Install SuperPlane on one Linux virtual machine (VM) with Docker Compose. This guide covers a public installation with automatic HTTPS.
+
+Complete the DNS and host requirements before you start.
+
+## Requirements
+
+- A Linux VM with an `amd64` or `arm64` architecture.
+- Administrator access to the VM.
+- Docker Engine and Docker Compose v2.
+- Bash, cURL, tar, and OpenSSL.
+- Outbound HTTPS access to GitHub Releases, GitHub Container Registry (`ghcr.io`), and Docker Hub.
+- A hostname that you control, such as `superplane.example.com`.
+- Inbound TCP ports 80 and 443.
+
+Reserve 2 vCPUs, 8 GB of memory, and 30 GB of disk for each concurrent runner. The default fleet keeps one runner ready and permits five concurrent runners.
+
+At full capacity, the runners can use 10 vCPUs, 40 GB of memory, and 150 GB of disk. These values exclude the core SuperPlane services.
+
+## 1. Configure DNS
+
+Create an A record for IPv4 or an AAAA record for IPv6. Point the record to the VM's public address.
+
+If you publish both record types, point both records to the VM. Check the public records before installation:
+
+```bash
+dig +short superplane.example.com A @8.8.8.8
+dig +short superplane.example.com AAAA @8.8.8.8
+```
+
+The commands must return the VM's public addresses. A blank result is valid when you do not publish that record type.
+
+If DNS returns multiple addresses, each address must reach the VM on ports 80 and 443.
+
+## 2. Download the release
+
+Connect to the VM. Download and extract the current SuperPlane release:
+
+```bash
+VERSION=@@SUPERPLANE_IMAGE_TAG@@
+curl -fsSL -o superplane-single-host.tar.gz \
+  "https://github.com/superplanehq/superplane/releases/download/${VERSION}/superplane-single-host.tar.gz"
+tar -xzf superplane-single-host.tar.gz
+cd superplane
+```
+
+The release uses Fleet Manager `@@FLEET_MANAGER_VERSION@@` and Runner `@@RUNNER_VERSION@@`. Do not change these image versions.
+
+## 3. Install SuperPlane
+
+Run the installer from the extracted `superplane` directory:
+
+```bash
+# Create the configuration and secrets.
+# Pull the required images and start SuperPlane.
+./install.sh
+```
+
+Enter the hostname when the installer asks for it. Do not include `https://`.
+
+The installer also requests an HTTPS certificate for the hostname.
+
+The installer starts Fleet Manager and the local runner fleet. Fleet Manager uses the Docker socket to start runner containers.
+
+To change runner capacity, set these variables when you run the installer:
+
+```bash
+SUPERPLANE_RUNNER_MAX_CAPACITY=8 \
+SUPERPLANE_RUNNER_WARM_CAPACITY=2 \
+./install.sh
+```
+
+The maximum capacity must be a positive integer. The warm capacity must be between zero and the maximum capacity.
+
+<Aside type="caution">
+The installer writes secrets to `superplane.env`. Restrict access to the installation directory. Store a secure backup of this file.
+
+Fleet Manager can control Docker through the host socket. Install SuperPlane only on a VM that you administer.
+</Aside>
+
+## 4. Verify the installation
+
+Check the services and the health endpoint:
+
+```bash
+docker compose ps
+curl -fsS "https://superplane.example.com/health"
+```
+
+Each service must show `running` or `healthy`. The health endpoint must return HTTP 200.
+
+## 5. Create the owner account
+
+Open `https://superplane.example.com/setup`.
+
+<Steps>
+
+1. On **Create the owner account**, enter the name, email, and password. The password needs 8 or more characters, one number, and one capital letter. Select **Continue**.
+
+   <figure class="sp-media-figure not-content">
+     <img src="https://docs-assets.superplane.com/images/self-hosting/owner-account.webp" alt="Create the owner account form" />
+     <figcaption>Create the owner account.</figcaption>
+   </figure>
+
+2. On **Choose an edition**, select **Continue with Community**. Select **Enterprise** only when you have a license file or a license key.
+
+   <figure class="sp-media-figure not-content">
+     <img src="https://docs-assets.superplane.com/images/self-hosting/edition.webp" alt="Choose an edition with Community selected" />
+   </figure>
+
+3. On **Send email from this installation**, select **Skip for now**. You can add SMTP later in the installation settings.
+
+   <figure class="sp-media-figure not-content">
+     <img src="https://docs-assets.superplane.com/images/self-hosting/smtp.webp" alt="SMTP form with Skip for now" />
+   </figure>
+
+</Steps>
+
+## 6. Next steps
+
+Use the [quickstart](/get-started/quickstart) to connect a repository and create your first task.
+
+If the installation fails, use [Troubleshooting](/self-hosting/troubleshooting). Use [Upgrade and uninstall](/self-hosting/upgrade-and-uninstall) to manage the installation.

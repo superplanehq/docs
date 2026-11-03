@@ -1,17 +1,26 @@
 ---
 title: Install SuperPlane
-description: Install SuperPlane on AWS, Azure, or Google Cloud with Terraform, then create the owner account and install Fleet Manager.
+description: Install SuperPlane Enterprise on Kubernetes in AWS, Azure, or Google Cloud with Terraform.
 ---
 
 import { Aside, Steps, Tabs, TabItem } from "@astrojs/starlight/components";
 
 Install SuperPlane from published images. Terraform creates the cluster. You create the owner account in the browser, then run the Fleet Manager commands the product prints.
 
-Select **AWS**, **Azure**, or **Google Cloud** once. The tabs on this page stay in sync. Plan for 45 minutes. You need a domain you control, such as `superplane.example.com`.
+<Aside type="caution" title="Enterprise only">
+Installing SuperPlane on Kubernetes requires a SuperPlane Enterprise license.
+</Aside>
+
+Select **AWS**, **Azure**, or **Google Cloud** once. The tabs on this page stay in sync. Plan for 45 minutes.
+
+## Before you begin
+
+- A domain you control, such as `superplane.example.com`.
+- Terraform 1.5 or later, kubectl, Helm 3.12 or later, and git.
+- Bash on Linux or macOS. On Windows, use [WSL](https://learn.microsoft.com/windows/wsl/install). The commands on this page do not run in PowerShell.
+- One machine for every step. Terraform keeps its state in the checkout, and later steps read it.
 
 ## 1. Sign in
-
-Install Terraform 1.5 or later, kubectl, Helm 3.12 or later, and git.
 
 <Tabs syncKey="cloud">
   <TabItem label="AWS">
@@ -36,18 +45,23 @@ Clear `AWS_PROFILE` so Terraform uses the exported credentials. Run the export a
   </TabItem>
   <TabItem label="Azure">
 
-Install the [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli). You need Owner on the subscription, or Contributor plus User Access Administrator.
+Install the [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli). You need Owner on the subscription, or Contributor plus User Access Administrator. Assign the roles on the subscription, not on a resource group. Terraform creates resource groups and role assignments.
+
+List the subscriptions you can use, then select one. Copy the value from the `SubscriptionId` column.
 
 ```bash
 az login
+az account list -o table
 az account set --subscription your_subscription_id
 az account show --query id -o tsv
 ```
 
+After a role change, run `az login` again so the CLI picks up the new role.
+
   </TabItem>
   <TabItem label="Google Cloud">
 
-Install the [gcloud CLI](https://cloud.google.com/sdk/docs/install). You need Owner on the project, and billing must be on. Terraform uses application-default credentials.
+Install the [gcloud CLI](https://cloud.google.com/sdk/docs/install), [Packer](https://developer.hashicorp.com/packer/install) 1.16.1 or later, and `jq`. You need Owner on the project, and billing must be on. Terraform and Packer use application-default credentials.
 
 ```bash
 export PROJECT_ID=your_gcp_project
@@ -64,7 +78,7 @@ gcloud config set project "$PROJECT_ID"
 <Tabs syncKey="cloud">
   <TabItem label="AWS">
 
-Use `us-east-1`. Copy the newest public AMI for each architecture into `terraform.tfvars`:
+Use `us-east-1`. Copy the newest public AMI for each architecture into `terraform.tfvars`. The AMI does not select the Runner release. Fleet Manager installs Runner `@@RUNNER_VERSION@@`.
 
 ```bash
 aws ec2 describe-images \
@@ -78,18 +92,24 @@ aws ec2 describe-images \
   </TabItem>
   <TabItem label="Azure">
 
-Register the resource providers once per subscription:
+Check the resource providers. Every namespace must print `Registered`:
 
 ```bash
-for p in Microsoft.ContainerService Microsoft.Compute \
-  Microsoft.Network Microsoft.Storage Microsoft.DBforPostgreSQL; do
-  az provider register --namespace "$p"
+for p in Microsoft.ContainerService Microsoft.Compute Microsoft.Network \
+  Microsoft.Storage Microsoft.DBforPostgreSQL Microsoft.ManagedIdentity; do
+  echo "$p $(az provider show --namespace "$p" --query registrationState -o tsv)"
 done
+```
+
+Register each namespace that is not `Registered`, then run the check again. Registration can take a few minutes.
+
+```bash
+az provider register --namespace namespace_name
 ```
 
 Stay in `eastus` with `runner_zones = ["1"]` unless you need another region. `eastus` and `westus3` have both architectures. In `eastus`, arm64 is not offered in zone 2.
 
-List the public runner images. Copy the newest id for each architecture into `terraform.tfvars`. Run the command in `eastus` or `westus3`.
+List the public runner images. Copy the newest `ImageId` for each architecture into `terraform.tfvars`. Run the command in `eastus` or `westus3`. The image does not select the Runner release. Fleet Manager installs Runner `@@RUNNER_VERSION@@`.
 
 ```bash
 for arch in amd64 arm64; do
@@ -98,7 +118,7 @@ for arch in amd64 arm64; do
     --location eastus \
     --public-gallery-name Superplane-ba852f02-dd01-43eb-b8c4-67a57fdd8af8 \
     --gallery-image-definition "superplane-runner-${arch}" \
-    --query "[].{version:name,id:uniqueId}" \
+    --query "[].{Version:name,ImageId:uniqueId}" \
     -o table
 done
 ```
@@ -133,23 +153,25 @@ Create an A record from your domain to that address.
 dig +short superplane.example.com @8.8.8.8
 ```
 
-The answer must be the static IP. Public runner images are not published yet. Leave the runner image variables empty and skip Fleet Manager in step 8.
+The answer must be the static IP. Google Cloud has no public runner image yet, so you build one in step 3.
 
   </TabItem>
 </Tabs>
 
 ## 3. Set the Terraform variables
 
+Clone the Terraform installer at a fixed release tag. This keeps the infrastructure configuration stable until you choose to upgrade it.
+
 ```bash
-git clone https://github.com/superplanehq/superplane.git
-cd superplane
+git clone --branch v0.1.0 --depth 1 https://github.com/superplanehq/terraform.git
+cd terraform
 ```
 
 <Tabs syncKey="cloud">
   <TabItem label="AWS">
 
 ```bash
-cd release/terraform/eks
+cd aws
 cp terraform.tfvars.example terraform.tfvars
 ```
 
@@ -162,13 +184,13 @@ runner_image_arm64       = "latest_arm64_ami"
 superplane_chart_version = "@@SUPERPLANE_CHART_VERSION@@"
 ```
 
-Use the AMI IDs from the command above. `x86_64` is amd64. Leave `superplane_image_tag` and `helm_chart_path` empty. The chart version has no `v` prefix. An empty image tag selects the image for that chart. An empty AMI disables that architecture in the fleet wizard.
+Use the AMI IDs from the command above. `x86_64` is amd64. Leave `superplane_image_tag` and `helm_chart_path` empty. The chart version has no `v` prefix. An empty image tag selects the image for that chart. The plan stops when `runner_image_amd64` is empty. An empty arm64 AMI disables that architecture in the fleet wizard.
 
   </TabItem>
   <TabItem label="Azure">
 
 ```bash
-cd release/terraform/aks
+cd azure
 cp terraform.tfvars.example terraform.tfvars
 ```
 
@@ -185,11 +207,36 @@ superplane_chart_version = "@@SUPERPLANE_CHART_VERSION@@"
 
 Use the image ids from the list command. Leave `superplane_image_tag` and `helm_chart_path` empty. The chart version has no `v` prefix. An empty image tag selects the image for that chart.
 
+Terraform names the resource groups and the cluster `superplane` by default. When the subscription already has an installation, give this one its own names. The PostgreSQL server name must be unique across Azure:
+
+```hcl
+resource_group_name = "your_install_name"
+cluster_name        = "your_install_name"
+db_server_name      = "your_install_name-db"
+```
+
+Terraform also creates `your_install_name-runners` for the runner machines.
+
   </TabItem>
   <TabItem label="Google Cloud">
 
+Terraform requires a runner image before the apply. Build the amd64 image from the repository root:
+
 ```bash
-cd release/terraform/gke
+git clone https://github.com/superplanehq/superplane.git ../superplane
+packer init ../superplane/release/runner/packer/gce/runner.pkr.hcl
+packer build \
+  -var project_id="$PROJECT_ID" \
+  -var architecture=amd64 \
+  -var machine_type=e2-standard-4 \
+  ../superplane/release/runner/packer/gce/runner.pkr.hcl
+echo "projects/$PROJECT_ID/global/images/$(jq -r '.builds[-1].artifact_id' ../superplane/release/runner/packer/gce/manifest.json)"
+```
+
+The build connects over SSH from a public IP in the `default` network. When the network blocks inbound SSH, use the Identity-Aware Proxy steps in the [GCE runner image guide](https://github.com/superplanehq/superplane/blob/main/release/runner/packer/gce/README.md).
+
+```bash
+cd gcp
 cp terraform.tfvars.example terraform.tfvars
 ```
 
@@ -198,10 +245,11 @@ project_id               = "your_gcp_project"
 domain_name              = "superplane.example.com"
 static_ip_name           = "superplane-ip"
 letsencrypt_email        = "you@example.com"
+runner_image_amd64       = "projects/your_gcp_project/global/images/image_name"
 superplane_chart_version = "@@SUPERPLANE_CHART_VERSION@@"
 ```
 
-Leave `superplane_image_tag` and `superplane_chart_path` empty. The chart version has no `v` prefix. An empty image tag selects the image for that chart. A plain commit SHA in `superplane_image_tag` loads the UI from `assets.superplane.com`, and the browser blocks it on your domain. Keep `machine_type` at `e2-standard-2` or larger.
+Use the image path that the build printed. The plan stops when `runner_image_amd64` is empty. To install without runners, set `enable_runners = false` and skip Fleet Manager in step 8. Leave `superplane_image_tag` and `superplane_chart_path` empty. The chart version has no `v` prefix. An empty image tag selects the image for that chart. A plain commit SHA in `superplane_image_tag` loads the UI from `assets.superplane.com`, and the browser blocks it on your domain. Keep `machine_type` at `e2-standard-2` or larger.
 
   </TabItem>
 </Tabs>
@@ -240,15 +288,7 @@ The command updates kubeconfig for the EKS cluster.
   </TabItem>
   <TabItem label="Azure">
 
-Add `--overwrite-existing` so an older cluster named `superplane` does not block the update:
-
-```bash
-az aks get-credentials \
-  --resource-group superplane \
-  --name superplane \
-  --admin \
-  --overwrite-existing
-```
+The command uses the resource group and cluster from `terraform.tfvars`. When it reports that the context already exists, check that the existing context belongs to a cluster you removed. Then run the printed command again with `--overwrite-existing`.
 
   </TabItem>
   <TabItem label="Google Cloud">
@@ -259,10 +299,11 @@ The command gets credentials for zone `us-central1-a` unless you changed `zone`.
 </Tabs>
 
 ```bash
+kubectl config current-context
 kubectl get nodes
 ```
 
-Every node is `Ready`.
+The context names the cluster Terraform created, and every node is `Ready`. Every `kubectl` and `helm` command after this step runs against that context.
 
 ## 6. Point DNS at SuperPlane
 
@@ -336,11 +377,7 @@ SuperPlane creates an organization named Demo for this account.
      <figcaption>Create the owner account. This screen is the same on every cloud.</figcaption>
    </figure>
 
-2. On **Choose an edition**, select **Continue with Community**. Select **Enterprise** only when you have a license file or a license key.
-
-   <figure class="sp-media-figure not-content">
-     <img src="https://docs-assets.superplane.com/images/self-hosting/edition.webp" alt="Choose an edition with Community selected" />
-   </figure>
+2. On **Choose an edition**, select **Enterprise**. Add your license file or license key, then continue.
 
 3. On **Send email from this installation**, select **Skip for now**.
 
@@ -373,13 +410,25 @@ SuperPlane creates an organization named Demo for this account.
      <figcaption>The machine type list follows the provider. Capacity is the same on every cloud.</figcaption>
    </figure>
 
-4. On **Create the chart values**, copy the command and run it. It writes `fleet-manager-values.yaml`. Select **Continue**.
+4. On **Create the chart values**, copy the command. Run it on the machine where you ran Terraform, from the cloud directory, such as `terraform/azure`. It writes `fleet-manager-values.yaml` in that directory. Select **Continue**.
 
    <figure class="sp-media-figure not-content">
      <img src="https://docs-assets.superplane.com/images/self-hosting/fleet-values.webp" alt="Create the chart values" />
    </figure>
 
-5. On **Install the chart**, run the Helm command in the same directory. When the page says Fleet Manager created the selected fleets, select **Finish installation**.
+5. On **Install the chart**, check the command before you run it. This SuperPlane release supports Fleet Manager `@@FLEET_MANAGER_VERSION@@` and Runner `@@RUNNER_VERSION@@`.
+
+   In `fleet-manager-values.yaml`, set `image.tag` to `@@FLEET_MANAGER_VERSION@@`. Set every `runnerVersion` to `@@RUNNER_VERSION@@`. In the Helm command, set `--version` to `@@FLEET_MANAGER_CHART_VERSION@@`. The setup page can show a newer Fleet Manager or Runner. Use the versions on this page.
+
+   Helm installs into the current kubectl context. Before you run Helm, confirm that the context is the one from step 5:
+
+   ```bash
+   kubectl config current-context
+   ```
+
+   When you manage more than one cluster, add `--kube-context your_context` to the Helm command.
+
+   Run the command in the same directory. When the page says Fleet Manager created the selected fleets, select **Finish installation**.
 
    <figure class="sp-media-figure not-content">
      <img src="https://docs-assets.superplane.com/images/self-hosting/fleet-verified.webp" alt="Install the chart with Finish installation" />
@@ -404,7 +453,7 @@ The amd64 size is `Standard_D2ds_v4`. For arm64, set `vmSize` to `Standard_D2pds
   </TabItem>
   <TabItem label="Google Cloud">
 
-Skip Fleet Manager until a runner image is published. The wizard disables a fleet whose image is empty.
+The default machine type is `e2-standard-4`. The fleet uses the image from `runner_image_amd64`. For an arm64 fleet, build an arm64 image in a zone that has T2A machines, set `runner_image_arm64`, and run `terraform apply` again.
 
   </TabItem>
 </Tabs>

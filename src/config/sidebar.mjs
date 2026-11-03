@@ -64,7 +64,7 @@ export const sidebar = [
     collapsed: true,
     items: [
       { label: "Source control and work intake", slug: "integrations/source-control" },
-      { label: "Coding agents and AI", slug: "integrations/coding-agents-ai" },
+      { label: "Agent tools", slug: "integrations/agent-tools" },
       { label: "CI/CD", slug: "integrations/ci-cd" },
       { label: "Observability", slug: "integrations/observability" },
       { label: "Cloud and infrastructure", slug: "integrations/cloud-infrastructure" },
@@ -78,6 +78,9 @@ export const sidebar = [
     items: [
       { label: "Overview", slug: "billing/overview" },
       { label: "Costs and budgets", slug: "billing/costs-budgets" },
+      { label: "Model sources", slug: "billing/model-sources" },
+      { label: "Bring your own key", slug: "billing/bring-your-own-key" },
+      { label: "Bring your own subscription", slug: "billing/bring-your-own-subscription" },
     ],
   },
   {
@@ -85,6 +88,7 @@ export const sidebar = [
     collapsed: true,
     items: [
       { label: "Overview", slug: "self-hosting/overview" },
+      { label: "Install on a single VM", slug: "self-hosting/single-vm" },
       { label: "Install on your cloud", slug: "self-hosting/install" },
       { label: "Troubleshooting", slug: "self-hosting/troubleshooting" },
       { label: "Upgrade and uninstall", slug: "self-hosting/upgrade-and-uninstall" },

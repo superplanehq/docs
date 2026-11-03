@@ -21,6 +21,8 @@ Components are the triggers and actions that form SuperPlane workflows. Choose a
 
 ## Coding agents and AI
 
+Workspace agents use one model source. See [Model sources](/billing/model-sources).
+
 - [Claude](/components/claude)
 - [Cursor](/components/cursor)
 - [OpenAI](/components/openai)

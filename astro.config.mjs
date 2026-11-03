@@ -14,6 +14,7 @@ export default defineConfig({
   },
   redirects: {
     "/": "/get-started/overview",
+    "/integrations/coding-agents-ai": "/billing/model-sources",
   },
   integrations: [
     mermaid({ autoTheme: true }),

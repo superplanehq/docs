@@ -22,6 +22,24 @@ export const sidebar = [
         items: [
           { label: "Pipeline overview", slug: "fundamentals/factory-pipeline" },
           { label: "Work intake and backlog", slug: "fundamentals/work-intake" },
+          {
+            label: "Intakes",
+            collapsed: true,
+            items: [
+              { label: "Intakes overview", slug: "intakes/overview" },
+              { label: "Source control and work intake", slug: "integrations/source-control" },
+              {
+                label: "Intake component references",
+                collapsed: true,
+                items: [
+                  { label: "GitHub", slug: "components/github" },
+                  { label: "Jira", slug: "components/jira" },
+                  { label: "Linear", slug: "components/linear" },
+                  { label: "Sentry", slug: "components/sentry" },
+                ],
+              },
+            ],
+          },
           { label: "Implement", slug: "fundamentals/implement" },
           { label: "Verify", slug: "fundamentals/verify" },
           { label: "Done", slug: "fundamentals/done" },
@@ -51,7 +69,15 @@ export const sidebar = [
     ],
   },
   {
-    label: "3. Use Cases",
+    label: "3. Developer tools",
+    collapsed: true,
+    items: [
+      { label: "Connect an MCP client", slug: "agents/mcp" },
+      { label: "Install and connect the CLI", slug: "cli" },
+    ],
+  },
+  {
+    label: "4. Use Cases",
     collapsed: true,
     items: [
       { label: "Use cases overview", slug: "use-cases/overview" },
@@ -60,7 +86,7 @@ export const sidebar = [
     ],
   },
   {
-    label: "4. Integrations and Components",
+    label: "5. Integrations and Components",
     collapsed: true,
     items: [
       { label: "Source control and work intake", slug: "integrations/source-control" },
@@ -73,7 +99,7 @@ export const sidebar = [
     ],
   },
   {
-    label: "5. Billing",
+    label: "6. Billing",
     collapsed: true,
     items: [
       { label: "Overview", slug: "billing/overview" },
@@ -84,7 +110,7 @@ export const sidebar = [
     ],
   },
   {
-    label: "6. Self-hosting",
+    label: "7. Self-hosting",
     collapsed: true,
     items: [
       { label: "Overview", slug: "self-hosting/overview" },
@@ -95,7 +121,7 @@ export const sidebar = [
     ],
   },
   {
-    label: "7. Open Source",
+    label: "8. Open Source",
     collapsed: true,
     items: [
       { label: "Why SuperPlane is open source", slug: "open-source/why-open-source" },
@@ -109,7 +135,7 @@ export const sidebar = [
     ],
   },
   {
-    label: "8. Support and Help",
+    label: "9. Support and Help",
     collapsed: true,
     items: [
       {
@@ -121,7 +147,7 @@ export const sidebar = [
     ],
   },
   {
-    label: "9. Release Notes",
+    label: "10. Release Notes",
     collapsed: true,
     items: [
       { label: "Latest release", slug: "release-notes/latest" },

@@ -5,7 +5,7 @@ const { entry } = Astro.locals.starlightRoute;
 const isIntroduction = entry.slug === "get-started/overview";
 ---
 
-<DefaultTableOfContents />
+<page-outline-timeline><DefaultTableOfContents /></page-outline-timeline>
 
 {
   isIntroduction && (
@@ -17,3 +17,62 @@ const isIntroduction = entry.slug === "get-started/overview";
     </script>
   )
 }
+
+<script>
+  class PageOutlineTimeline extends HTMLElement {
+    frame = 0;
+    observer?: ResizeObserver;
+    schedule = () => {
+      if (!this.frame) this.frame = requestAnimationFrame(() => { this.frame = 0; this.update(); });
+    };
+    update() {
+      const list = this.querySelector<HTMLElement>('nav > ul');
+      if (!list || !list.offsetHeight) return;
+      const links = Array.from(list.querySelectorAll<HTMLAnchorElement>('a[href^="#"]'));
+      const entries = links.flatMap(link => {
+        const heading = document.getElementById(decodeURIComponent(link.hash.slice(1)));
+        return heading ? [{ link, heading }] : [];
+      });
+      if (!entries.length) return;
+      const listTop = list.getBoundingClientRect().top;
+      const centers = entries.map(({ link }) => {
+        const box = link.getBoundingClientRect();
+        return box.top + box.height / 2 - listTop;
+      });
+      const navHeight = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--sl-nav-height'));
+      // Read the rendered header height: the CSS variable may use rem units.
+      const readingLine = (document.querySelector('header.header')?.getBoundingClientRect().bottom ?? navHeight) + 40;
+      const positions = entries.map(({ heading }) => heading.getBoundingClientRect().top);
+      let active = 0;
+      for (let i = 0; i < positions.length; i++) if (positions[i] <= readingLine) active = i;
+      let end = centers[active];
+      if (active < entries.length - 1 && positions[active] <= readingLine) {
+        const span = positions[active + 1] - positions[active];
+        const fraction = span > 0 ? Math.max(0, Math.min(1, (readingLine - positions[active]) / span)) : 0;
+        end += (centers[active + 1] - centers[active]) * fraction;
+      }
+      const atBottom = window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 4;
+      if (atBottom) end = centers[centers.length - 1];
+      list.style.setProperty('--timeline-top', `${centers[0]}px`);
+      list.style.setProperty('--timeline-height', `${centers[centers.length - 1] - centers[0]}px`);
+      list.style.setProperty('--timeline-progress', `${Math.max(0, end - centers[0])}px`);
+      entries.forEach(({ link }, index) => link.classList.toggle('is-read', index < active || atBottom));
+    }
+    connectedCallback() {
+      this.schedule();
+      window.addEventListener('scroll', this.schedule, { passive: true });
+      window.addEventListener('resize', this.schedule);
+      this.observer = new ResizeObserver(this.schedule);
+      this.observer.observe(this);
+      const article = document.querySelector('.main-pane');
+      if (article) this.observer.observe(article);
+    }
+    disconnectedCallback() {
+      cancelAnimationFrame(this.frame);
+      window.removeEventListener('scroll', this.schedule);
+      window.removeEventListener('resize', this.schedule);
+      this.observer?.disconnect();
+    }
+  }
+  if (!customElements.get('page-outline-timeline')) customElements.define('page-outline-timeline', PageOutlineTimeline);
+</script>

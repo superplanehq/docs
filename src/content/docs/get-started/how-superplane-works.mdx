@@ -3,154 +3,151 @@ title: Learn how Superplane works
 description: Understand how SuperPlane imports tasks, runs agents and verifies their results.
 ---
 
-SuperPlane connects your development tickets, coding agents, source control, continuous integration (CI) and review process into a software factory. Intake automations import matching tickets and record confidence scores. Factory lines then give agents a controlled path to execute approved tasks, apply configured checks and bring your team in when human judgment is needed.
+import { Icon } from "@astrojs/starlight/components";
 
-<figure class="sp-media-figure not-content">
-  <img src="https://docs-assets.superplane.com/images/how_superplane_works.webp" alt="SuperPlane coordinating agents through a software factory workflow" />
-  <figcaption>The factory owns the process. Agents perform the work inside it.</figcaption>
+SuperPlane connects your **development tickets**, **coding agents**, **source control**, **continuous integration (CI)** and **review process** into a software factory. Intake automations import matching tickets and record confidence scores. Factory lines then give agents a controlled path to execute approved tasks, apply configured checks and bring your team in when human judgment is needed.
+
+<figure class="sp-media-figure sp-media-figure--flush not-content">
+  <img src="https://docs-assets.superplane.com/images/superplane_factory_flow.png" alt="SuperPlane coordinating agents through a software factory workflow" />
 </figure>
 
-## 1. Work enters the factory
+## 1. Import work from your existing tools
 
-### Start with the work your team already has
-
-SuperPlane connects to the tools where engineering work already lives. Connect a GitHub repository and issues can appear in the factory backlog without developers copying tasks into another system. You can also assign tasks through Jira and Linear.
+SuperPlane connects to the tools where engineering work already lives. Connect a GitHub repository and issues can appear in the factory backlog without developers copying tasks into another system. You can also assign tasks through Jira, Sentry, Linear, Notion and so on.
 
 Each issue becomes a piece of work that SuperPlane tracks from intake through implementation and verification. Your existing tools remain part of the workflow. SuperPlane coordinates them and lets you use your preferred coding agent and model provider.
 
-<figure class="sp-media-figure not-content">
-  <video controls playsinline preload="metadata" src="https://docs-assets.superplane.com/videos/introduction_demo.mp4">
-    Your browser does not support embedded video.
-  </video>
-  <figcaption>Connect a repository and SuperPlane starts turning the existing backlog into factory work.</figcaption>
+Read about [Intakes](/intakes/overview) to learn how to choose sources and define which requests enter your backlog.
+
+<figure class="sp-media-figure sp-media-figure--flush not-content">
+  <img src="https://docs-assets.superplane.com/videos/superplane_intake_onboarding.gif" alt="Connecting a repository and importing issues into the SuperPlane backlog" />
 </figure>
 
-## 2. Discover what agents should work on
-
-### Not every ticket should go to an agent
+## 2. Assess which tasks are ready for agents
 
 Before implementation begins the Backlog automation can inspect the task and repository context and report a confidence check. The score and its reason show whether the request has a bounded scope, enough context and an observable success condition. Your routing rule decides whether a task can move forward or must stay visible for the team.
 
 The assessment considers scope, available context and test coverage. It helps your team decide which tasks are ready before an agent starts work.
 
-<figure class="sp-media-figure not-content">
-  <video controls playsinline preload="metadata" src="https://docs-assets.superplane.com/videos/plan_video.mp4">
-    Your browser does not support embedded video.
-  </video>
-  <figcaption>The confidence indicator shows which tasks are stronger candidates for agent execution.</figcaption>
+<figure class="sp-media-figure sp-media-figure--flush not-content">
+  <img src="https://docs-assets.superplane.com/videos/superplane_confidence.gif" alt="SuperPlane assessing a task and displaying its confidence indicator" />
 </figure>
 
-## 3. Follow the work on one board
+## 3. Track task progress on one board
 
-### Every task has a visible state
+See which tasks are waiting, in progress or complete. Each task moves through four stages:
 
-Once work enters SuperPlane you can see where it is in the software factory.
+<div class="factory-stage-table">
 
-| Stage | What it means |
+| Stage | What happens here |
 | --- | --- |
-| **Backlog** | Work has been discovered and is being evaluated or waiting to start. |
-| **Implement** | An agent is working on the change. |
-| **Verify** | SuperPlane is checking the result including pull request feedback and status checks. |
-| **Done** | The pull request has completed the factory workflow. |
+| **Backlog** | Tasks are assessed or waiting to start. |
+| **Implement** | An agent makes the code change. |
+| **Verify** | Status checks and pull request feedback are evaluated. |
+| **Done** | The task has completed the factory workflow. |
 
-<figure class="sp-media-figure not-content">
-  <img src="https://docs-assets.superplane.com/images/whole_board.webp" alt="SuperPlane board with tasks in Backlog, Implement, Verify and Done" />
-  <figcaption>The board shows where the task is. The workflow tells SuperPlane how to move it forward.</figcaption>
-</figure>
-
-## 4. Agents do the engineering work
-
-### Configure the worker for each stage
-
-When a task enters an agent powered stage SuperPlane runs the configured agent with the model, instructions, tools and execution steps you define.
-
-An implementation agent can follow this sequence:
-
-<ol class="sp-process not-content">
-  <li>Clone the repository</li>
-  <li>Understand and implement the task</li>
-  <li>Commit and push the change</li>
-  <li>Prepare the pull request</li>
-  <li>Publish the result</li>
-</ol>
-
-<div class="sp-principle not-content">
-  <strong>The agent is replaceable.</strong>
-  <span>The process remains consistent across models and tools.</span>
 </div>
 
 <figure class="sp-media-figure not-content">
-  <video controls playsinline preload="metadata" src="https://docs-assets.superplane.com/videos/implementation_video.mp4">
-    Your browser does not support embedded video.
-  </video>
-  <figcaption>Choose the model, control parallel work and define the steps that the agent follows.</figcaption>
+  <img src="https://docs-assets.superplane.com/images/superplane_board_brand.png" alt="SuperPlane board with tasks in Backlog, Implement, Verify and Done" />
 </figure>
 
-## 5. Automations control how work moves
+## 4. Configure agents for each stage
 
-### Agents work while automations orchestrate
+When a task enters a stage, SuperPlane runs the agent with the model, instructions, tools and execution steps you define.
 
-An agent performs a piece of engineering work. An automation defines what happens around that work.
+Use SuperPlane’s built-in models or connect your own ChatGPT subscription to run Codex. Choose a different model for each stage to match the work it needs to do.
 
-The Implement automation can start the agent, capture errors and artifacts, find or create the pull request, attach it to the task and update task progress. The logic for completing engineering work does not need to live inside one enormous agent prompt.
-
-<figure class="sp-media-figure not-content">
-  <img src="https://docs-assets.superplane.com/images/automation-implement.png" alt="SuperPlane automation controls and execution details" />
-  <figcaption>Automations keep the process visible and repeatable around every agent run.</figcaption>
+<figure class="sp-media-figure sp-media-figure--flush not-content">
+  <img src="https://docs-assets.superplane.com/videos/superplane_models_steps.gif" alt="Configuring models and execution steps for a SuperPlane agent" />
 </figure>
 
-## 6. Verify the result
+## 5. Verify changes and handle failures
 
-### A generated pull request is not the finish line
+After implementation SuperPlane continues working on the result. The Verify stage handles failing status checks and pull request feedback. If something fails that feedback can return to the workflow for another attempt or otherwise you can merge the PR.
 
-After implementation SuperPlane continues working on the result. The Verify stage handles failing status checks and pull request feedback. If something fails that feedback can return to the workflow for another attempt.
-
-<figure class="sp-media-figure not-content">
-  <video controls playsinline preload="metadata" src="https://docs-assets.superplane.com/videos/verify_video.mp4">
-    Your browser does not support embedded video.
-  </video>
-  <figcaption>Verification checks the result and returns actionable failures to the workflow.</figcaption>
+<figure class="sp-media-figure sp-media-figure--flush not-content">
+  <img src="https://docs-assets.superplane.com/videos/superplane_verification.gif?v=20261103-215257" alt="SuperPlane verifying a change and handling pull request feedback" />
 </figure>
 
-## 7. Humans stay in control
-
-### Automate bounded work without automating judgment
+## 6. Keep people in control of decisions
 
 SuperPlane does not remove developers from every decision. The factory continues automatically when the outcome is clear and stops when the next step requires judgment.
 
 A person remains responsible for decisions such as accepting uncertain work, reviewing important changes or merging the final pull request.
 
-<figure class="sp-media-figure not-content">
-  <img src="https://docs-assets.superplane.com/images/human_in_loop.png" alt="A person reviewing a decision in the SuperPlane workflow" />
-  <figcaption>Humans handle decisions. The factory handles coordination.</figcaption>
+<figure class="sp-media-figure sp-media-figure--flush not-content">
+  <img src="https://docs-assets.superplane.com/images/superplane_human_in_the_loop.png" alt="A person reviewing a decision in the SuperPlane workflow" />
 </figure>
 
 ## Who benefits from SuperPlane?
 
-SuperPlane helps engineering teams and individual developers use agents for repeatable work without managing every task step by step.
-
-- Work through bugs, dependency updates and small improvements with a consistent process for deciding what agents can take on.
-- Turn defined issues into pull requests with the configured status checks and run evidence attached while bringing people in when the work needs judgment.
-- Standardize agent driven work across repositories with the same implementation, verification and review guardrails.
-
-SuperPlane helps determine which backlog items can be automated. It does not send every ticket to an agent.
+- **Developers:** Hand off routine fixes. Keep your focus on the hard problems.
+- **Engineering teams:** Turn ready backlog tasks into pull requests, with checks and run history attached.
+- **Platform teams:** Define the process once. Reuse agent settings and verification rules across repositories.
 
 ## Key terms
 
-- **Software factory:** The overall system that moves engineering work from discovery through implementation, verification and review.
-- **Task:** A piece of engineering work moving through the factory with its context, progress and outputs.
-- **Backlog:** Work that SuperPlane has discovered but has not yet entered implementation.
-- **Confidence score:** A recorded check that reports whether a task meets the intake criteria configured by the Factory and includes a reason for the result.
-- **Agent:** The worker that understands a task, modifies code, fixes failures or prepares a pull request.
-- **Automation:** The process that controls what runs, what happens after success or failure and how a task moves forward.
-- **Stage:** A state in the task lifecycle such as Backlog, Implement, Verify or Done.
-- **Verification:** The checks that determine whether the agent result is ready for review.
+<dl class="sp-glossary not-content">
+  <div>
+    <dt>Software factory</dt>
+    <dd>The system that coordinates task intake, agent work, verification and human review.</dd>
+  </div>
+  <div>
+    <dt>Intake</dt>
+    <dd>The automation that imports matching requests from your existing tools into the backlog.</dd>
+  </div>
+  <div>
+    <dt>Task</dt>
+    <dd>One piece of engineering work, with its context, progress and outputs.</dd>
+  </div>
+  <div>
+    <dt>Backlog</dt>
+    <dd>Tasks being assessed or waiting for implementation.</dd>
+  </div>
+  <div>
+    <dt>Confidence score</dt>
+    <dd>An assessment of whether a task meets your configured criteria, with a reason for the result.</dd>
+  </div>
+  <div>
+    <dt>Stage</dt>
+    <dd>A step in the task lifecycle: Backlog, Implement, Verify or Done.</dd>
+  </div>
+  <div>
+    <dt>Agent</dt>
+    <dd>The worker that implements changes, fixes failures or prepares pull requests.</dd>
+  </div>
+  <div>
+    <dt>Automation</dt>
+    <dd>The rules and actions that run work and decide what happens next.</dd>
+  </div>
+  <div>
+    <dt>Verification</dt>
+    <dd>The checks used to decide whether a change is ready for human review.</dd>
+  </div>
+</dl>
 
 ## Next steps
 
-<div class="sp-next-grid not-content">
-  <a href="/get-started/quickstart"><strong>Set up SuperPlane</strong><span>Prepare your workspace and connect your first repository.</span></a>
-  <a href="/get-started/build-first-factory"><strong>Build your first factory</strong><span>Bring in work and configure agents and automations.</span></a>
-  <a href="/fundamentals/one-shot-engineering"><strong>Learn the fundamentals</strong><span>See how work moves through each factory stage.</span></a>
-  <a href="/use-cases/fix-github-issue"><strong>Explore use cases</strong><span>Follow a GitHub issue through implementation, checks and review.</span></a>
+<div class="help-grid not-content">
+  <a class="help-card brand-card--brass" href="/get-started/quickstart">
+    <span class="help-card__top"><Icon name="rocket" size="1.5rem" /><Icon name="right-arrow" size="0.9rem" /></span>
+    <strong>Set up SuperPlane</strong>
+    <span>Prepare your workspace and connect your first repository.</span>
+  </a>
+  <a class="help-card brand-card--teal" href="/get-started/build-first-factory">
+    <span class="help-card__top"><Icon name="rocket" size="1.5rem" /><Icon name="right-arrow" size="0.9rem" /></span>
+    <strong>Build your first factory</strong>
+    <span>Bring in work and configure agents and automations.</span>
+  </a>
+  <a class="help-card brand-card--mist" href="/fundamentals/one-shot-engineering">
+    <span class="help-card__top"><Icon name="open-book" size="1.5rem" /><Icon name="right-arrow" size="0.9rem" /></span>
+    <strong>Learn the fundamentals</strong>
+    <span>See how work moves through each factory stage.</span>
+  </a>
+  <a class="help-card brand-card--graphite" href="/use-cases/fix-github-issue">
+    <span class="help-card__top"><Icon name="star" size="1.5rem" /><Icon name="right-arrow" size="0.9rem" /></span>
+    <strong>Explore use cases</strong>
+    <span>Follow a GitHub issue through implementation, checks and review.</span>
+  </a>
 </div>

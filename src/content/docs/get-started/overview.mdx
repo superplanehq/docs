@@ -3,57 +3,48 @@ title: Introduction
 description: Learn how SuperPlane imports development tickets, runs coding agents and checks their changes.
 ---
 
+import GettingStartedGuides from "../../../components/GettingStartedGuides.astro";
+
 import { CardGrid, Icon, LinkCard, Tabs, TabItem } from "@astrojs/starlight/components";
 
-SuperPlane is an **open source factory for one-shot engineering**. It turns high-confidence backlog issues into verified, review-ready pull requests.
+<figure class="sp-intro-video not-content">
+  <iframe
+    src="https://www.youtube-nocookie.com/embed/TLDxq4u3UyE"
+    title="Meet SuperPlane 1.0: The Open Source Software Factory for Teams"
+    width="1280"
+    height="720"
+    loading="lazy"
+    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+    referrerpolicy="strict-origin-when-cross-origin"
+    allowfullscreen
+  ></iframe>
+  <figcaption>An introduction to SuperPlane.</figcaption>
+</figure>
 
-SuperPlane coordinates coding agents, source control, CI, review, approvals and feedback in one workflow. Engineers can focus on work that needs judgment.
+SuperPlane is an **open source software factory for teams**. It turns well-defined backlog issues into pull requests ready for review. Coding agents make the changes. SuperPlane coordinates execution, CI checks and feedback. Your team reviews the result and decides what to merge.
 
-The factory finds routine work that agents can handle and applies consistent guardrails to every run. It returns failures with useful context.
+When checks fail, the factory sends the details back to the agent for another attempt. Shared rules keep the process consistent, giving engineers more time for work that needs their judgment.
 
-<CardGrid>
-  <LinkCard
-    title="Quickstart"
-    href="/get-started/quickstart"
-    description="Create a workspace and connect your first GitHub repository."
-  />
-  <LinkCard
-    title="Learn how Superplane works"
-    href="/get-started/how-superplane-works"
-    description="Follow task intake, agent execution, verification and human review."
-  />
-  <LinkCard
-    title="Video Walkthrough"
-    href="/get-started/video-walkthrough"
-    description="Watch a task move through planning, implementation, verification and review."
-  />
-  <LinkCard
-    title="Build your first Factory"
-    href="/get-started/build-first-factory"
-    description="Run two GitHub issues through a Factory and deploy the resulting application."
-  />
-</CardGrid>
+<GettingStartedGuides />
 
 ## What SuperPlane does?
 
-Connect a repository and configure the Factory to listen for matching development tickets. The intake automation imports each ticket and records a confidence score from the checks configured by your team. Treat the score as a routing signal, not a guarantee: it helps separate bounded work with an observable outcome from work that still needs clarification.
+SuperPlane connects the intake and configure the Factory to listen for matching development issues. The [intake](/intakes/overview) automatically imports each issue and records a confidence score from the checks configured by agent. It helps separate bounded work with an observable outcome from work that still needs clarification.
+
+<figure class="sp-media-figure sp-media-figure--flush not-content">
+  <img src="https://docs-assets.superplane.com/videos/superplane_demo_issue_1280.gif" alt="SuperPlane importing an issue and running it through the factory workflow" />
+</figure>
 
 When your team starts a task, SuperPlane dispatches the configured coding agent on a runner. The implementation automation records the run, branch and pull request. The verification automation then evaluates required status checks and pull request feedback. A failed check can return to the agent with its output attached; a passing result proceeds to human review.
 
-For example, an issue that says “Add the YouTube channel to the Community page” can specify the target page, URL, accessible label and required new-tab behavior. SuperPlane can import that issue, run the change, check the link and build and present the resulting pull request with its run history. A person reviews the final diff and decides whether to merge it.
+For example, an issue that says **“Add the YouTube channel to the Community page”** can specify the target page, URL, accessible label and required new-tab behavior. SuperPlane can import that issue, run the change, check the link and build and present the resulting pull request with its run history. A person reviews the final diff and decides whether to merge it.
 
-<figure class="sp-media-figure not-content">
-  <video aria-label="Introduction to the SuperPlane Factory workflow" controls playsinline preload="metadata" src="https://docs-assets.superplane.com/videos/introduction_demo.mp4">
-    Your browser does not support embedded video. Use the written overview above instead.
-  </video>
-  <figcaption>A repository issue enters Backlog, moves through agent implementation and automated verification and reaches the team with its pull request and check results attached.</figcaption>
-</figure>
 
-### What you can do with SuperPlane
+### What you can do with SuperPlane?
 
-- **Import and assess development tickets:** Listen for matching work in connected trackers and record a confidence score before execution starts.
+- **Import Intakes :** Listen issues from Sentry, linear, GitHub, Notion and more coming with that record a confidence score before execution starts.
 - **Run coding agents on configured compute:** Start an agent with the repository, task context, model, tools and runner settings defined by the Factory.
-- **Apply the same verification on every run:** Evaluate CI status, repository checks and review feedback before the task reaches a person.
+- **Apply verification on every run:** Evaluate CI status, repository checks and review feedback before the task reaches a person.
 - **Connect your engineering stack:** Build automations with more than 400 integration components across source control, CI/CD, observability, incident response, cloud infrastructure and AI providers.
 - **Route failures with evidence:** Attach command output, check results and pull request feedback to the next attempt instead of asking an engineer to reconstruct the failure.
 - **Keep an execution record:** Track task state, automation runs, artifacts, cost and the final outcome in a shared workspace.
@@ -62,15 +53,9 @@ For example, an issue that says “Add the YouTube channel to the Community page
 
 A coding agent can inspect a repository, edit files and run commands. The software factory decides when that agent runs, which context and compute it receives, which checks must pass and when the result needs a person.
 
-```mermaid
-flowchart TD
-  ticket[Development ticket] --> assess[Import and score]
-  assess --> implement[Agent implements]
-  implement --> verify[Automated verification]
-  verify -->|Failed check with evidence| implement
-  verify -->|Required checks pass| review[Human review]
-  review --> outcome[Merge or close]
-```
+<figure class="sp-media-figure sp-media-figure--flush not-content">
+  <img src="https://docs-assets.superplane.com/images/superplane_workflow_horizontal_tight.png" alt="Factory workflow: development ticket, import and score, agent implementation, automated verification, human review, and merge or close. Failed checks return to the agent with evidence." />
+</figure>
 
 The normal path has one human review after the required automated checks pass. The Factory can pause earlier when a task needs a product, security or scope decision, but those exceptions are not additional review stages in the standard path.
 
@@ -78,59 +63,32 @@ The normal path has one human review after the required automated checks pass. T
 
 <div class="factory-tabs example-flow-tabs not-content">
   <Tabs>
-    <TabItem label="Task">
-      <p>The GitHub issue asks for a YouTube logo and link in the Community section. The Factory records the request, its source and its expected result.</p>
-      <figure class="sp-media-figure">
-        <video aria-label="Creating a Factory task" controls playsinline preload="metadata" src="https://docs-assets.superplane.com/videos/Plan_section_video.mp4">
-          Your browser does not support embedded video.
-        </video>
-        <figcaption>Start with a clear piece of work.</figcaption>
-      </figure>
-    </TabItem>
     <TabItem label="Plan">
-      <p>The Backlog automation inspects the issue and repository context, then records whether the task has a bounded scope and a usable verification path.</p>
-      <figure class="sp-media-figure">
-        <video aria-label="Assessing a task in the Backlog automation" controls playsinline preload="metadata" src="https://docs-assets.superplane.com/videos/plan_video.mp4">
-          Your browser does not support embedded video.
-        </video>
-        <figcaption>Assess the task before spending agent time on implementation.</figcaption>
+      <figure class="sp-media-figure sp-media-figure--flush">
+        <img src="https://docs-assets.superplane.com/videos/superplane_plan_section.gif" alt="Assessing a task in the Backlog automation" />
       </figure>
     </TabItem>
     <TabItem label="Implement">
-      <p>A configured runner launches the coding agent. The agent updates the Community page, commits the change and opens or updates the pull request.</p>
-      <figure class="sp-media-figure">
-        <video aria-label="Implementing a task with a coding agent" controls playsinline preload="metadata" src="https://docs-assets.superplane.com/videos/implementation_video.mp4">
-          Your browser does not support embedded video.
-        </video>
-        <figcaption>Run the implementation through the Factory's shared instructions.</figcaption>
+      <figure class="sp-media-figure sp-media-figure--flush">
+        <img src="https://docs-assets.superplane.com/videos/superplane_implementation.gif" alt="Implementing a task with a coding agent" />
       </figure>
     </TabItem>
     <TabItem label="Verify">
-      <p>The Factory checks the build, link destination, new-tab behavior and accessible label. A failed check returns to the workflow with its output attached.</p>
-      <figure class="sp-media-figure">
-        <video aria-label="Verifying an implemented task" controls playsinline preload="metadata" src="https://docs-assets.superplane.com/videos/verify_video.mp4">
-          Your browser does not support embedded video.
-        </video>
-        <figcaption>Apply the same verification rules to every run.</figcaption>
+      <figure class="sp-media-figure sp-media-figure--flush">
+        <img src="https://docs-assets.superplane.com/videos/superplane_verify.gif" alt="Verifying an implemented task" />
       </figure>
     </TabItem>
     <TabItem label="Review / Done">
-      <p>Your team receives the pull request with the task, run history and check results attached. A person reviews the final diff and decides whether to merge it.</p>
-      <figure class="sp-media-figure">
-        <video aria-label="Reviewing a completed task" controls playsinline preload="metadata" src="https://docs-assets.superplane.com/videos/done_video.mp4">
-          Your browser does not support embedded video.
-        </video>
-        <figcaption>Keep one human review at the end of the normal path.</figcaption>
+      <figure class="sp-media-figure sp-media-figure--flush">
+        <img src="https://docs-assets.superplane.com/videos/superplane_review_done.gif" alt="Reviewing a completed task" />
       </figure>
     </TabItem>
   </Tabs>
 </div>
 
-The example is small, but the process is reusable. Its implementation and verification rules live in Factory automations, where the team can inspect and update them for future tasks.
-
 ## How a factory differs from an interactive coding agent?
 
-The distinction is not the model. A coding agent can run on a laptop or in a remote environment. SuperPlane adds the durable, team-level process around agent sessions.
+A coding agent works on a task. SuperPlane coordinates the process around it: shared instructions, automated checks and a record your team can review.
 
 <div class="sp-comparison not-content">
   <div class="sp-comparison__header" aria-hidden="true">
@@ -141,28 +99,28 @@ The distinction is not the model. A coding agent can run on a laptop or in a rem
   <dl>
     <div class="sp-comparison__row">
       <dt>Execution environment</dt>
-      <dd><strong>Interactive coding agent session</strong><span>Runs on the developer's computer or a remote environment selected for that session. The developer usually starts and supervises it.</span></dd>
-      <dd><strong>SuperPlane Factory</strong><span>Dispatches each task to configured runner capacity, including on-demand managed compute, without requiring a developer's workstation to stay online.</span></dd>
+      <dd><strong>Interactive coding agent session</strong><span>You start and supervise a session on local or remote compute.</span></dd>
+      <dd><strong>SuperPlane Factory</strong><span>Runs tasks on configured runners. Your laptop can stay offline.</span></dd>
     </div>
     <div class="sp-comparison__row">
       <dt>Instructions</dt>
-      <dd><strong>Interactive coding agent session</strong><span>Uses the prompt, checkout, tools and local configuration available in that session. Two developers can run the same task differently.</span></dd>
-      <dd><strong>SuperPlane Factory</strong><span>Stores implementation and routing rules in shared automations so the team applies the same process across tasks and repositories.</span></dd>
+      <dd><strong>Interactive coding agent session</strong><span>Follows the prompt, tools and settings supplied for that session.</span></dd>
+      <dd><strong>SuperPlane Factory</strong><span>Reuses shared automations across tasks. Your team defines how work runs and where it goes next.</span></dd>
     </div>
     <div class="sp-comparison__row">
       <dt>Verification</dt>
-      <dd><strong>Interactive coding agent session</strong><span>Can run tests and inspect output, but the commands and response to failure depend on the session instructions.</span></dd>
-      <dd><strong>SuperPlane Factory</strong><span>Runs the configured status checks, records their results and routes failures or review feedback back into the workflow before human review.</span></dd>
+      <dd><strong>Interactive coding agent session</strong><span>Can run tests. Session instructions determine which checks run and how failures are handled.</span></dd>
+      <dd><strong>SuperPlane Factory</strong><span>Records required checks and sends failures back with evidence. Passing work moves to human review.</span></dd>
     </div>
     <div class="sp-comparison__row">
       <dt>Continuity</dt>
-      <dd><strong>Interactive coding agent session</strong><span>Context and progress are commonly tied to one conversation and one working environment.</span></dd>
-      <dd><strong>SuperPlane Factory</strong><span>Preserves task state, runs, artifacts, errors and pull requests in the workspace so another team member can inspect the same record.</span></dd>
+      <dd><strong>Interactive coding agent session</strong><span>Progress usually lives in the session. Handoffs depend on what you save or share.</span></dd>
+      <dd><strong>SuperPlane Factory</strong><span>Keeps task history, outputs and pull requests in one workspace. Teammates can inspect the same record.</span></dd>
     </div>
     <div class="sp-comparison__row">
       <dt>Responsibility</dt>
-      <dd><strong>Interactive coding agent session</strong><span>Produces the code change requested in the session.</span></dd>
-      <dd><strong>SuperPlane Factory</strong><span>Coordinates intake, agent execution, verification and escalation while leaving the final judgment with the team.</span></dd>
+      <dd><strong>Interactive coding agent session</strong><span>Implements the requested change. You manage the surrounding process.</span></dd>
+      <dd><strong>SuperPlane Factory</strong><span>Coordinates intake, implementation and checks. Your team decides whether to merge.</span></dd>
     </div>
   </dl>
 </div>
@@ -174,22 +132,22 @@ Read [Learn how Superplane works](/get-started/how-superplane-works) to learn ho
 We would love to hear from you or help you get started. Use these channels to connect with the SuperPlane community.
 
 <div class="help-grid not-content">
-  <a class="help-card" href="https://discord.superplane.com/" target="_blank" rel="noreferrer">
+  <a class="help-card brand-card--brass" href="https://discord.superplane.com/" target="_blank" rel="noreferrer">
     <span class="help-card__top"><Icon name="discord" size="1.5rem" /><Icon name="external" size="0.9rem" /></span>
     <strong>Join our Discord server</strong>
     <span>Ask questions and get help from the SuperPlane community.</span>
   </a>
-  <a class="help-card" href="https://x.com/superplanehq" target="_blank" rel="noreferrer">
+  <a class="help-card brand-card--teal" href="https://x.com/superplanehq" target="_blank" rel="noreferrer">
     <span class="help-card__top"><Icon name="x.com" size="1.5rem" /><Icon name="external" size="0.9rem" /></span>
     <strong>Follow us on X</strong>
     <span>Get the latest SuperPlane updates and announcements.</span>
   </a>
-  <a class="help-card" href="https://luma.com/superplane" target="_blank" rel="noreferrer">
+  <a class="help-card brand-card--mist" href="https://luma.com/superplane" target="_blank" rel="noreferrer">
     <span class="help-card__top"><Icon name="rocket" size="1.5rem" /><Icon name="external" size="0.9rem" /></span>
     <strong>Join a SuperPlane event</strong>
     <span>View upcoming events and register through the SuperPlane calendar.</span>
   </a>
-  <a class="help-card" href="https://github.com/superplanehq/superplane" target="_blank" rel="noreferrer">
+  <a class="help-card brand-card--graphite" href="https://github.com/superplanehq/superplane" target="_blank" rel="noreferrer">
     <span class="help-card__top"><Icon name="star" size="1.5rem" /><Icon name="external" size="0.9rem" /></span>
     <strong>Give us a star on GitHub</strong>
     <span>Visit the repository and star SuperPlane if you find it useful.</span>

@@ -1,130 +1,51 @@
 ---
-import config from "virtual:starlight/user-config";
-import LanguageSelect from "virtual:starlight/components/LanguageSelect";
-import Search from "virtual:starlight/components/Search";
-import SiteTitle from "virtual:starlight/components/SiteTitle";
-import SocialIcons from "virtual:starlight/components/SocialIcons";
-
-const shouldRenderSearch =
-  config.pagefind || config.components.Search !== "@astrojs/starlight/components/Search.astro";
+import Search from 'virtual:starlight/components/Search';
+import SiteTitle from 'virtual:starlight/components/SiteTitle';
+import RepositoryLink from './HeaderRepositoryLink.astro';
 ---
-
-<div class="header">
-  <div class="left-group sl-flex">
-    <div class="title-wrapper sl-flex"><SiteTitle /></div>
-
-  </div>
-
-  <div class="right-group print:hidden">
-    {shouldRenderSearch && <div class="search-slot sl-flex"><Search /></div>}
-    <nav class="website-links" aria-label="SuperPlane website">
-      <a href="https://superplane.com/">Website ↗</a>
-      <a class="app-link" href="https://app.superplane.com/">Open app ↗</a>
-    </nav>
-    <div class="social-icons sl-hidden md:sl-flex"><SocialIcons /></div>
-    <LanguageSelect />
+<div class="brand-header">
+  <div class="brand-brand"><SiteTitle /></div>
+  <nav class="brand-header-controls" aria-label="Documentation search and SuperPlane links">
+    <div class="brand-search"><Search /></div>
+    <a class="brand-button brand-button--secondary brand-website" href="https://superplane.com/">Website</a>
+    <a class="brand-button brand-header-app" href="https://app.superplane.com/">Open app</a>
+  </nav>
+  <div class="brand-desktop-repository"><RepositoryLink /></div>
+  <button class="brand-more-button" popovertarget="brand-mobile-actions" aria-label="More actions" aria-haspopup="dialog">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="19" r="1.7"/></svg>
+  </button>
+  <div id="brand-mobile-actions" popover="auto" role="dialog" aria-label="SuperPlane on GitHub">
+    <RepositoryLink />
+    <button class="brand-more-close" popovertarget="brand-mobile-actions" popovertargetaction="hide" aria-label="Close more actions">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m6 6 12 12M6 18 18 6"/></svg>
+    </button>
   </div>
 </div>
-
-<style>
-  @layer starlight.components {
-    .header,
-    .left-group,
-    .right-group,
-    .social-icons {
-      display: flex;
-      align-items: center;
-    }
-
-    .header {
-      justify-content: space-between;
-      gap: 1rem;
-      height: 100%;
-    }
-
-    .left-group {
-      min-width: 0;
-      gap: 1.25rem;
-    }
-
-    .title-wrapper {
-      min-width: 0;
-      overflow: clip;
-      padding: 0.25rem;
-      margin: -0.25rem;
-    }
-
-    .right-group {
-      padding: 0.4rem;
-      background: #181b1b;
-      border: 1px solid #252c2c;
-      border-radius: 0.75rem;
-      justify-content: flex-end;
-      gap: 1rem;
-      min-width: 0;
-      margin-inline-start: auto;
-    }
-
-    .search-slot {
-      width: clamp(11rem, 22vw, 19rem);
-    }
-
-    .social-icons { gap: 0.75rem; padding-inline: 0.4rem; }
-    .website-links { display: flex; align-items: center; gap: 1rem; }
-    .website-links a {
-      font: 500 0.6875rem var(--sl-font-mono);
-      letter-spacing: 0.04em;
-      text-transform: uppercase;
-      color: #e5e6e1;
-      text-decoration: none;
-      white-space: nowrap;
-    }
-    .website-links a:hover { color: #87ae9d; }
-    .website-links .app-link {
-      padding: 0.8rem 1rem;
-      border-radius: 0.375rem;
-      background: #f3f3ea;
-      color: #08090a;
-    }
-    .website-links .app-link:hover { background: #e4e4da; color: #08090a; }
-    @media (max-width: 63.999rem) { .website-links { display: none; } }
-
-    @media (max-width: 49.999rem) {
-      .header {
-        gap: 0.75rem;
-      }
-
-      .left-group {
-        flex: 1 1 auto;
-        overflow: hidden;
-      }
-
-      .title-wrapper {
-        flex: 1 1 auto;
-      }
-
-      .right-group {
-        padding: 0;
-        border: 0;
-        background: transparent;
-        flex: 0 0 auto;
-        margin-inline-start: 0;
-        margin-inline-end: 2.75rem;
-      }
-
-      .search-slot {
-        flex: 0 0 2.75rem;
-        width: 2.75rem;
-        max-width: 2.75rem;
-      }
-    }
-
-    @media (max-width: 30rem) {
-      .header,
-      .right-group {
-        gap: 0.5rem;
-      }
-
-    }
+<script>
+  const starCounts = document.querySelectorAll<HTMLElement>('.brand-repository-stars');
+  if (starCounts.length) {
+    fetch('https://api.github.com/repos/superplanehq/superplane', { credentials: 'omit' })
+      .then(response => response.ok ? response.json() : null)
+      .then(repository => {
+        if (Number.isSafeInteger(repository?.stargazers_count)) {
+          for (const stars of starCounts) {
+            const count = stars.querySelector('[data-star-count]');
+            if (count) count.textContent = new Intl.NumberFormat('en-US').format(repository.stargazers_count);
+            stars.hidden = false;
+          }
+        }
+      })
+      .catch(() => { /* The repository link remains available when counts cannot load. */ });
   }
-</style>
+  const docsMenu = document.querySelector('starlight-menu-button');
+  const docsMenuButton = docsMenu?.querySelector('button');
+  if (docsMenu && docsMenuButton) {
+    const updateLabel = () => docsMenuButton.setAttribute('aria-label', docsMenu.getAttribute('aria-expanded') === 'true' ? 'Close docs' : 'Browse docs');
+    updateLabel();
+    new MutationObserver(updateLabel).observe(docsMenu, { attributes: true, attributeFilter: ['aria-expanded'] });
+  }
+  const desktop = matchMedia('(min-width: 50rem)');
+  desktop.addEventListener('change', () => {
+    if (desktop.matches) document.querySelector<HTMLElement>('#brand-mobile-actions')?.hidePopover();
+  });
+</script>

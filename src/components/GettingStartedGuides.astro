@@ -1,0 +1,26 @@
+---
+import GuideActionArrow from './GuideActionArrow.astro';
+const guides = [
+  { title: 'Learn how SuperPlane works', description: 'Follow task intake, agent execution, verification and human review.', href: '/get-started/how-superplane-works', tone: 'teal' },
+  { title: 'Video walkthrough', description: 'Watch a task move through planning, implementation, verification and review.', href: '/get-started/video-walkthrough', tone: 'mist' },
+  { title: 'Build your first Factory', description: 'Run two GitHub issues through a Factory and deploy the resulting application.', href: '/get-started/build-first-factory', tone: 'graphite' }
+];
+---
+<div class="brand-guides not-content">
+  <a class="brand-guide-feature brand-card--brass" href="/get-started/quickstart">
+    <span class="brand-card-label">First steps</span>
+    <picture class="brand-feature-art" aria-hidden="true">
+      <source media="(prefers-reduced-motion: reduce)" srcset="/brand/guide-pricing-arrow-static.svg" />
+      <img src="/brand/guide-pricing-arrow.svg" alt="" width="438" height="215" />
+    </picture>
+    <h3>Quickstart</h3>
+    <p>Create a workspace and connect your first GitHub repository.</p>
+    <span class="brand-guide-action">Start building <GuideActionArrow /></span>
+  </a>
+  <div class="brand-guide-list">
+    {guides.map((guide)=><a class={`brand-guide-row brand-card--${guide.tone}`} href={guide.href}>
+      <div><h3>{guide.title}</h3><p>{guide.description}</p></div>
+      <GuideActionArrow class="brand-guide-arrow" />
+    </a>)}
+  </div>
+</div>

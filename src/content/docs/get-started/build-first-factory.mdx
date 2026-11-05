@@ -3,235 +3,100 @@ title: Build your first Factory
 description: Turn GitHub issues into a working Next.js application and deploy it with Vercel.
 ---
 
-import { TabItem, Tabs } from "@astrojs/starlight/components";
+import { Aside, CardGrid, LinkCard, TabItem, Tabs } from "@astrojs/starlight/components";
 
-Start with a nearly empty GitHub repository and use SuperPlane to turn two focused issues into a working Next.js application. Then merge the verified work and deploy it with Vercel.
+Starting with the one demo application and will be using SuperPlane to complete two focused issues. Then review and merge the changes and deploy the application with Vercel.
 
-This guide uses the <a href="https://github.com/pixawna/Factory-Starter-App" target="_blank" rel="noreferrer">Factory Starter App repository</a>. Instead of asking an agent to build the whole application in one run, you will send small pieces of engineering work through the same factory.
+This guide uses the <a href="https://github.com/pixawna/SuperPlane_Demo" target="_blank" rel="noreferrer">SuperPlane Demo repository</a>. Instead of asking different agent to solve the issues in one run, you will send small pieces of engineering work through the same factory to get the desired result.
 
-<div class="factory-guide-overview not-content">
-  <article>
-    <span>Step 1</span>
-    <strong>Start with the work</strong>
-    <p>Create clear GitHub issues for the application you want to build.</p>
-  </article>
-  <article>
-    <span>Step 2</span>
-    <strong>Run it through SuperPlane</strong>
-    <p>Move each issue from Backlog through implementation and verification.</p>
-  </article>
-  <article>
-    <span>Step 3</span>
-    <strong>Ship the application</strong>
-    <p>Merge the pull requests after the configured checks pass and deploy the result with Vercel.</p>
-  </article>
-</div>
+<figure class="sp-media-figure sp-media-figure--flush not-content">
+  <img src="https://docs-assets.superplane.com/images/superplane_three_steps.png" alt="Three steps: define GitHub issues, run them through SuperPlane, then merge and deploy the application" />
+</figure>
 
 By the end, your work will have followed this path:
 
-<ol class="quickstart-stages not-content">
-  <li><strong>Issue</strong><span>Define a focused result</span></li>
-  <li><strong>Implement</strong><span>Let the agent change the code</span></li>
-  <li><strong>Verify</strong><span>Review checks and the pull request</span></li>
-  <li><strong>Production</strong><span>Merge and deploy the application</span></li>
-</ol>
-
-## What you are going to build?
-
-The example is intentionally small. You will create the application in three pieces:
-
-1. Set up the initial Next.js application.
-2. Build and polish the frontend.
-3. Deploy the application to Vercel.
-
-The first two pieces become GitHub issues. Keeping them separate gives the factory a clear result to implement and verify during each run.
-
-## 1. Start with the repository
-
-Open the <a href="https://github.com/pixawna/Factory-Starter-App" target="_blank" rel="noreferrer">Factory Starter App repository</a>. You do not need a finished application yet. The repository is where you will define the work and where SuperPlane will push each change.
-
-<figure class="sp-media-figure not-content">
-  <img src="https://docs-assets.superplane.com/images/example_github.webp" alt="Empty Factory Starter App repository on GitHub" />
-  <figcaption>The repository starts almost empty. The issues will define what the factory builds.</figcaption>
+<figure class="sp-media-figure sp-media-figure--flush not-content">
+  <img src="https://docs-assets.superplane.com/images/superplane_task_flow.png" alt="Task flow from Backlog through implementation and verification to a review-ready pull request and Done, with failed checks returning for another attempt" />
 </figure>
 
-## 2. Break the project into issues
+## What you’ll do
 
-Do not create one issue called “Build the whole website and deploy it.” Create smaller issues that give SuperPlane a clear scope, expected result and set of checks.
+<div class="factory-task-overview">
 
-### Issue 1: Create the initial Next.js application
+Make four small improvements to the demo homepage:
 
-Ask for the base application, project structure and a simple homepage. Include acceptance criteria that can be checked locally such as a successful build and an accessible default page.
+1. **Update the text:** Introduce the SuperPlane demo in place of the default Next.js instructions.
+2. **Fix dark mode:** Make text readable and give the page and content area distinct background colors.
+3. **Fit buttons on mobile:** Keep buttons from overflowing on narrow screens.
+4. **Highlight keyboard focus:** Show a visible outline when users tab to a link.
 
-<figure class="sp-media-figure not-content">
-  <img src="https://docs-assets.superplane.com/images/nextjs_issue_1.webp" alt="GitHub issue for setting up the initial Next.js application" />
-  <figcaption>The first issue creates a working foundation that the factory can build and test.</figcaption>
-</figure>
+Create one GitHub issue per task. This gives the factory a clear change to make and check. In this walkthrough, we’ll complete the first two tasks.
 
-### Issue 2: Build the frontend
-
-Once the base application exists, create a second issue for the real homepage. Describe the layout, required sections and responsive behavior you expect.
-
-<figure class="sp-media-figure not-content">
-  <img src="https://docs-assets.superplane.com/images/nextjs_issue_2.webp" alt="GitHub issue for building the Factory Starter App homepage" />
-  <figcaption>The second issue improves the application without repeating the initial setup.</figcaption>
-</figure>
-
-Replace this design brief with the actual interface you want the factory to build. Keep the issue focused enough that one pull request can complete it.
-
-## 3. Connect the repository to SuperPlane
-
-Complete these four steps to bring the project into SuperPlane.
-
-If you have not connected a repository before, complete the [Quickstart](/get-started/quickstart) first.
-
-<div class="factory-tabs repository-connect-tabs not-content">
-  <Tabs>
-    <TabItem label="1. Connect GitHub">
-      <div class="repository-connect-step">
-        <p>Connect GitHub.</p>
-        <figure>
-          <img src="https://docs-assets.superplane.com/images/connect_github.png" alt="SuperPlane setup screen for connecting GitHub" />
-        </figure>
-        <p class="factory-stage-caption">Connect GitHub to your SuperPlane workspace.</p>
-      </div>
-    </TabItem>
-    <TabItem label="2. Select repository">
-      <div class="repository-connect-step">
-        <p>Select <strong>Factory-Starter-App</strong>.</p>
-        <figure>
-          <img src="https://docs-assets.superplane.com/images/factory_starter_app.png" alt="SuperPlane repository picker with Factory Starter App selected" />
-        </figure>
-        <p class="factory-stage-caption">Choose Factory-Starter-App as the repository for this factory.</p>
-      </div>
-    </TabItem>
-    <TabItem label="3. Import work">
-      <div class="repository-connect-step">
-        <p>Allow SuperPlane to import work from the repository.</p>
-        <figure>
-          <img src="https://docs-assets.superplane.com/images/import_repo.png" alt="SuperPlane backlog import screen with GitHub Issues selected" />
-        </figure>
-        <p class="factory-stage-caption">Use GitHub Issues as the source for work entering the Backlog.</p>
-      </div>
-    </TabItem>
-    <TabItem label="4. Open board">
-      <div class="repository-connect-step">
-        <p>Open your factory board.</p>
-        <figure>
-          <img src="https://docs-assets.superplane.com/images/factory_board.png" alt="SuperPlane workspace ready screen with a button to open the factory board" />
-        </figure>
-        <p class="factory-stage-caption">Open the board after SuperPlane finishes importing the repository.</p>
-      </div>
-    </TabItem>
-  </Tabs>
 </div>
+
+## 1. Let's Start with the repository
+
+Open the <a href="https://github.com/pixawna/SuperPlane_Demo" target="_blank" rel="noreferrer">SuperPlane Demo repository</a>. The repository already contains a starter Next.js application and focused issues. Use your own copy of the project to follow along and make sure its issues are available for SuperPlane to import.
+
+<figure class="sp-media-figure not-content">
+  <img src="https://docs-assets.superplane.com/images/github_issues_framed.png" alt="SuperPlane Demo repository on GitHub" />
+</figure>
+
+## 2. Connect the repository to SuperPlane
+
+Create your SuperPlane account and Complete the onboarding steps to bring the project into SuperPlane.
+Still have issues? No worries we got you covered, complete the [Quickstart](/get-started/quickstart) first or you can follow the below video
+
+<figure class="sp-media-figure sp-media-figure--flush not-content">
+  <img src="https://docs-assets.superplane.com/videos/superplane_account_setup_1280.gif" alt="Setting up a SuperPlane account and connecting a GitHub repository" />
+</figure>
 
 Once connected, the issues you just created should begin appearing in the **Backlog**.
 
-## 4. Start the first issue
+## 3. Start the first issue
 
-Open Backlog and select **Set up the initial Next.js application**. Before an agent changes code, SuperPlane analyzes whether the task is suitable for automation.
+Open Backlog and select **Make the home page CTAs fit narrow screens**. Before an agent changes code, SuperPlane analyzes whether the task is fully Automatable or not through confidence score.
 
-<div class="factory-task-check not-content">
-  <strong>Create the Next.js application</strong>
-  <ul>
-    <li>Clear scope</li>
-    <li>Expected result</li>
-    <li>Build can be run</li>
-    <li>Easy to review</li>
-  </ul>
-</div>
+<figure class="sp-media-figure sp-media-figure--flush not-content">
+  <img src="https://docs-assets.superplane.com/videos/superplane_plan_confidence_1280.gif" alt="SuperPlane reviewing a task plan and assessing confidence before implementation" />
+</figure>
 
 Review the task context. When the scope and expected result look right, select **Start**.
 
-## 5. Watch the factory implement it
+## 4. Watch the factory implement it
 
-Starting the task moves it into Implement. The configured coding agent works on the repository while the factory controls the process around it.
+Starting the task moves it into Implement. The configured coding agent works on the repository while the factory controls the process around it. You do not need to describe these operational steps in every issue. The implementation process belongs to the factory. Check how's the work is moving end-to-end from backlog to implementation phase.
 
-<div class="factory-execution-flow not-content" role="list" aria-label="Agent implementation process">
-  <span role="listitem">Read issue</span>
-  <span role="listitem">Inspect repository</span>
-  <span role="listitem">Set up Next.js</span>
-  <span role="listitem">Create homepage</span>
-  <span role="listitem">Install dependencies</span>
-  <span role="listitem">Run build</span>
-  <span role="listitem">Commit changes</span>
-  <span role="listitem">Create or update PR</span>
+<figure class="sp-media-figure sp-media-figure--flush not-content">
+  <img src="https://docs-assets.superplane.com/videos/superplane_start_run_1280.gif" alt="Starting a SuperPlane task and following its progress from Backlog to Implement" />
+</figure>
+
+Even if you wanted you can change the model based at each step shown in the video to performs the work. The automation steps define what the agent does during implementation. Concurrency controls how much work can run at the same time.
+
+
+## 5. Verify the first change
+
+When implementation completes, the task moves to Verify. Open the linked pull request and confirm that the application builds and it did the same we expected to get it done.
+
+<figure class="sp-media-figure sp-media-figure--flush not-content">
+  <img src="https://docs-assets.superplane.com/videos/superplane_verify_to_merge_1280.gif" alt="Reviewing a SuperPlane task in Verify and merging its pull request" />
+</figure>
+
+<div class="sp-first-project-note">
+  <Aside type="note" title="NOTE">
+    From here, you can use the same approach to work through issues, implement changes, verify the outcome and move work toward completion. Can’t wait to see what you build with your own Software Factory.
+  </Aside>
 </div>
 
-You do not need to describe these operational steps in every issue. The implementation process belongs to the factory.
-
-### Inspect the agent configuration
-
-<figure class="sp-media-figure not-content">
-  <img src="https://docs-assets.superplane.com/images/agent_config.png" alt="SuperPlane factory board with the initial application task running in Implement" />
-  <figcaption>The agent writes the code. The factory controls the process around it.</figcaption>
-</figure>
-
-The model setting controls which model performs the work. The automation steps define what the agent does during implementation. Concurrency controls how much work can run at the same time.
-
-## 6. See what the automation is doing
-
-Open the Implement automation to follow the active run. The automation defines what happens from the moment the task enters Implement until SuperPlane has a result to verify.
-
-<figure class="sp-media-figure not-content">
-  <img src="https://docs-assets.superplane.com/images/implementation_phase.png" alt="SuperPlane Implement automation showing the agent run and pull request steps" />
-  <figcaption>The automation runs the implementation steps and prepares the pull request in the background.</figcaption>
-</figure>
-
-## 7. Verify the first change
-
-When implementation completes, the task moves to Verify. Open the linked pull request and confirm that the application builds, the expected files exist and the default page works.
-
-<figure class="sp-media-figure not-content">
-  <img src="https://docs-assets.superplane.com/images/verify_phase_issue_1.webp" alt="Initial Next.js application task waiting for review in the Verify stage" />
-  <figcaption>The task waits in Verify while you review the pull request and its checks.</figcaption>
-</figure>
-
-If a configured check fails, the failure becomes part of the factory work. The result can return to the agent with the context needed for another attempt. When every required check passes, review and merge the pull request.
-
-<figure class="sp-media-figure not-content">
-  <img src="https://docs-assets.superplane.com/images/github_image.png" alt="Factory Starter App repository after merging the initial Next.js application pull request" />
-  <figcaption>The first merged pull request turns the empty repository into a working Next.js project.</figcaption>
-</figure>
-
-## 8. Run the next issue through the factory
-
-Return to Backlog and start **Build the Factory Starter App homepage**. You do not need to create another factory, rebuild the implementation workflow or recreate verification. The same process handles the next piece of work.
-
-<figure class="sp-media-figure not-content">
-  <video controls playsinline preload="metadata" src="https://docs-assets.superplane.com/videos/factory_starter_video.mp4">
-    Your browser does not support embedded video.
-  </video>
-  <figcaption>The second issue moves from Backlog through Implement and Verify to a review ready pull request.</figcaption>
-</figure>
-
-This repeatability is the difference between a factory and a collection of isolated agent sessions.
-
-## 9. Make the application live
-
-Once the frontend pull request is verified and merged, connect the repository to Vercel:
-
-1. Import the **Factory Starter App** repository.
-2. Confirm that Vercel detects the Next.js project.
-3. Deploy the application.
-4. Keep automatic deployments enabled for changes to the main branch.
-
-After the initial setup, future merged changes can deploy through the same Git workflow. Read the <a href="https://vercel.com/docs/deployments" target="_blank" rel="noreferrer">Vercel deployment documentation</a> if you need help with the deployment settings.
-
-<figure class="sp-media-figure not-content">
-  <img src="https://docs-assets.superplane.com/images/deployment.webp" alt="Vercel production deployment for the Factory Starter App" />
-  <figcaption>Vercel deploys the application from the merged main branch.</figcaption>
-</figure>
-
-Open the <a href="https://factoryapp-ashen.vercel.app/" target="_blank" rel="noreferrer">deployed Factory Starter App</a> to see the result.
-
-<figure class="sp-media-figure not-content">
-  <img src="https://docs-assets.superplane.com/images/final_project.png" alt="Finished Factory Starter App homepage deployed to production" />
-  <figcaption>The finished homepage was created through two focused factory runs.</figcaption>
-</figure>
-
-<div class="oss-statement factory-guide-finish not-content">
-  <span>Your first Factory</span>
-  <strong>That is your first software factory. It is a repeatable way to turn engineering work into a verified result.</strong>
-</div>
+<CardGrid>
+  <LinkCard
+    title="Example codebase"
+    href="https://github.com/pixawna/SuperPlane_Demo"
+    description="Explore the SuperPlane Demo source code and example issues on GitHub."
+  />
+  <LinkCard
+    title="Try SuperPlane"
+    href="https://app.superplane.com/"
+    description="Connect your repository and start building your own software factory."
+  />
+</CardGrid>

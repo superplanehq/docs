@@ -1,15 +1,14 @@
 ---
 title: "Quickstart: add SuperPlane Factory to your project"
-description: Get your SuperPlane workspace ready and bring your first repository into the software factory in under 5 minutes.
+description: Get your SuperPlane workspace ready and bring your work into the software factory in under 5 minutes.
 ---
 
-import { CardGrid, LinkCard } from "@astrojs/starlight/components";
+import { Aside, Icon } from "@astrojs/starlight/components";
 
-Use this guide to create a SuperPlane workspace, connect a GitHub repository and open your first software factory board.
+In this guide, we’ll create a SuperPlane workspace, connect it to a GitHub repository through an intake, and set up our first Software Factory. By the end, you’ll be ready to run a task through implementation, verification, and review using your own Software Factory.
 
-<figure class="sp-media-figure not-content">
-  <img src="https://docs-assets.superplane.com/images/whole_board.webp" alt="SuperPlane factory board with Backlog, Implement, Verify and Done stages" />
-  <figcaption>By the end of this guide your workspace will be ready for agents, automations and an end to end task run.</figcaption>
+<figure class="sp-media-figure sp-media-figure--flush not-content">
+  <img src="https://docs-assets.superplane.com/images/superplane_board_brand.png" alt="SuperPlane factory board with Backlog, Implement, Verify and Done stages" />
 </figure>
 
 <div class="quickstart-cta not-content">
@@ -30,10 +29,12 @@ For the smoothest first run have the following ready:
 - A repository with a few open issues for SuperPlane to analyze.
 - A normal development setup with existing tests or continuous integration (CI) checks.
 
-<div class="sp-callout not-content">
-  <span>First project</span>
-  <strong>Choose a repository with small tasks that have a defined outcome.</strong>
-  <p>Save large architectural changes and work that needs product decisions until you have completed your first factory run.</p>
+<div class="sp-first-project-note">
+  <Aside type="note" title="NOTE">
+    First Software Factory? Choose a repository with small tasks that have a defined outcome.
+
+    Save large architectural changes and work that needs product decisions until you have completed your first factory run.
+  </Aside>
 </div>
 
 <div class="quickstart-fit-grid not-content">
@@ -57,71 +58,56 @@ For the smoothest first run have the following ready:
   </section>
 </div>
 
-## 1. Create a SuperPlane account
+## 1. Create your SuperPlane account
 
-[Sign up for SuperPlane](https://app.superplane.com/). Create or enter the workspace where you want to run your software factory. The onboarding flow guides you through creating your first workspace.
+Create your [SuperPlane account](https://app.superplane.com/). The onboarding flow guides you through setting up your workspace and connecting your GitHub repository. Follow the steps below to get started.
 
-<figure class="sp-media-figure not-content">
-  <img src="https://docs-assets.superplane.com/images/Create_quickstart.webp" alt="SuperPlane onboarding screen with the Get started button" />
-  <figcaption>Start the onboarding flow to connect your first repository.</figcaption>
+<figure class="sp-media-figure sp-media-figure--flush not-content">
+  <img src="https://docs-assets.superplane.com/videos/superplane_account_setup_1280.gif" alt="Setting up a SuperPlane account and connecting a GitHub repository" />
 </figure>
 
-To create a workspace for another repository open the workspace switcher in the upper left corner. Select **Create new workspace**, connect GitHub and choose the repository.
-
-<figure class="sp-media-figure sp-media-figure--compact not-content">
-  <img src="https://docs-assets.superplane.com/images/switch_workspace.webp" alt="SuperPlane workspace switcher with Create new workspace" />
-  <figcaption>Use the workspace switcher to open an existing workspace or create another one.</figcaption>
-</figure>
-
-Read [Build your first Factory](/get-started/build-first-factory) for a detailed configuration walkthrough.
+Need more guidance? Follow [Build your first Factory](/get-started/build-first-factory) for detailed instructions or watch the [Video Walkthrough](/get-started/video-walkthrough) to see the process in action.
 
 ## 2. Let SuperPlane prepare the workspace
 
 Connect the repository through GitHub during onboarding. SuperPlane prepares the workspace and begins bringing work into the factory.
 
-For GitHub Issues the onboarding flow imports recent open tickets and starts reviewing their suitability for agent execution. You do not need to copy tickets into SuperPlane.
+Intake will automatically imports your recent GitHub Issues and starts reviewing their suitability for agent execution. You do not need to copy tickets into SuperPlane.
 
-<figure class="sp-media-figure not-content">
-  <img src="https://docs-assets.superplane.com/images/factory_board.png" alt="SuperPlane onboarding completion screen showing imported GitHub tickets" />
-  <figcaption>SuperPlane imports work from your repository and starts evaluating what the factory can take on.</figcaption>
+<figure class="sp-media-figure sp-media-figure--flush not-content">
+  <img src="https://docs-assets.superplane.com/images/superplane_intake_setup_framed.png" alt="SuperPlane intake setup for bringing work into the factory" />
 </figure>
 
 ## 3. Open your factory board
 
-Select **Go to your board**. The factory pipeline contains four stages:
+Select **Go to your board** to see your tasks across four stages:
 
-<ol class="quickstart-stages not-content">
-  <li><strong>Backlog</strong><span>Work is discovered and evaluated.</span></li>
-  <li><strong>Implement</strong><span>An agent plans the task and changes the code.</span></li>
-  <li><strong>Verify</strong><span>Checks and review feedback validate the result.</span></li>
-  <li><strong>Done</strong><span>The pull request completes the factory workflow.</span></li>
-</ol>
+<div class="factory-stage-table">
 
-Focus on **Backlog** first. Newly discovered work appears here before implementation begins.
+| Stage | What happens |
+| --- | --- |
+| **Backlog** | Incoming tasks are assessed and wait to start. |
+| **Implement** | An agent plans and makes the code changes. |
+| **Verify** | Checks and pull request feedback help validate the changes. |
+| **Done** | The task has completed the factory workflow. |
 
-<figure class="sp-media-figure not-content">
-  <img src="https://docs-assets.superplane.com/images/final_done.png" alt="SuperPlane factory board with tasks waiting in Backlog" />
-  <figcaption>The board shows discovered work and each task's current factory stage.</figcaption>
+</div>
+
+Start with **Backlog**. This is where you’ll find imported tasks before an agent begins work.
+
+<figure class="sp-media-figure sp-media-figure--flush not-content">
+  <img src="https://docs-assets.superplane.com/images/superplane_board_framed.png" alt="SuperPlane factory board with tasks waiting in Backlog" />
 </figure>
 
 ## 4. Understand what happens next
 
 When you start a task it moves through implementation and verification. A failed check can return the task to the agent with feedback. Work reaches Done when the completion rule is satisfied, such as attaching a pull request after every required status check passes.
 
-<figure class="sp-media-figure not-content">
-  <img src="https://docs-assets.superplane.com/images/whats_next.webp" alt="Factory flow from Backlog through Implement and Verify to a review ready pull request" />
-  <figcaption>Verification can return failed work to the agent before the pull request reaches Done.</figcaption>
+<figure class="sp-media-figure sp-media-figure--flush not-content">
+  <img src="https://docs-assets.superplane.com/images/superplane_task_flow.png" alt="Factory flow from Backlog through Implement and Verify to a review ready pull request" />
 </figure>
 
-Congratulations, you created your first software factory. Have questions or want to see the complete workflow? Follow the guided walkthrough.
-
-<CardGrid>
-  <LinkCard
-    title="Video walkthrough"
-    href="/get-started/video-walkthrough"
-    description="Watch a task move from backlog through implementation, verification and review."
-  />
-</CardGrid>
+Congratulations, you created your first software factory. Have questions or want to see the complete workflow? Follow the [guided walkthrough](/get-started/video-walkthrough).
 
 ## Tips for your first run
 
@@ -132,9 +118,25 @@ Congratulations, you created your first software factory. Have questions or want
 
 ## Next steps
 
-<div class="sp-next-grid not-content">
-  <a href="/get-started/build-first-factory"><strong>Build your first factory</strong><span>Connect work intake to agents and run an issue from backlog to pull request.</span></a>
-  <a href="/fundamentals/factory-pipeline"><strong>Understand the factory pipeline</strong><span>Learn what happens in Backlog, Implement, Verify and Done.</span></a>
-  <a href="/fundamentals/automations"><strong>Learn how automations work</strong><span>See how SuperPlane combines agents with deterministic workflow steps.</span></a>
-  <a href="/fundamentals/one-shot-engineering"><strong>Learn about one shot engineering</strong><span>Understand which engineering tasks agents can handle reliably.</span></a>
+<div class="help-grid not-content">
+  <a class="help-card brand-card--brass" href="/get-started/build-first-factory">
+    <span class="help-card__top"><Icon name="rocket" size="1.5rem" /><Icon name="right-arrow" size="0.9rem" /></span>
+    <strong>Build your first factory</strong>
+    <span>Connect work intake to agents and run an issue from backlog to pull request.</span>
+  </a>
+  <a class="help-card brand-card--teal" href="/fundamentals/factory-pipeline">
+    <span class="help-card__top"><Icon name="open-book" size="1.5rem" /><Icon name="right-arrow" size="0.9rem" /></span>
+    <strong>Understand the factory pipeline</strong>
+    <span>Learn what happens in Backlog, Implement, Verify and Done.</span>
+  </a>
+  <a class="help-card brand-card--mist" href="/fundamentals/automations">
+    <span class="help-card__top"><Icon name="setting" size="1.5rem" /><Icon name="right-arrow" size="0.9rem" /></span>
+    <strong>Learn how automations work</strong>
+    <span>See how SuperPlane combines agents with deterministic workflow steps.</span>
+  </a>
+  <a class="help-card brand-card--graphite" href="/fundamentals/one-shot-engineering">
+    <span class="help-card__top"><Icon name="star" size="1.5rem" /><Icon name="right-arrow" size="0.9rem" /></span>
+    <strong>Learn about one shot engineering</strong>
+    <span>Understand which engineering tasks agents can handle reliably.</span>
+  </a>
 </div>

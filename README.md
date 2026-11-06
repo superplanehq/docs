@@ -1,4 +1,4 @@
-![SuperPlane Factory documentation](https://docs-assets.superplane.com/images/superplane_readme_header.png)
+![SuperPlane Factory documentation](https://docs-assets.superplane.com/images/superplane-readme-banner.png)
 
 # SuperPlane Factory Docs
 

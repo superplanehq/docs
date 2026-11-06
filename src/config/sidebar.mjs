@@ -9,6 +9,7 @@ export const sidebar = [
       { label: "Quickstart", slug: "get-started/quickstart" },
       { label: "Video Walkthrough", slug: "get-started/video-walkthrough" },
       { label: "Build your first Factory", slug: "get-started/build-first-factory" },
+      { label: "Migrate from Conductor", slug: "get-started/migrate-from-conductor" },
     ],
   },
   {

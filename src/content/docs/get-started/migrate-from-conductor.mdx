@@ -1,0 +1,211 @@
+---
+title: Migrate from Conductor
+description: Move your repositories, task context and agent workflow from Conductor to SuperPlane.
+---
+
+import { Aside, Icon, Steps } from "@astrojs/starlight/components";
+
+Conductor is [joining Meta](https://www.conductor.build/announcement) and is winding down. This guide will help you move your repositories, unfinished work and agent workflow to SuperPlane, where tasks move through intake, implementation, verification and human review inside the Open Source Software Factory.
+
+<figure class="sp-media-figure sp-media-figure--flush not-content">
+  <img src="https://docs-assets.superplane.com/images/superplane_session_vs_board.png" alt="SuperPlane factory board with Backlog, Implement, Verify and Done stages" />
+</figure>
+
+The local Conductor app continues to receive new models and critical fixes until early 2027, when it begins winding down.
+
+<div class="sp-first-project-note">
+  <Aside type="note" title="Using Conductor Cloud?">
+    Conductor Cloud becomes read-only on November 13, 2026 and shuts down on November 20, 2026, when Conductor begins deleting cloud data. Commit and push unfinished changes before the read-only date and export your data before shutdown.
+  </Aside>
+</div>
+
+Start with [Save your existing work](#before-november-13) to your own Open source Software factory on SuperPlane. For the detailed overview how to get it done, see our blog post [How to migrate from Conductor Cloud to SuperPlane](https://www.conductor.build/announcement)
+​
+
+
+## How Conductor maps to SuperPlane?
+
+In Conductor, a workspace holds a checkout and agent sessions for a piece of work. In SuperPlane, connect your repository to a workspace and track work as tasks through **Backlog, Implement, Verify** and **Done**. Automations control the steps around each Agent Run, including checks and pull request handling.
+
+
+<div class="conductor-migration-map" role="region" aria-label="Conductor and SuperPlane comparison" tabindex="0">
+
+| Conductor | SuperPlane | Notes |
+| --- | --- | --- |
+| Repository | [Repository](/get-started/quickstart) | Connect your existing GitHub repository. |
+| Workspace | [Task](/fundamentals/factory-pipeline) | Track each piece of work on the Factory board. |
+| Branch | Branch | Keep saved changes and branches in GitHub. |
+| Prompt and chat | [Task description](#5-create-your-first-superplane-task) | Summarize decisions and remaining work. |
+| Setup scripts | [Agent setup](#3-transfer-your-repository-setup) | Reuse setup commands from your repository. |
+| Conductor variables | Runner settings | Update paths, variables and ports for the runner. |
+| Environment files and secrets | Credentials | Reconnect services and supply required environment values. |
+| Agent logins | [Model source](#2-choose-your-model-source) | Use SuperPlane models, an API key or ChatGPT for Codex. |
+| GitHub or Linear issues | [Intakes](/intakes/overview) | Import matching requests into Backlog. |
+| Create a pull request | [Implement](/fundamentals/implement) | Create or update a pull request for the task. |
+| Checks and feedback | [Verify](/fundamentals/verify) | Run required checks and address pull request feedback. |
+| Conductor Cloud | [Hosted app](https://app.superplane.com/) or [self-hosted](/self-hosting/overview) | Use the hosted app or your own infrastructure. |
+| API access | [API](https://superplane.com/api/), [CLI](/cli) and [MCP](/agents/mcp) | Connect scripts, terminals and editors. |
+
+</div>
+
+Use these mappings to move your work into the Factory. Save existing code through Git and review the repository, model source and task context before starting a migrated task.
+
+
+## Before November 13
+
+Conductor Cloud stops accepting new messages on November 13, 2026. Gather your code, task context and project setup while the workspaces are still active, so you can use them when setting up SuperPlane.
+
+<div class="conductor-preflight">
+<Steps>
+
+1. ### Make your code available in GitHub
+
+   Review each cloud workspace for changes that exist only there. Commit the source files you need and push the branch to GitHub. Back up ignored configuration files, such as `.env`, separately.
+
+2. ### Keep the context behind open work
+
+   Save the decisions, plans and remaining work from your Conductor sessions. Open **Settings → Account → Export data** to download an archive you can refer to when creating SuperPlane tasks. For a local copy of a cloud workspace and its chats, right-click it and select **Transfer to local**. [Conductor’s announcement](https://www.conductor.build/announcement) explains the export options.
+
+3. ### Record your setup requirements
+
+   Collect the installation and repository setup scripts from your [Cloud Computer configuration](https://www.conductor.build/docs/cloud/cloud-computer). Record the required environment-variable names and where your team stores their values. Conductor hides saved secrets, so retrieve those values from their original source when configuring SuperPlane.
+
+</Steps>
+</div>
+
+## Migration steps
+
+Start with the repository, code and notes you saved above. If you used Conductor locally, commit and push the changes you want to keep before connecting the repository to SuperPlane.
+
+### 1. Create a workspace and connect GitHub
+
+Sign in to [SuperPlane](https://app.superplane.com/) and follow the onboarding flow. Connect your GitHub account, authorize the SuperPlane GitHub App and choose the repository you used in Conductor. You need write access to that repository.
+
+Choose **GitHub issues** as your work source. Review **Import existing issues** and **Automatic intake** so SuperPlane brings in the work you intend to migrate. The [Quickstart](/get-started/quickstart) walks through the setup.
+
+For an existing workspace, open **Settings → Repository** and confirm the repository and **Default branch** before starting work.
+
+<figure class="sp-media-figure sp-media-figure--flush not-content">
+  <img src="https://docs-assets.superplane.com/videos/superplane_account_setup_1280.gif" alt="Connecting GitHub and setting up a SuperPlane workspace" />
+</figure>
+
+### 2. Choose your model source
+
+Open **Settings → Models** and select **Change model source**. Choose the source your workspace will use:
+
+- **SuperPlane:** Use models managed by SuperPlane.
+- **Your API key:** Connect a Claude, OpenAI or OpenRouter key.
+- **ChatGPT subscriptions:** Run Codex with a connected ChatGPT account.
+
+For ChatGPT, connect your account under **Settings → Account → Codex**. When selecting ChatGPT for the workspace, choose a connected member as the **Default task owner**. Each task uses its owner's subscription.
+
+Select the models the workspace can use, then click **Save models**. See [SuperPlane pricing](https://superplane.com/pricing/) for plan availability and usage charges.
+
+### 3. Transfer your repository setup
+
+Open your workspace's **Agent** page. In **Setup steps**, click **Edit**, enter the commands your project needs before an agent starts, then click **Save setup steps**. Enter one command per line, using the installation and repository setup scripts you saved from Conductor as a starting point.
+
+Before reusing commands from `conductor.json`, `.conductor/settings.toml` or Conductor settings:
+
+- Replace paths to your Mac and references to `CONDUCTOR_*` variables with values that work on the runner.
+- Call reusable scripts from the repository so your team can maintain them with the code.
+- Keep build, test and lint commands, coding conventions and task boundaries in `AGENTS.md` or the instruction file your selected agent uses.
+
+If your Conductor agent used external tools, reconnect the required Model Context Protocol (MCP) servers from the **Agent** page using **Connect**. Review their access and credentials before starting a task.
+
+### 4. Restore connections and credentials
+
+Open **Settings → Integrations** and reconnect the services your repository and checks need. GitHub access and model provider connections must be authorized in SuperPlane.
+
+For integration credentials you need to bring over:
+
+1. Open **Settings → Secrets** and select **Create secret**.
+2. Enter a **Secret name** and add the required keys and values.
+3. Click **Create secret**, then select the saved secret in the connection that needs it.
+
+SuperPlane hides secret values after saving. Keep your original values in your team's secret store, and keep `.env` files and credential values out of Git commits and task descriptions.
+
+### 5. Create your first SuperPlane task
+
+Choose a focused issue that has not entered implementation, such as a small bug fix or documentation update. Create or update it in GitHub with:
+
+- The expected result and the files or behavior in scope.
+- The commands or checks that confirm success.
+- Relevant decisions from your Conductor sessions and links to any saved work.
+
+Open **Backlog** and confirm that the intake has imported the issue with the right repository and context. Follow [Intakes](/intakes/overview) if you need to review which requests enter the backlog.
+
+Keep existing pull requests under review in GitHub while you test the first Factory task. A branch or pull request link gives the agent context; it does not select that branch for the new run. Confirm the repository and base branch before handing off unfinished work.
+
+### 6. Start a task and review the result
+
+Review the task's confidence assessment and its reason. Clarify the scope and acceptance criteria before selecting **Start**.
+
+Follow the task through the Factory:
+
+1. In **Implement**, inspect the agent's progress and check that repository setup succeeds.
+2. In **Verify**, open the linked pull request and review the required checks and feedback. Failed checks can return to the agent for a correction.
+3. Review the final diff against the original issue and follow your team's merge process. The task reaches **Done** when the Factory's completion condition is satisfied.
+
+<figure class="sp-media-figure sp-media-figure--flush not-content">
+  <img src="https://docs-assets.superplane.com/videos/superplane_start_run_1280.gif" alt="Starting a SuperPlane task and following its agent run" />
+</figure>
+
+If the run stops because a dependency, credential or model connection is missing, resolve it before retrying. Use [Build your first Factory](/get-started/build-first-factory) for a complete example from issue to reviewed change.
+
+### 7. Invite teammates
+
+Open **Settings → Members** for your organization and select **Invite member**. Enter the person's **Email address**, choose their **Role** and click **Send invitation**. You can also use **Copy link** to share the generated invitation with that person.
+
+<figure class="sp-media-figure sp-media-figure--flush not-content">
+  <img src="https://docs-assets.superplane.com/videos/superplane_invite_teammates_1280.gif" alt="Inviting a teammate to SuperPlane and sharing the invitation link" />
+</figure>
+
+After they join, confirm that reviewers can open the workspace and inspect task history and linked pull requests. If you use ChatGPT subscriptions for Codex, each member who will own tasks needs to connect their own ChatGPT account.
+
+## What's different
+
+After the move, follow work through the Factory board and review the evidence attached to each task. These are the main changes from a Conductor workflow.
+
+<div class="conductor-migration-map conductor-differences" role="region" aria-label="Differences between Conductor and SuperPlane" tabindex="0">
+
+| Area | Conductor | SuperPlane |
+| --- | --- | --- |
+| Unit of work | A [workspace](https://www.conductor.build/docs/concepts/workflow) contains a branch, working files and agent sessions. | A [task](/fundamentals/factory-pipeline) moves through Backlog, Implement, Verify and Done. |
+| Starting work | Create a workspace from a branch, issue or pull request. | [Intakes](/intakes/overview) bring requests into Backlog. Review a task before starting it. |
+| Project setup | Local setup scripts, or a shared [Cloud Computer](https://www.conductor.build/docs/cloud/cloud-computer) with repository setup scripts. | Save setup commands per workspace in [Agent setup](#3-transfer-your-repository-setup). Tasks run on configured runners. |
+| Checks and review | Run tests and inspect changes through workspace tools and GitHub checks. | [Verify](/fundamentals/verify) evaluates checks and pull request feedback, then returns failures to the agent for correction. Your team reviews the result. |
+| Work history | Chats, diffs and branch state belong to the workspace. | The task record links the original request, agent runs, check results and pull request. |
+| Model access | Connect coding-agent accounts, subscriptions or API keys. | Choose a workspace [model source](#2-choose-your-model-source): SuperPlane models, a provider key or ChatGPT for Codex. |
+| Deployment | Use the local Mac app or Conductor Cloud. | Use the [hosted web app](https://app.superplane.com/) or [run SuperPlane on your infrastructure](/self-hosting/overview). |
+
+</div>
+
+Sandbox time is charged separately, including when you use your own API key or ChatGPT subscription. See [SuperPlane pricing](https://superplane.com/pricing/) for plans and usage charges.
+
+## Need help? Let us know
+
+Ask the SuperPlane team for help moving your work from Conductor, connecting your repository or running your first factory task. 
+
+<div class="help-grid not-content">
+  <a class="help-card brand-card--brass" href="https://discord.superplane.com/" target="_blank" rel="noreferrer">
+    <span class="help-card__top"><Icon name="discord" size="1.5rem" /><Icon name="external" size="0.9rem" /></span>
+    <strong>Get help on Discord</strong>
+    <span>Ask the community about migration, repository setup and your first factory run.</span>
+  </a>
+  <a class="help-card brand-card--teal" href="https://superplane.com/demo/" target="_blank" rel="noreferrer">
+    <span class="help-card__top"><Icon name="comment" size="1.5rem" /><Icon name="external" size="0.9rem" /></span>
+    <strong>Schedule a demo</strong>
+    <span>Book a call to explore SuperPlane and get guidance on setting up your first factory.</span>
+  </a>
+  <a class="help-card brand-card--mist" href="/get-started/quickstart">
+    <span class="help-card__top"><Icon name="rocket" size="1.5rem" /><Icon name="right-arrow" size="0.9rem" /></span>
+    <strong>Quickstart</strong>
+    <span>Create a workspace, connect GitHub and prepare your first factory.</span>
+  </a>
+  <a class="help-card brand-card--graphite" href="/get-started/build-first-factory">
+    <span class="help-card__top"><Icon name="open-book" size="1.5rem" /><Icon name="right-arrow" size="0.9rem" /></span>
+    <strong>Build your first factory</strong>
+    <span>Connect your repository and follow a task from issue to reviewed pull request.</span>
+  </a>
+</div>

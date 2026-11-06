@@ -1109,19 +1109,19 @@
   }
 }
 
-/* Match the first-factory guide headings to the other getting-started pages. */
+/* Match the factory and migration guide headings to the other getting-started pages. */
 @layer starlight.user {
-  .sl-markdown-content:has(.factory-task-overview) .sl-heading-wrapper > :is(h2, h3) {
+  .sl-markdown-content:has(:is(.factory-task-overview, .conductor-migration-map)) .sl-heading-wrapper > :is(h2, h3) {
     font-family: "Instrument Sans", sans-serif;
     font-weight: 600 !important;
     letter-spacing: -0.02em;
     line-height: 1.35;
   }
-  .sl-markdown-content:has(.factory-task-overview) .sl-heading-wrapper > h2 {
+  .sl-markdown-content:has(:is(.factory-task-overview, .conductor-migration-map)) .sl-heading-wrapper > h2 {
     font-size: 28px !important;
   }
   @media (max-width: 49.999rem) {
-    .sl-markdown-content:has(.factory-task-overview) .sl-heading-wrapper > h2 {
+    .sl-markdown-content:has(:is(.factory-task-overview, .conductor-migration-map)) .sl-heading-wrapper > h2 {
       font-size: 24px !important;
     }
   }
@@ -1169,5 +1169,121 @@
   .sidebar-content .top-level ul > li > details > ul {
     margin-inline-start: 14px;
     padding-block: 2px 4px;
+  }
+}
+
+/* Space the migration callout from the paragraph that follows it. */
+@layer starlight.user {
+  .sl-markdown-content:has(.conductor-migration-map) > .sp-first-project-note {
+    margin-bottom: 1.5rem;
+  }
+}
+
+/* Make linked text consistent throughout the migration guide. */
+@layer starlight.user {
+  .sl-markdown-content:has(.conductor-migration-map) a[href]:not(:where(.not-content *, .sl-anchor-link)) {
+    color: #d6b83c;
+    text-decoration-line: underline;
+    text-decoration-color: #d6b83c80;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 4px;
+  }
+  .sl-markdown-content:has(.conductor-migration-map) a[href]:not(:where(.not-content *, .sl-anchor-link)):is(:hover, :focus-visible) {
+    color: #f3f3ea;
+    text-decoration-color: #d6b83c;
+    text-decoration-thickness: 2px;
+  }
+  .sl-markdown-content:has(.conductor-migration-map) .help-card strong {
+    text-decoration-line: underline;
+    text-decoration-color: currentColor;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 4px;
+  }
+  .sl-markdown-content:has(.conductor-migration-map) .help-card:is(:hover, :focus-visible) strong {
+    text-decoration-thickness: 2px;
+  }
+}
+
+/* Conductor-to-SuperPlane mapping table. */
+@layer starlight.user {
+  .sl-markdown-content .conductor-migration-map {
+    max-width: 100%;
+    margin-bottom: 1.5rem;
+    overflow-x: auto;
+  }
+  .sl-markdown-content .conductor-migration-map:focus-visible {
+    outline: 2px solid #ed8e09;
+    outline-offset: 4px;
+  }
+  .sl-markdown-content .conductor-migration-map table {
+    display: table;
+    width: 100%;
+    min-width: 36rem;
+    table-layout: fixed;
+  }
+  .sl-markdown-content .conductor-migration-map :is(th, td):first-child,
+  .sl-markdown-content .conductor-migration-map :is(th, td):nth-child(2) {
+    width: 26%;
+  }
+  .sl-markdown-content .conductor-migration-map :is(th, td) {
+    overflow-wrap: anywhere;
+  }
+  .sl-markdown-content .conductor-migration-map code {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+}
+
+/* Conductor Cloud preparation checklist. */
+@layer starlight.user {
+  .sl-markdown-content .conductor-preflight .sl-steps {
+    --bullet-size: 2rem;
+    --bullet-margin: 0.5rem;
+    margin-block: 1.5rem 0;
+    padding-inline-start: 0;
+  }
+  .sl-markdown-content .conductor-preflight .sl-steps > li {
+    margin-top: 0;
+    padding-inline-start: 3rem;
+    padding-bottom: 2rem;
+  }
+  .sl-markdown-content .conductor-preflight .sl-steps > li:last-child {
+    padding-bottom: 0;
+  }
+  .sl-markdown-content .conductor-preflight .sl-steps > li::before {
+    color: #d6b83c;
+    background: #1c2420;
+    border-radius: 6px;
+    box-shadow: inset 0 0 0 1px #35443b;
+    font-family: var(--sl-font-mono);
+    font-size: 0.75rem;
+    font-weight: 500;
+  }
+  .sl-markdown-content .conductor-preflight .sl-steps > li::after {
+    background: #303c35;
+  }
+  .sl-markdown-content .conductor-preflight .sl-steps > li > :first-child {
+    margin-block: 0 0.75rem;
+    transform: none;
+  }
+  .sl-markdown-content .conductor-preflight .sl-steps > li > p {
+    margin-block: 0;
+  }
+}
+
+/* Separate migration lists from the following instructions. */
+@layer starlight.user {
+  .sl-markdown-content:has(.conductor-migration-map) > :is(ul, ol) + p {
+    margin-top: 1.5rem;
+  }
+}
+
+/* Balance the workflow comparison columns. */
+@layer starlight.user {
+  .sl-markdown-content .conductor-differences :is(th, td):first-child {
+    width: 22%;
+  }
+  .sl-markdown-content .conductor-differences :is(th, td):nth-child(2) {
+    width: 34%;
   }
 }

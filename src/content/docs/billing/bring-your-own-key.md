@@ -3,11 +3,11 @@ title: Bring your own key
 description: Run workspace agents with your Claude, OpenAI, or OpenRouter API key.
 ---
 
-Bring your own key (BYOK) runs workspace agents with an API key from Claude, OpenAI, or OpenRouter. Your provider bills the model tokens, without the SuperPlane 10% platform fee. SuperPlane still bills the machine time.
+Bring your own key (BYOK) runs workspace agents with an API key from Claude, OpenAI or OpenRouter on Team and Enterprise. Your provider bills model tokens, and SuperPlane adds no token markup. Sandbox time still uses SuperPlane credits.
 
 ## Before you start
 
-You need the **Maintainer** or **Admin** role.
+You need a Team or Enterprise plan and the **Maintainer** or **Admin** role. See [SuperPlane pricing](https://superplane.com/pricing/) for plan availability.
 
 ## Connect the key
 
@@ -33,7 +33,7 @@ The page lists models available from the connected key.
 
 Agents in this workspace run with the connected key. Your provider bills those model tokens. SuperPlane records the token use.
 
-Machine time stays on your SuperPlane usage. See [Costs and budgets](/billing/costs-budgets).
+Sandbox time stays on your SuperPlane usage and draws from your organization's credits. See [Costs and budgets](/billing/costs-budgets).
 
 An OpenAI API key is separate from a ChatGPT subscription. To run Codex on a ChatGPT plan, use [Bring your own subscription](/billing/bring-your-own-subscription).
 

@@ -3,9 +3,9 @@ title: Bring your own subscription
 description: Run Codex in a workspace on each task owner's ChatGPT subscription.
 ---
 
-Bring your own subscription (BYOS) runs Codex on a personal ChatGPT subscription. Each member connects their own ChatGPT account. A task uses that task owner's subscription and the models the workspace allows.
+Bring your own subscription (BYOS) runs Codex on a personal ChatGPT subscription on any SuperPlane plan. Each member connects their own ChatGPT account. A task uses that task owner's subscription and the models the workspace allows.
 
-The ChatGPT plan covers model use. SuperPlane bills the machine time.
+SuperPlane adds no token markup to model use through your connected ChatGPT account. Sandbox time still uses SuperPlane credits. See [SuperPlane pricing](https://superplane.com/pricing/) for current plan terms.
 
 ## Connect your ChatGPT account
 
@@ -55,7 +55,7 @@ When the owner has no ChatGPT connection, choose another owner or ask that perso
 
 ## What you pay
 
-The ChatGPT plan covers Codex model use for that owner's tasks. SuperPlane records the run and bills the machine time. See [Costs and budgets](/billing/costs-budgets).
+The task owner's ChatGPT subscription covers Codex model use, subject to that account's limits. SuperPlane records the run and charges sandbox time separately through your organization's credits. See [Costs and budgets](/billing/costs-budgets).
 
 ## Related pages
 

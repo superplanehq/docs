@@ -23,8 +23,7 @@ Enterprise can also connect your organization's inference infrastructure, such a
 
 ## Set up a source
 
-- [Bring your own key](/billing/bring-your-own-key) connects a Claude, OpenAI or OpenRouter API key on Team or Enterprise.
-- [Bring your own subscription](/billing/bring-your-own-subscription) connects personal ChatGPT subscriptions for Codex on any plan.
+[Bring your own subscription](/billing/bring-your-own-subscription) connects personal ChatGPT subscriptions for Codex on any plan.
 
 After the source is active, choose models on the same page. Keep **Use all available models** selected, or clear it and select the models agents can use. Click **Save models**.
 

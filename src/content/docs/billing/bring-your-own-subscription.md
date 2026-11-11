@@ -5,6 +5,15 @@ description: Run Codex in a workspace on each task owner's ChatGPT subscription.
 
 Bring your own subscription (BYOS) runs Codex on a personal ChatGPT subscription on any SuperPlane plan. Each member connects their own ChatGPT account. A task uses that task owner's subscription and the models the workspace allows.
 
+<figure class="sp-media-figure sp-media-figure--flush not-content">
+  <img
+    src="https://docs-assets.superplane.com/videos/superplane_byo_chatgpt_1280.gif"
+    alt="Connecting a ChatGPT subscription to SuperPlane"
+    loading="lazy"
+    decoding="async"
+  />
+</figure>
+
 SuperPlane adds no token markup to model use through your connected ChatGPT account. Sandbox time still uses SuperPlane credits. See [SuperPlane pricing](https://superplane.com/pricing/) for current plan terms.
 
 ## Connect your ChatGPT account
@@ -30,7 +39,13 @@ The usage card shows the last snapshot SuperPlane saved at sign-in or during a C
 
 The default task owner is the person SuperPlane assigns when an intake creates a task. Codex runs that task on the owner's ChatGPT subscription. A new intake task has no owner yet, so SuperPlane needs a connected member before it can create the task.
 
-**Note:** This replaces the default owner on every intake, including scheduled intakes and intakes that already name another owner.
+<div class="sp-first-project-note">
+
+:::note[NOTE]
+This replaces the default owner on every intake, including scheduled intakes and intakes that already name another owner.
+:::
+
+</div>
 
 If no member is connected, click **Connect Codex** in the dialog and finish sign-in. Then choose the default owner.
 
@@ -60,4 +75,3 @@ The task owner's ChatGPT subscription covers Codex model use, subject to that ac
 ## Related pages
 
 - [Model sources](/billing/model-sources)
-- [Bring your own key](/billing/bring-your-own-key)

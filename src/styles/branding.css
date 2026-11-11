@@ -1454,3 +1454,43 @@
     }
   }
 }
+
+/* Match dependency use case headings and highlights to the getting-started pages. */
+@layer starlight.user {
+  body:has(.sl-markdown-content .dependency-key-point) .brand-title h1,
+  .sl-markdown-content:has(.dependency-key-point) .sl-heading-wrapper > :is(h2, h3) {
+    font-family: "Instrument Sans", sans-serif;
+    font-weight: 600 !important;
+    letter-spacing: -0.02em;
+  }
+  .sl-markdown-content:has(.dependency-key-point) .sl-heading-wrapper > :is(h2, h3) {
+    line-height: 1.35;
+  }
+  .sl-markdown-content:has(.dependency-key-point) .sl-heading-wrapper > h2 {
+    font-size: 28px !important;
+  }
+  .sl-markdown-content .dependency-key-point {
+    color: #d6b83c;
+    font-weight: 600;
+  }
+  .sl-markdown-content:has(.dependency-key-point) > ul:first-of-type {
+    margin-bottom: 1.5rem;
+  }
+  .sl-markdown-content:has(.dependency-key-point) a[href]:not(:where(.not-content *, .sl-anchor-link)) {
+    color: #d6b83c;
+    text-decoration-line: underline;
+    text-decoration-color: #d6b83c80;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 4px;
+  }
+  .sl-markdown-content:has(.dependency-key-point) a[href]:not(:where(.not-content *, .sl-anchor-link)):is(:hover, :focus-visible) {
+    color: #f3f3ea;
+    text-decoration-color: #d6b83c;
+    text-decoration-thickness: 2px;
+  }
+  @media (max-width: 49.999rem) {
+    .sl-markdown-content:has(.dependency-key-point) .sl-heading-wrapper > h2 {
+      font-size: 24px !important;
+    }
+  }
+}

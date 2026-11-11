@@ -5,6 +5,15 @@ description: Estimate plan and usage charges, fund credits and control software 
 
 Plan for the monthly subscription, sandbox time and model use separately. Fund your organization's usage with credits, then review spending as you run tasks. Team and Enterprise include budget limits for groups, users, workspaces and individual tasks.
 
+<figure class="sp-media-figure sp-media-figure--flush not-content">
+  <img
+    src="https://docs-assets.superplane.com/videos/superplane_billing_1280.gif"
+    alt="Managing billing in SuperPlane"
+    loading="lazy"
+    decoding="async"
+  />
+</figure>
+
 Use [Billing overview](/billing/overview) to compare plans, and check [SuperPlane pricing](https://superplane.com/pricing/) for current rates and commercial terms.
 
 ## Know what contributes to cost
@@ -55,5 +64,4 @@ Use provider budgets and alerts for charges billed to your own API keys. Keep th
 
 - [Billing overview](/billing/overview)
 - [Model sources](/billing/model-sources)
-- [Bring your own key](/billing/bring-your-own-key)
 - [Bring your own subscription](/billing/bring-your-own-subscription)

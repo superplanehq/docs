@@ -83,6 +83,7 @@ export const sidebar = [
     items: [
       { label: "Use cases overview", slug: "use-cases/overview" },
       { label: "Fix a GitHub issue", slug: "use-cases/fix-github-issue" },
+      { label: "Update dependencies", slug: "use-cases/dependency-updates" },
       { label: "Make small code improvements", slug: "use-cases/small-code-improvements" },
     ],
   },
@@ -106,7 +107,6 @@ export const sidebar = [
       { label: "Overview", slug: "billing/overview" },
       { label: "Costs and budgets", slug: "billing/costs-budgets" },
       { label: "Model sources", slug: "billing/model-sources" },
-      { label: "Bring your own key", slug: "billing/bring-your-own-key" },
       { label: "Bring your own subscription", slug: "billing/bring-your-own-subscription" },
     ],
   },

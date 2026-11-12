@@ -1,42 +1,67 @@
 ---
 title: Costs and budgets
-description: Plan usage, fund prepaid credits and control software factory spending.
+description: Estimate plan and usage charges, fund credits and control software factory spending.
 ---
 
-Use the Business plan's $50 shared monthly allowance for managed machines and managed models. Usage beyond that allowance draws from your prepaid balance. Purchased credits remain valid for 12 months.
+Plan for the monthly subscription, sandbox time and model use separately. Fund your organization's usage with credits, then review spending as you run tasks. Team and Enterprise include budget limits for groups, users, workspaces and individual tasks.
 
-This page helps organization owners estimate usage and avoid interruptions while keeping factory costs visible.
+<figure class="sp-media-figure sp-media-figure--flush not-content">
+  <img
+    src="https://docs-assets.superplane.com/videos/superplane_billing_1280.gif"
+    alt="Managing billing in SuperPlane"
+    loading="lazy"
+    decoding="async"
+  />
+</figure>
 
-## Know what contributes to usage
+Use [Billing overview](/billing/overview) to compare plans, and check [SuperPlane pricing](https://superplane.com/pricing/) for current rates and commercial terms.
 
-SuperPlane usage includes:
+## Know what contributes to cost
 
-- Managed Linux machine time at the published rate for the selected size and architecture.
-- Managed model tokens at the provider rate plus 10%.
-- Retries and repeated verification steps that run machines or models again.
+<div class="billing-comparison billing-details-table billing-costs" role="region" aria-label="Understand subscription and usage costs" tabindex="0">
 
-If you use your own model provider keys, your provider bills that usage separately without the SuperPlane 10% platform fee. Each workspace uses one source. Different workspaces can use different sources. Connect a key in [Bring your own key](/billing/bring-your-own-key). Run Codex on a ChatGPT plan in [Bring your own subscription](/billing/bring-your-own-subscription).
+| Cost | How it is charged | Where you pay |
+| --- | --- | --- |
+| Monthly plan | No monthly fee on Pay-as-you-go; per organization on Starter; per user on Team; custom on Enterprise. | SuperPlane subscription. |
+| Sandbox time | Compute used by task runs, including runs on your own model account. | SuperPlane credits. |
+| SuperPlane-provided tokens | Provider API rate plus 10% on Pay-as-you-go, Starter and Team; custom rates on Enterprise. | SuperPlane credits. |
+| Your provider API key | Your provider's token charges, with no SuperPlane token markup. Available on Team and Enterprise. | Your provider account. |
+| Your Codex subscription | Model use through the task owner's connected ChatGPT subscription. Available on all plans. | Your ChatGPT account. |
 
-There is no charge for each team member. External services that you connect can bill you separately.
+</div>
 
-## Establish a baseline
+External services you connect can bill you separately. A retry can consume more sandbox time and model usage, so include repeated attempts when you estimate the cost of completing a task.
 
-Run a small set of similar tasks through one line. Record typical model usage, machine time, retry count and cost for each completed result before you increase volume.
+## Estimate monthly spending
 
-Compare the baseline with the $50 monthly allowance. Fund the prepaid balance before expected usage exceeds the allowance so active work can continue.
+Start with the subscription for your plan, then add expected sandbox charges and SuperPlane-provided model usage. Track charges to external model accounts separately so you can see the full cost of your workflow.
 
-## Limit expensive work
+Run a small set of similar tasks before increasing volume. Record sandbox time, model usage, retry count and cost for each completed result. Use that baseline to estimate the credits you need for your expected task volume.
 
-- Keep backlog tasks focused.
-- Set conservative concurrency for line steps.
-- Use a suitable model for each stage.
-- Investigate repeated failures before retrying.
-- Stop work that needs an unavailable person or system.
+## Keep credits available
 
-## Review budget signals
+Buy credits for sandbox time and SuperPlane-provided model tokens. Top up when needed or schedule automatic purchases through your organization's billing settings. Review the credit balance alongside recent consumption before starting more work.
 
-Watch total spend, spend on unsuccessful work and cost for each completed result. Compare cost with throughput and reliability before you increase capacity.
+Connecting your own provider key or ChatGPT subscription changes how model use is paid for. Sandbox time still draws from SuperPlane credits.
 
-Unused monthly allowance expires at renewal. Purchased credits have a 12 month validity period. Track these balances separately when you plan future work.
+## Set budget limits
 
-Use provider budgets and alerts for charges outside SuperPlane. Review [Billing overview](/billing/overview) for plan details, machine rates and example bills.
+Team and Enterprise include spending limits per group, user or workspace, plus a maximum spend per task. Use these controls to define how much work a team or workspace can consume and to bound the cost of an individual task.
+
+Choose limits based on your observed task costs and expected volume. Review them when you change models, expand repository coverage or increase parallel work. See [SuperPlane pricing](https://superplane.com/pricing/) for budget feature availability.
+
+Use provider budgets and alerts for charges billed to your own API keys. Keep the connected account's subscription limits in mind when running Codex through ChatGPT.
+
+## Reduce avoidable usage
+
+- Keep tasks focused and define acceptance criteria before starting them.
+- Choose a model that matches the work each stage needs to do.
+- Check failed runs before retrying to avoid repeating the same setup or credential error.
+- Increase parallel work after you understand its effect on cost and throughput.
+- Review spend on unsuccessful attempts alongside cost per completed task.
+
+## Related pages
+
+- [Billing overview](/billing/overview)
+- [Model sources](/billing/model-sources)
+- [Bring your own subscription](/billing/bring-your-own-subscription)

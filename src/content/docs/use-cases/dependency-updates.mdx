@@ -1,0 +1,159 @@
+---
+title: Update dependencies
+description: Use SuperPlane to take a dependency update through implementation, CI feedback and human review.
+---
+
+import { Steps } from "@astrojs/starlight/components";
+
+Dependency updates are <span class="dependency-key-point">recurring maintenance for software teams</span>. They address security issues and keep projects supported. Use this guide to <span class="dependency-key-point">review, apply and test</span> one update through SuperPlane before approving its pull request.
+
+Common dependencies include:
+
+- **Libraries and frameworks**
+- **Container images**
+- **Language runtimes**
+
+Before you start, connect your repository with the [Quickstart](/get-started/quickstart) and review how the [factory workflow](/fundamentals/factory-pipeline) uses continuous integration (CI) checks.
+
+
+<figure class="sp-media-figure sp-media-figure--flush not-content">
+  <img
+    src="https://docs-assets.superplane.com/videos/superplane_stuck_dependabot_pr_1280.gif?v=69d8914bf512"
+    alt="Reviewing a Dependabot dependency update pull request"
+    width="1280"
+    height="720"
+    loading="lazy"
+    decoding="async"
+  />
+</figure>
+
+Start with <span class="dependency-key-point">one repository, one package and an exact target version</span>. Prioritize the update using three factors:
+
+- **Criticality:** Check whether it fixes a security issue, addresses a bug affecting your application or keeps the dependency within its support window.
+- **Release cycle:** Review how frequently the dependency publishes versions and how your team will handle that work without building a backlog.
+- **Effort:** Identify the repositories or services that need the update and the compatibility checks, code changes and tests each requires.
+
+For example, `@types/node` supplies type definitions for Node.js APIs. It helps TypeScript check code during development rather than supplying the runtime implementation. An update can still require changes to type checks or build configuration. See [TypeScript's type declaration guide](https://www.typescriptlang.org/docs/handbook/2/type-declarations.html).
+
+Application dependencies need checks of the behavior that uses them. For `@aws-sdk/client-dynamodb`, exercise the database operations your application relies on. If several services use the client, include those projects in the review and testing plan. The [AWS JavaScript guide for DynamoDB](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/programming-with-javascript.html) explains the client's role.
+
+Prioritize the reason for a release alongside its frequency. A security fix can need attention ahead of a routine feature update.
+
+## Why are we still doing this manually?
+
+[GitHub Dependabot](https://docs.github.com/en/code-security/concepts/supply-chain-security/dependabot-version-updates) checks for new dependency releases and opens pull requests to update dependency files. It supports [npm, pnpm, Yarn and Docker](https://docs.github.com/en/code-security/reference/supply-chain-security/supported-ecosystems-and-repositories), with configurable update schedules and groups.
+
+<figure class="sp-media-figure sp-media-figure--flush not-content">
+  <img
+    src="https://docs-assets.superplane.com/images/superplane_stuck_pr_framed.png"
+    alt="A dependency update pull request awaiting investigation and review"
+    width="3840"
+    height="2160"
+    loading="lazy"
+    decoding="async"
+  />
+</figure>
+
+The remaining work depends on how your application uses the dependency. When a build fails or an API changes, an engineer needs to:
+
+- **Check the impact:** Understand which application behavior the update could affect.
+- **Fix failures:** Investigate the cause and make the required compatibility changes.
+- **Review the result:** Check the diff and test evidence before approving the change.
+
+Bring the relevant release notes, CI logs and application requirements into the task. This gives the agent the context needed to investigate the update and gives reviewers evidence to evaluate the result.
+
+## Why can dependency updates still get stuck with a coding agent?
+
+A coding agent can investigate a Dependabot pull request that fails CI, fix affected code and rerun tests. Specify the <span class="dependency-key-point">target version, expected application behavior and required checks</span> before starting a run.
+
+<figure class="sp-media-figure sp-media-figure--flush not-content">
+  <img
+    src="https://docs-assets.superplane.com/videos/superplane_dependency_agents_alone_1280.gif"
+    alt="A coding agent working on a dependency update"
+    width="1280"
+    height="720"
+    loading="lazy"
+    decoding="async"
+  />
+</figure>
+
+For example, a newer HTTP client version might change timeout behavior. State whether the agent may adapt application code to preserve the existing behavior or must stop because the fix goes beyond the dependency update. Include a test of that behavior in the acceptance checks.
+
+Define <span class="dependency-key-point">which compatibility changes are allowed and when the agent must stop</span>. Return each failed CI check to the next attempt with its command and output attached. Route changes that require a broader application decision to a person.
+
+If an engineer copies CI logs into a chat, restarts the agent and inspects every attempt, the update still requires manual coordination. A shared workflow connects the dependency issue, agent run and verification results so failures reach the next attempt and reviewers can inspect the resulting change.
+
+## How does SuperPlane turn dependency updates into a repeatable workflow?
+
+SuperPlane coordinates <span class="dependency-key-point">the dependency issue, coding agent, CI feedback and human review</span> in one workflow. A task moves through **Backlog**, **Implement**, **Verify** and **Done** while its source, runs and pull request stay attached. Configure the checks and approval rules for your repository.
+
+<figure class="sp-media-figure sp-media-figure--flush not-content">
+  <img
+    src="https://docs-assets.superplane.com/images/superplane_board_brand.png"
+    alt="SuperPlane Factory board showing tasks organized across Backlog, Implement, Verify and Done"
+    width="3794"
+    height="2494"
+    loading="lazy"
+    decoding="async"
+  />
+  <figcaption>The SuperPlane repository's factory board includes dependency tasks in Verify and merged results in Done.</figcaption>
+</figure>
+
+### Real example: patch fast-uri
+
+In the SuperPlane repository, [PR #8886](https://github.com/superplanehq/superplane/pull/8886) updated `fast-uri` from `3.1.8` to `3.1.9` in the Bitbucket Forge app. Created via SuperPlane, it changed only `forge/bitbucket/package-lock.json`: the existing dependency range already accepted the patched version, so no manifest change was needed.
+
+A maintainer merged the pull request after two GitHub checks passed. Its notes recorded successful installation and a version check, alongside an unrelated `undici` audit finding. That remaining finding stayed visible for review.
+
+<figure class="sp-media-figure sp-media-figure--flush not-content">
+  <img
+    src="https://docs-assets.superplane.com/videos/superplane_onboard_your_repo_1280.gif"
+    alt="Connecting a repository to SuperPlane and setting up a factory"
+    width="1280"
+    height="720"
+    loading="lazy"
+    decoding="async"
+  />
+</figure>
+
+If you run into setup issues, follow [Build your first Factory](/get-started/build-first-factory) to connect a repository and complete your first run. Confirm that the agent can install dependencies and run the required checks, including access to any private package registry.
+
+### Run a dependency issue through the factory
+
+Use these four stages for a task like the `fast-uri` update:
+
+<Steps>
+
+1. ### Intake
+
+   Create a GitHub issue naming one package, the exact target version and acceptance checks. Include the relevant release notes, allowed compatibility changes and stopping rules. Use an [intake](/intakes/overview) to import the issue into **Backlog**. Confirm the repository and scope before selecting **Start**.
+
+2. ### Implement
+
+   Configure the [Implement automation](/fundamentals/implement) to run the agent with the issue and repository instructions. Have the agent update the manifest and lockfile where needed, make only the permitted compatibility changes and create or update a pull request. In the `fast-uri` example, only the lockfile needed to change.
+
+3. ### Verify
+
+   Run the build, tests and relevant security checks configured for the repository. Use [Verify](/fundamentals/verify) to evaluate their results and pull request feedback. Route a failing check's command and output back to the agent for another attempt, <span class="dependency-key-point">with a retry limit</span>. Pause for attention when credentials are missing, attempts are exhausted or the fix requires a broader scope decision.
+
+4. ### Human review
+
+   Open the linked pull request and review its diff, version resolution, required checks and remaining findings. Merge when the <span class="dependency-key-point">checks and your team's review requirements are satisfied</span>. **Done** follows the factory's [configured completion rule](/fundamentals/done).
+
+</Steps>
+
+Keep environment failures separate from compatibility failures. If installation stops because the runner cannot authenticate to a private registry, fix access before retrying the dependency change. Retrying implementation without that correction does not produce new compatibility evidence.
+
+## Start small today but Automate more tomorrow
+
+
+Start with dependency updates and use each run to improve setup, checks and feedback. Once the workflow handles those updates reliably, expand to failing tests, small bugs and routine fixes with clear acceptance checks.
+
+Track the results before increasing automation:
+
+- **Successful pull requests:** Count updates that pass the required checks and are accepted in review.
+- **Failures:** Record where tasks stop and which failures repeat.
+- **Engineering time saved:** Compare time spent investigating, coordinating and reviewing updates with your current process. Include the time spent configuring and maintaining the factory.
+- **Human intervention:** Record how frequently a person must clarify the task, restart work or make a decision.
+
+Keep your existing CI and review process, then automate more of the repeated steps as confidence grows. Your first software factory does not need to handle hundreds of engineering tasks. It needs to <span class="dependency-key-point">reliably handle one</span>. Start with the boring work, build confidence and expand from there.

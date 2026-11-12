@@ -1,116 +1,152 @@
 ---
 title: Billing overview
-description: Compare SuperPlane plans and understand subscription, machine and managed model charges.
+description: Compare SuperPlane plans, understand usage credits and choose how you pay for models.
 ---
 
-SuperPlane charges a fixed monthly fee for each organization. Machine use and managed model use draw from a shared allowance. You can invite your full team without a fee for each member.
+Choose a plan for your team's size and the number of tasks you run at once. Your hosted SuperPlane bill combines the plan fee with sandbox time and any SuperPlane-provided model tokens. If you connect your own API key or Codex subscription, that account covers model use while sandbox time still uses SuperPlane credits.
 
-Business includes a 14-day trial with full access and no credit card required. If you don't subscribe when the trial ends, your workspace becomes view-only until you subscribe.
+<figure class="sp-media-figure sp-media-figure--flush not-content">
+  <img
+    src="https://docs-assets.superplane.com/images/superplane_choose_plan_framed.png"
+    alt="Choosing a SuperPlane plan"
+    loading="lazy"
+    decoding="async"
+  />
+</figure>
+
+See [SuperPlane pricing](https://superplane.com/pricing/) for current prices, plan availability and commercial terms. Prices below are in United States dollars; usage is additional to the monthly plan fee.
 
 ## Choose a plan
 
-<div class="pricing-grid not-content">
-  <article class="pricing-card">
-    <p class="pricing-card__label">Open source</p>
-    <h3>Free for qualifying projects</h3>
-    <p>Maintainers of qualifying open source projects can apply for free access to the Business plan.</p>
-    <p>Includes the same features as a paid workspace.</p>
-    <a class="pricing-card__action pricing-card__action--secondary" href="https://superplane.com/open-source/">Apply for sponsorship</a>
-  </article>
-
-  <article class="pricing-card pricing-card--featured">
-    <p class="pricing-card__label">Business</p>
-    <div class="pricing-card__price"><strong>$199</strong><span>per organization each month</span></div>
-    <p>For teams putting software factory workflows into everyday use.</p>
+<div class="pricing-grid billing-plans not-content">
+  <article class="pricing-card brand-card--brass">
+    <p class="pricing-card__label">No monthly subscription</p>
+    <h3>Pay-as-you-go</h3>
+    <div class="pricing-card__price"><strong>$0</strong><span>per month + usage</span></div>
+    <p>Run a limited number of tasks in parallel and pay for the usage you consume.</p>
     <ul>
-      <li>Unlimited team members</li>
-      <li>$50 in shared monthly usage</li>
-      <li>Core software factory workflows</li>
-      <li>Managed x64 and ARM machines</li>
-      <li>Model API rates plus 10%</li>
-      <li>Email support</li>
+      <li>10 seats</li>
+      <li>Up to 5 tasks running at once</li>
+      <li>Connect your Codex subscription</li>
+      <li>Payment card required</li>
     </ul>
-    <a class="pricing-card__action" href="https://app.superplane.com/" target="_blank" rel="noreferrer">Start 14-day free trial</a>
+    <a class="pricing-card__action" href="https://app.superplane.com/" target="_blank" rel="noreferrer">Get started</a>
   </article>
 
-  <article class="pricing-card">
-    <p class="pricing-card__label">Enterprise</p>
-    <div class="pricing-card__price"><strong>Custom</strong></div>
-    <p>For scaled organizations. Contact sales to discuss pricing and your requirements.</p>
-    <a class="pricing-card__action pricing-card__action--secondary" href="https://superplane.com/demo/" target="_blank" rel="noreferrer">Contact sales</a>
+  <article class="pricing-card brand-card--teal">
+    <p class="pricing-card__label">For parallel work</p>
+    <h3>Starter</h3>
+    <div class="pricing-card__price"><strong>$20</strong><span>per organization / month + usage</span></div>
+    <p>Run more tasks at the same time with one subscription for your organization.</p>
+    <ul>
+      <li>10 seats</li>
+      <li>Unlimited parallel tasks</li>
+      <li>Connect your Codex subscription</li>
+      <li>Standard integrations</li>
+    </ul>
+    <a class="pricing-card__action" href="https://app.superplane.com/" target="_blank" rel="noreferrer">Choose Starter</a>
+  </article>
+
+  <article class="pricing-card brand-card--mist">
+    <p class="pricing-card__label">For team controls</p>
+    <h3>Team</h3>
+    <div class="pricing-card__price"><strong>$50</strong><span>per user / month + usage</span></div>
+    <p>Connect provider API keys and manage access and spending across your team.</p>
+    <ul>
+      <li>Up to 50 seats</li>
+      <li>Unlimited parallel tasks</li>
+      <li>Bring your own API keys</li>
+      <li>Budget limits and priority support</li>
+    </ul>
+    <a class="pricing-card__action" href="https://app.superplane.com/" target="_blank" rel="noreferrer">Choose Team</a>
+  </article>
+
+  <article class="pricing-card brand-card--graphite">
+    <p class="pricing-card__label">For organization requirements</p>
+    <h3>Enterprise</h3>
+    <div class="pricing-card__price"><strong>Custom</strong><span>pricing and usage terms</span></div>
+    <p>Discuss your capacity, identity, infrastructure and support requirements.</p>
+    <ul>
+      <li>Unlimited seats; custom parallel capacity</li>
+      <li>Enterprise integrations and model providers</li>
+      <li>Single sign-on and audit logs</li>
+      <li>Enterprise self-hosting and onboarding</li>
+    </ul>
+    <a class="pricing-card__action" href="https://superplane.com/demo/" target="_blank" rel="noreferrer">Contact sales</a>
   </article>
 </div>
+
+## Compare plan features
+
+All plans support SuperPlane-provided models, Codex subscriptions and standard integrations. Choose Team or Enterprise when you need your own API keys or budget limits.
+
+<div class="billing-comparison" role="region" aria-label="SuperPlane plan features" tabindex="0">
+
+| Feature | Pay-as-you-go | Starter | Team | Enterprise |
+| --- | --- | --- | --- | --- |
+| Seats | 10 | 10 | Up to 50 | Unlimited |
+| Parallel tasks | 5 | Unlimited | Unlimited | Custom |
+| Codex subscription | Included | Included | Included | Included |
+| Provider API keys | Not included | Not included | Included | Included |
+| Budget limits | Not included | Not included | Included | Included |
+| Custom roles and user groups | Not included | Not included | Included | Included |
+| Priority support | Not included | Not included | Included | Included |
+| Your organization's model infrastructure | Not included | Not included | Not included | Included |
+| Enterprise integrations | Not included | Not included | Not included | Included |
+| Single sign-on and automated provisioning | Not included | Not included | Not included | Included |
+| Audit logs and configurable data retention | Not included | Not included | Not included | Included |
+| Enterprise self-hosting and deployment assistance | Not included | Not included | Not included | Included |
+
+</div>
+
+Enterprise integrations include services such as GitHub Enterprise and GitLab Enterprise. Enterprise model providers can use your organization's inference infrastructure, such as AWS Bedrock. See the [full plan comparison](https://superplane.com/pricing/) for details.
 
 ## Understand usage charges
 
-Your included usage covers machines and managed models. Usage above the included allowance is deducted from your prepaid balance. Purchased credits remain valid for 12 months.
+The monthly plan fee and usage are separate. Buy credits for sandbox time and SuperPlane-provided tokens. Billing is centralized for your organization.
 
-<div class="usage-metrics not-content">
-  <div><strong>$50</strong><span>shared each Business billing month</span></div>
-  <div><strong>Provider rate + 10%</strong><span>for managed models</span></div>
-  <div><strong>$0</strong><span>per member</span></div>
+<div class="usage-metrics billing-usage not-content">
+  <div><span>Sandbox time</span><strong>Charged separately</strong><p>Uses SuperPlane credits with every model source.</p></div>
+  <div><span>SuperPlane-provided tokens</span><strong>API rate + 10%</strong><p>Applies to Pay-as-you-go, Starter and Team. Enterprise rates are custom.</p></div>
+  <div><span>Your connected model account</span><strong>No token markup</strong><p>Use your Codex subscription on any plan, or your API keys on Team and Enterprise.</p></div>
 </div>
 
-Managed model usage is available for models from OpenAI, Anthropic, Gemini, xAI Grok, DeepSeek, Qwen and Kimi. You can use your own provider keys to avoid the 10% platform fee. Your provider bills usage on your own keys separately. A workspace uses one model source. See [Model sources](/billing/model-sources).
+### Sandbox time
 
-Unused monthly usage does not roll over. When the included $50 is exhausted SuperPlane deducts additional usage from your prepaid balance. You can top up your balance from billing settings.
+Sandbox time covers the compute used to run your tasks. It remains a SuperPlane usage charge when you connect your own API key or ChatGPT subscription. Review sandbox consumption in your organization's billing settings alongside model usage.
 
-## Machine usage
+### Model use
 
-Managed machines run Linux. Choose a size and architecture that matches your workflow.
+With SuperPlane-provided models, credits cover tokens at the provider's API rate plus 10% on Pay-as-you-go, Starter and Team. The pricing page lists models from OpenAI, Anthropic, Gemini, xAI Grok, DeepSeek, Qwen and Kimi. Enterprise model pricing follows your agreement.
 
-| Machine | vCPUs | Memory | Rate per hour |
-| --- | ---: | ---: | ---: |
-| Small x64 | 2 | 4 GB | $0.08 |
-| Small arm64 | 2 | 4 GB | $0.05 |
-| Large x64 | 8 | 16 GB | $0.32 |
-| Large arm64 | 8 | 16 GB | $0.20 |
+With [your own API key](/billing/model-sources#compare-the-sources), your provider bills model tokens separately. With [your ChatGPT subscription](/billing/bring-your-own-subscription), Codex uses the task owner's connected account. SuperPlane adds no token markup to either option. Read [Model sources](/billing/model-sources) to choose a source for your workspace.
 
-## See example monthly bills
+## Fund your usage
 
-These examples show Business pricing for a five person team in United States dollars before tax. Actual usage depends on your workflows and model choices.
+Top up your organization's credit balance when needed, or schedule automatic purchases. A Pay-as-you-go account has no monthly subscription fee, but it still requires a payment card and charges for usage.
 
-<div class="billing-examples not-content">
-  <article>
-    <p class="pricing-card__label">Example A</p>
-    <h3>Usage stays within the allowance</h3>
-    <dl>
-      <div><dt>Business subscription</dt><dd>$199</dd></div>
-      <div><dt>Member charges</dt><dd>$0</dd></div>
-      <div><dt>Machine and model usage</dt><dd>$45</dd></div>
-      <div><dt>Included usage applied</dt><dd>($45)</dd></div>
-      <div class="billing-total"><dt>Total cost</dt><dd>$199</dd></div>
-    </dl>
-    <p>The remaining $5 of included usage expires at renewal.</p>
-  </article>
+Use [Costs and budgets](/billing/costs-budgets) to estimate spending, review repeated runs and configure the budget controls available on your plan.
 
-  <article>
-    <p class="pricing-card__label">Example B</p>
-    <h3>AI heavy usage</h3>
-    <dl>
-      <div><dt>Business subscription</dt><dd>$199</dd></div>
-      <div><dt>Machine usage</dt><dd>$180</dd></div>
-      <div><dt>Model usage at provider rates</dt><dd>$1,200</dd></div>
-      <div><dt>Model markup</dt><dd>$120</dd></div>
-      <div><dt>Total usage</dt><dd>$1,500</dd></div>
-      <div><dt>Included usage</dt><dd>($50)</dd></div>
-      <div class="billing-total"><dt>Total cost</dt><dd>$1,649</dd></div>
-    </dl>
-    <p>The prepaid balance covers $1,450 in additional usage.</p>
-  </article>
-</div>
+## Self-hosting
 
-Credit purchases can happen at a different time from usage. The examples show subscription and consumed usage for the month instead of card payment timing.
-
-## Self hosting
-
-<div class="self-hosted-callout not-content">
+<div class="self-hosted-callout billing-self-hosted not-content">
   <div>
-    <p class="pricing-card__label">Community support</p>
+    <p class="pricing-card__label">Community version</p>
     <h3>Run SuperPlane on your infrastructure</h3>
-    <p>Use your own model providers and cover your infrastructure and model costs directly.</p>
+    <p>Cover your infrastructure and model costs directly. Enterprise self-hosting adds custom commercial terms and priority support.</p>
   </div>
   <a href="/self-hosting/overview">View self-hosting guides</a>
 </div>
 
-Read [Costs and budgets](/billing/costs-budgets) to plan usage and control spending. See the [current pricing page](https://superplane.com/pricing/) for commercial terms.
+## Next steps
+
+<div class="help-grid not-content">
+  <a class="help-card brand-card--brass" href="/billing/costs-budgets">
+    <strong>Plan costs and budgets</strong>
+    <span>Track plan fees, usage credits and spending controls.</span>
+  </a>
+  <a class="help-card brand-card--teal" href="/billing/model-sources">
+    <strong>Choose a model source</strong>
+    <span>Compare managed models, provider API keys and Codex subscriptions.</span>
+  </a>
+</div>

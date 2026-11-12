@@ -214,12 +214,6 @@
   .sl-link-card:nth-child(3n+1) .description, .sl-link-card:nth-child(3n) .description { color:#30392f !important; }
   .sl-link-card:nth-child(3n+2) .description { color:#c2d1c6 !important; }
   .sl-link-card:hover { border-color:#87ae9d !important; box-shadow:inset 0 0 0 1px #87ae9d !important; }
-  .pricing-card:nth-child(1) { background:#b09532; color:#08090a; border-color:#b09532; }
-  .pricing-card:nth-child(2) { background:#0b383a; color:#f3f3ea; border-color:#0b383a; box-shadow:none; }
-  .pricing-card:nth-child(3) { background:#e4e4da; color:#08090a; border-color:#e4e4da; }
-  .pricing-card:nth-child(odd) :is(h3,p,.pricing-card__label,.pricing-card__price strong,.pricing-card__price span,li) { color:#08090a !important; }
-  .pricing-card:nth-child(odd) .pricing-card__action { color:#08090a; border-color:#08090a; background:transparent; }
-  .pricing-card:nth-child(2) .pricing-card__label { color:#f3f3ea; }
   .pricing-card__action:hover { background:#ed8e09 !important; color:#08090a !important; border-color:#ed8e09 !important; }
   @media(max-width: 49.999rem) {
     .brand-website { display:none; }
@@ -1285,5 +1279,218 @@
   }
   .sl-markdown-content .conductor-differences :is(th, td):nth-child(2) {
     width: 34%;
+  }
+}
+
+/* Billing uses the shared card palette and reading styles. */
+@layer starlight.user {
+  body:has(.sidebar-content a[aria-current="page"][href^="/billing/"]) .sl-markdown-content .sl-heading-wrapper > :is(h2, h3) {
+    font-weight: 600 !important;
+    letter-spacing: -0.02em;
+    line-height: 1.35;
+  }
+  body:has(.sidebar-content a[aria-current="page"][href^="/billing/"]) .sl-markdown-content a[href]:not(:where(.not-content *, .sl-anchor-link)) {
+    color: #d6b83c;
+    text-decoration-color: #d6b83c80;
+    text-underline-offset: 4px;
+  }
+  body:has(.sidebar-content a[aria-current="page"][href^="/billing/"]) .sl-markdown-content a[href]:not(:where(.not-content *, .sl-anchor-link)):is(:hover, :focus-visible) {
+    color: #f3f3ea;
+    text-decoration-color: #d6b83c;
+  }
+  .sl-markdown-content .billing-plans {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+    margin-block: 1.5rem 2rem;
+  }
+  .billing-plans .pricing-card {
+    min-width: 0;
+    padding: 1.5rem;
+    color: var(--card-muted);
+    background: var(--card-bg);
+    border-color: var(--card-border);
+    box-shadow: none;
+  }
+  .billing-plans .pricing-card :is(h3, .pricing-card__label, .pricing-card__price strong) {
+    color: var(--card-ink);
+  }
+  .billing-plans .pricing-card :is(p:not(.pricing-card__label), li, .pricing-card__price span) {
+    color: var(--card-muted);
+  }
+  .billing-plans .pricing-card .pricing-card__label {
+    margin: 0;
+    font: 500 0.6875rem/1.5 var(--sl-font-mono);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  .billing-plans .pricing-card h3 {
+    margin: 0.65rem 0 0;
+    font-size: 1.5rem;
+    font-weight: 600 !important;
+    line-height: 1.3;
+  }
+  .billing-plans .pricing-card__price {
+    gap: 0.4rem;
+    margin-block: 1.25rem 0.75rem;
+  }
+  .billing-plans .pricing-card__price strong {
+    color: var(--card-ink);
+    font-size: 2.5rem;
+    font-weight: 600 !important;
+    letter-spacing: -0.04em;
+    font-variant-numeric: tabular-nums;
+  }
+  .billing-plans .pricing-card__price span {
+    font-size: 0.8125rem;
+    line-height: 1.5;
+  }
+  .billing-plans .pricing-card > p:not(.pricing-card__label) {
+    margin: 0.5rem 0 0;
+    font-size: 0.875rem;
+    line-height: 1.65;
+  }
+  .billing-plans .pricing-card ul {
+    margin-block: 1.25rem 1.5rem;
+  }
+  .billing-plans .pricing-card li {
+    font-size: 0.875rem;
+    line-height: 1.6;
+  }
+  .billing-plans .pricing-card li::before {
+    color: var(--card-ink);
+  }
+  .billing-plans .pricing-card__action {
+    margin-top: auto;
+    padding-block: 0.8rem;
+    color: var(--card-bg);
+    background: var(--card-ink);
+    border-color: var(--card-ink);
+    font-weight: 600;
+  }
+  .billing-plans .pricing-card__action:focus-visible {
+    color: #08090a;
+    background: #f3f3ea;
+    border-color: #f3f3ea;
+  }
+  .sl-markdown-content .billing-comparison {
+    max-width: 100%;
+    margin-block: 1.5rem;
+    overflow-x: auto;
+  }
+  .billing-comparison:focus-visible {
+    outline: 2px solid #ed8e09;
+    outline-offset: 4px;
+  }
+  .sl-markdown-content .billing-comparison table {
+    display: table;
+    width: 100%;
+    min-width: 44rem;
+    margin: 0;
+    table-layout: fixed;
+  }
+  .billing-comparison :is(th, td) {
+    overflow-wrap: anywhere;
+  }
+  .billing-comparison :is(th, td):first-child {
+    width: 31%;
+  }
+  .billing-comparison tbody td:first-child {
+    color: #e4e4da;
+  }
+  .sl-markdown-content .billing-details-table table {
+    min-width: 36rem;
+  }
+  .billing-details-table :is(th, td):first-child {
+    width: 26%;
+  }
+  .billing-sources :is(th, td):nth-child(2) {
+    width: 24%;
+  }
+  .billing-costs :is(th, td):nth-child(2) {
+    width: 48%;
+  }
+  .sl-markdown-content .billing-usage {
+    margin-block: 1.5rem 2rem;
+    background: #111514;
+  }
+  .billing-usage > div {
+    align-content: start;
+    gap: 0.75rem;
+  }
+  .billing-usage span {
+    color: #aab7ae;
+    font: 500 0.625rem/1.6 var(--sl-font-mono);
+    letter-spacing: 0.04em;
+  }
+  .billing-usage strong {
+    color: #f3f3ea;
+    font-size: 1.25rem;
+    font-weight: 600;
+    line-height: 1.4;
+  }
+  .billing-usage p {
+    margin: 0;
+    color: #b4bcb8;
+    font-size: 0.875rem;
+    line-height: 1.65;
+  }
+  .billing-self-hosted {
+    margin-block: 1.5rem;
+    background: #111514;
+    border-color: #303c35;
+  }
+  .billing-self-hosted h3 {
+    font-weight: 600 !important;
+  }
+  @media (max-width: 40rem) {
+    .sl-markdown-content .billing-plans {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .billing-plans .pricing-card {
+      padding: 1.25rem;
+    }
+    .sl-markdown-content .billing-usage {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+}
+
+/* Match dependency use case headings and highlights to the getting-started pages. */
+@layer starlight.user {
+  body:has(.sl-markdown-content .dependency-key-point) .brand-title h1,
+  .sl-markdown-content:has(.dependency-key-point) .sl-heading-wrapper > :is(h2, h3) {
+    font-family: "Instrument Sans", sans-serif;
+    font-weight: 600 !important;
+    letter-spacing: -0.02em;
+  }
+  .sl-markdown-content:has(.dependency-key-point) .sl-heading-wrapper > :is(h2, h3) {
+    line-height: 1.35;
+  }
+  .sl-markdown-content:has(.dependency-key-point) .sl-heading-wrapper > h2 {
+    font-size: 28px !important;
+  }
+  .sl-markdown-content .dependency-key-point {
+    color: #d6b83c;
+    font-weight: 600;
+  }
+  .sl-markdown-content:has(.dependency-key-point) > ul:first-of-type {
+    margin-bottom: 1.5rem;
+  }
+  .sl-markdown-content:has(.dependency-key-point) a[href]:not(:where(.not-content *, .sl-anchor-link)) {
+    color: #d6b83c;
+    text-decoration-line: underline;
+    text-decoration-color: #d6b83c80;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 4px;
+  }
+  .sl-markdown-content:has(.dependency-key-point) a[href]:not(:where(.not-content *, .sl-anchor-link)):is(:hover, :focus-visible) {
+    color: #f3f3ea;
+    text-decoration-color: #d6b83c;
+    text-decoration-thickness: 2px;
+  }
+  @media (max-width: 49.999rem) {
+    .sl-markdown-content:has(.dependency-key-point) .sl-heading-wrapper > h2 {
+      font-size: 24px !important;
+    }
   }
 }

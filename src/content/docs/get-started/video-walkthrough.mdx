@@ -6,7 +6,9 @@ description: Watch a SuperPlane task move from Backlog to Done in under four min
 import { CardGrid, LinkCard } from "@astrojs/starlight/components";
 import VideoPlayer from "../../../components/VideoPlayer.astro";
 
-## See how a software factory run in the background
+Watch an illustrative Factory run from task selection to pull request review and closure. This recording shows an older flow; use the [Quickstart](/get-started/quickstart) and [first-Factory walkthrough](/get-started/build-first-factory) for current instructions.
+
+## See a software factory run in the background
 
 <VideoPlayer
   src="https://docs-assets.superplane.com/videos/demo_video_superplane.mp4"
@@ -16,12 +18,12 @@ import VideoPlayer from "../../../components/VideoPlayer.astro";
 
 **In this video, you will see:**
 
-- How a task moves from **Backlog** to "**Done** stage.
+- How a task moves from **Backlog** to **Done**.
 - The task moving to **Implement** while an agent works on the change.
-- SuperPlane checking the result in **Verify** & wait for the human approval.
+- A pull request waiting for review in **Verify**.
 - Completed work reaching **Done**.
 
-Starting a task authorizes code work for that task. Review the title, description, repository and factory line before you confirm.
+Starting a task authorizes code work for that task. Review the title, description, repository and factory line before you confirm. Manual **Start** is the default. Automatic CI repair requires configuration, and passing checks alone does not move a task to Done. The default closure automation records completion after merge or rejection after closure without merge.
 
 <CardGrid>
   <LinkCard

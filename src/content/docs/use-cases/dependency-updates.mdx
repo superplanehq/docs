@@ -134,11 +134,11 @@ Use these four stages for a task like the `fast-uri` update:
 
 3. ### Verify
 
-   Run the build, tests and relevant security checks configured for the repository. Use [Verify](/fundamentals/verify) to evaluate their results and pull request feedback. Route a failing check's command and output back to the agent for another attempt, <span class="dependency-key-point">with a retry limit</span>. Pause for attention when credentials are missing, attempts are exhausted or the fix requires a broader scope decision.
+   Run the build, tests and relevant security checks configured for the repository. In [Verify](/fundamentals/verify), inspect their results and pull request feedback. Enable the optional **Fix pull request checks** automation for automatic CI repair with selected checks and a maximum attempt count. At the limit, automatic fixes pause. Human feedback can start a correction by mentioning `@superplaneagent` when the default discussion handler is active. Resolve missing credentials or broader scope decisions before resuming work.
 
 4. ### Human review
 
-   Open the linked pull request and review its diff, version resolution, required checks and remaining findings. Merge when the <span class="dependency-key-point">checks and your team's review requirements are satisfied</span>. **Done** follows the factory's [configured completion rule](/fundamentals/done).
+   Open the linked pull request and review its diff, version resolution, required checks and remaining findings. Merge when the <span class="dependency-key-point">checks and your team's review requirements are satisfied</span>. The default closure automation records completion after merge or rejection after closure without merge. Passing checks alone does not complete the task. See [Done](/fundamentals/done) for custom completion boundaries.
 
 </Steps>
 

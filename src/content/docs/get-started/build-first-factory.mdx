@@ -1,19 +1,21 @@
 ---
 title: Build your first Factory
-description: Turn GitHub issues into a working Next.js application and deploy it with Vercel.
+description: Fix one mobile-button issue in a Next.js application and review the resulting pull request.
 ---
 
 import { Aside, CardGrid, LinkCard, TabItem, Tabs } from "@astrojs/starlight/components";
 
-Starting with the one demo application and will be using SuperPlane to complete two focused issues. Then review and merge the changes and deploy the application with Vercel.
+Use SuperPlane to fix one mobile-button issue in a demo application. This walkthrough takes you from a GitHub issue through task refinement and implementation to pull request review.
 
-This guide uses the <a href="https://github.com/pixawna/SuperPlane_Demo" target="_blank" rel="noreferrer">SuperPlane Demo repository</a>. Instead of asking different agent to solve the issues in one run, you will send small pieces of engineering work through the same factory to get the desired result.
+This guide uses your own copy of the <a href="https://github.com/pixawna/SuperPlane_Demo" target="_blank" rel="noreferrer">SuperPlane Demo repository</a>. You need write access, permission to authorize the GitHub App, and model access as described in the [Quickstart prerequisites](/get-started/quickstart#prerequisites).
+
+The retained images and recordings are illustrative examples of an older flow. Follow the written steps for the current workflow; deployment shown in the overview image is outside this walkthrough.
 
 <figure class="sp-media-figure sp-media-figure--flush not-content">
   <img src="https://docs-assets.superplane.com/images/superplane_three_steps.png" alt="Three steps: define GitHub issues, run them through SuperPlane, then merge and deploy the application" />
 </figure>
 
-By the end, your work will have followed this path:
+The task follows **Backlog**, **Implement** and **Verify**. After review, merging its pull request lets the default closure automation record completion in **Done**.
 
 <figure class="sp-media-figure sp-media-figure--flush not-content">
   <img src="https://docs-assets.superplane.com/images/superplane_task_flow.png" alt="Task flow from Backlog through implementation and verification to a review-ready pull request and Done, with failed checks returning for another attempt" />
@@ -23,20 +25,15 @@ By the end, your work will have followed this path:
 
 <div class="factory-task-overview">
 
-Make four small improvements to the demo homepage:
-
-1. **Update the text:** Introduce the SuperPlane demo in place of the default Next.js instructions.
-2. **Fix dark mode:** Make text readable and give the page and content area distinct background colors.
-3. **Fit buttons on mobile:** Keep buttons from overflowing on narrow screens.
-4. **Highlight keyboard focus:** Show a visible outline when users tab to a link.
-
-Create one GitHub issue per task. This gives the factory a clear change to make and check. In this walkthrough, we’ll complete the first two tasks.
+Keep the homepage buttons from overflowing on narrow screens. Use one GitHub issue titled **Make the home page CTAs fit narrow screens**. The expected result is a focused change that preserves the button text, destinations and keyboard access.
 
 </div>
 
-## 1. Let's Start with the repository
+## 1. Prepare the repository
 
-Open the <a href="https://github.com/pixawna/SuperPlane_Demo" target="_blank" rel="noreferrer">SuperPlane Demo repository</a>. The repository already contains a starter Next.js application and focused issues. Use your own copy of the project to follow along and make sure its issues are available for SuperPlane to import.
+Open the <a href="https://github.com/pixawna/SuperPlane_Demo" target="_blank" rel="noreferrer">SuperPlane Demo repository</a> and create your own copy. Enable GitHub Issues in your copy if needed. Issues from the original repository are not copied into a fork.
+
+If the mobile-button issue is absent, create it in your repository before onboarding. Describe the homepage buttons, how to reproduce overflow at a narrow viewport such as 320 CSS pixels, and the expected result: all buttons remain visible without horizontal overflow. Ask the agent to preserve their text, links and keyboard access and to run the repository's build and relevant checks. If the current demo no longer reproduces the problem, use a starter revision that does before continuing.
 
 <figure class="sp-media-figure not-content">
   <img src="https://docs-assets.superplane.com/images/github_issues_framed.png" alt="SuperPlane Demo repository on GitHub" />
@@ -44,39 +41,42 @@ Open the <a href="https://github.com/pixawna/SuperPlane_Demo" target="_blank" re
 
 ## 2. Connect the repository to SuperPlane
 
-Create your SuperPlane account and Complete the onboarding steps to bring the project into SuperPlane.
-Still have issues? No worries we got you covered, complete the [Quickstart](/get-started/quickstart) first or you can follow the below video
+Complete the [Quickstart](/get-started/quickstart). Choose GitHub for source control and **GitHub issues** for work intake. Select your copy as both the code repository and backlog repository, confirm its default branch, and use an available hosted model or authorized provider API key.
 
 <figure class="sp-media-figure sp-media-figure--flush not-content">
   <img src="https://docs-assets.superplane.com/videos/superplane_account_setup_1280.gif" alt="Setting up a SuperPlane account and connecting a GitHub repository" />
 </figure>
 
-Once connected, the issues you just created should begin appearing in the **Backlog**.
+Wait for the initial import and open **Backlog**. Confirm that the mobile-button task links to the issue in your copy. If it is missing, check the import result and intake filters, then import the issue manually from the intake. **Automatic intake** controls later matching events; it is separate from this first import.
 
 ## 3. Start the first issue
 
-Open Backlog and select **Make the home page CTAs fit narrow screens**. Before an agent changes code, SuperPlane analyzes whether the task is fully Automatable or not through confidence score.
+Open **Backlog** and select **Make the home page CTAs fit narrow screens**. Review its plan and available assessment scores. Scores help assess readiness; they do not guarantee that the agent will succeed.
 
 <figure class="sp-media-figure sp-media-figure--flush not-content">
   <img src="https://docs-assets.superplane.com/videos/superplane_plan_confidence_1280.gif" alt="SuperPlane reviewing a task plan and assessing confidence before implementation" />
 </figure>
 
-Review the task context. When the scope and expected result look right, select **Start**.
+Refine the task in SuperPlane if the plan lacks the viewport, expected behavior or checks. Use the refinement conversation to add context and review the updated task description. When the scope, repository and expected result are correct, select **Start**. **Auto-start** is off by default; this walkthrough uses manual start.
 
 ## 4. Watch the factory implement it
 
-Starting the task moves it into Implement. The configured coding agent works on the repository while the factory controls the process around it. You do not need to describe these operational steps in every issue. The implementation process belongs to the factory. Check how's the work is moving end-to-end from backlog to implementation phase.
+Starting the task moves it into **Implement**. The configured coding agent reads the task and repository instructions, makes the change, and runs the relevant checks. Follow its progress and inspect any setup or execution failure in the task history.
 
 <figure class="sp-media-figure sp-media-figure--flush not-content">
   <img src="https://docs-assets.superplane.com/videos/superplane_start_run_1280.gif" alt="Starting a SuperPlane task and following its progress from Backlog to Implement" />
 </figure>
 
-Even if you wanted you can change the model based at each step shown in the video to performs the work. The automation steps define what the agent does during implementation. Concurrency controls how much work can run at the same time.
+Use the default implementation settings for this first run. You can configure models and execution steps later from the workspace's agent and automation settings.
 
 
 ## 5. Verify the first change
 
-When implementation completes, the task moves to Verify. Open the linked pull request and confirm that the application builds and it did the same we expected to get it done.
+When implementation attaches a pull request, the task waits in **Verify** for review. Open the linked pull request, inspect the diff and check the reported build results and GitHub checks. Run or preview the changed application at the chosen narrow viewport. Confirm that the buttons fit without horizontal overflow and that their text, destinations and keyboard access are preserved.
+
+If a correction is needed, mention `@superplaneagent` with specific feedback on the pull request when the default discussion handler is active. Automatic repair of failed CI checks requires the optional **Fix pull request checks** automation. A passing check alone does not complete the task.
+
+Merge only after the change meets the issue and your review requirements. The default PR Closure automation records completion after the attached pull request is merged. Closing it without merging records a rejected outcome instead.
 
 <figure class="sp-media-figure sp-media-figure--flush not-content">
   <img src="https://docs-assets.superplane.com/videos/superplane_verify_to_merge_1280.gif" alt="Reviewing a SuperPlane task in Verify and merging its pull request" />
@@ -84,7 +84,7 @@ When implementation completes, the task moves to Verify. Open the linked pull re
 
 <div class="sp-first-project-note">
   <Aside type="note" title="NOTE">
-    From here, you can use the same approach to work through issues, implement changes, verify the outcome and move work toward completion. Can’t wait to see what you build with your own Software Factory.
+    You have taken one mobile-button issue through implementation and pull request review. Use the same approach for another focused issue after you confirm this result.
   </Aside>
 </div>
 

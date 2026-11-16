@@ -1,11 +1,11 @@
 ---
 title: "Quickstart: add SuperPlane Factory to your project"
-description: Get your SuperPlane workspace ready and bring your work into the software factory in under 5 minutes.
+description: Prepare a SuperPlane workspace, connect GitHub and import work for your first task.
 ---
 
 import { Aside, Icon } from "@astrojs/starlight/components";
 
-In this guide, we’ll create a SuperPlane workspace, connect it to a GitHub repository through an intake, and set up our first Software Factory. By the end, you’ll be ready to run a task through implementation, verification, and review using your own Software Factory.
+Create a SuperPlane workspace, connect a GitHub repository and import issues for your first Factory task. This tutorial chooses GitHub for source control and work intake; onboarding also supports other sources. By the end, you can refine a task, start implementation and review its pull request.
 
 <figure class="sp-media-figure sp-media-figure--flush not-content">
   <img src="https://docs-assets.superplane.com/images/superplane_board_brand.png" alt="SuperPlane factory board with Backlog, Implement, Verify and Done stages" />
@@ -21,13 +21,16 @@ In this guide, we’ll create a SuperPlane workspace, connect it to a GitHub rep
 
 ## Prerequisites
 
-For the smoothest first run have the following ready:
+Have the following ready:
 
 - A [SuperPlane account](https://app.superplane.com/).
-- Access to a GitHub repository that you are comfortable connecting.
+- Write access to the GitHub code repository and read access to the repository that holds your issues. You can use the same repository for both.
 - Permission to install or authorize the GitHub integration for that repository.
 - A repository with a few open issues for SuperPlane to analyze.
 - A normal development setup with existing tests or continuous integration (CI) checks.
+- An available SuperPlane-hosted model or a connected provider API key that your plan permits. Workspace setup does not use ChatGPT subscriptions; you can select that source later in [Model sources](/billing/model-sources).
+
+Record the code repository's default branch and required setup commands. Complete any model-access or billing step shown during onboarding before running agents.
 
 <div class="sp-first-project-note">
   <Aside type="note" title="NOTE">
@@ -66,13 +69,15 @@ Create your [SuperPlane account](https://app.superplane.com/). The onboarding fl
   <img src="https://docs-assets.superplane.com/videos/superplane_account_setup_1280.gif" alt="Setting up a SuperPlane account and connecting a GitHub repository" />
 </figure>
 
-Need more guidance? Follow [Build your first Factory](/get-started/build-first-factory) for detailed instructions or watch the [Video Walkthrough](/get-started/video-walkthrough) to see the process in action.
+The retained images and recordings illustrate an older interface. Follow the written steps here. Use [Build your first Factory](/get-started/build-first-factory) for a complete task example or the [Video walkthrough](/get-started/video-walkthrough) for an illustrative recording.
 
 ## 2. Let SuperPlane prepare the workspace
 
-Connect the repository through GitHub during onboarding. SuperPlane prepares the workspace and begins bringing work into the factory.
+Connect GitHub during onboarding and authorize the GitHub App for the repositories you need. Select the code repository, confirm its default branch, and choose **GitHub issues** with the backlog repository. Choose an available model source and complete workspace setup. See [Source control and work intake](/integrations/source-control) for access guidance.
 
-Intake will automatically imports your recent GitHub Issues and starts reviewing their suitability for agent execution. You do not need to copy tickets into SuperPlane.
+The first workspace in an organization runs an initial issue import. Later workspace setup can skip that initial import. Check the import result: an empty batch or a failed import does not mean every open issue became a task.
+
+**Automatic intake** controls ongoing matching events and is on unless you turn it off. Turning it off does not skip the initial import. Review intake filters before enabling ongoing intake; new GitHub intakes listen for new and reopened issues and restrict authors to people with repository access by default. See [Intakes](/intakes/overview) for manual import and filtering.
 
 <figure class="sp-media-figure sp-media-figure--flush not-content">
   <img src="https://docs-assets.superplane.com/images/superplane_intake_setup_framed.png" alt="SuperPlane intake setup for bringing work into the factory" />
@@ -80,16 +85,16 @@ Intake will automatically imports your recent GitHub Issues and starts reviewing
 
 ## 3. Open your factory board
 
-Select **Go to your board** to see your tasks across four stages:
+After workspace setup, open the factory board to see your tasks across four stages:
 
 <div class="factory-stage-table">
 
 | Stage | What happens |
 | --- | --- |
-| **Backlog** | Incoming tasks are assessed and wait to start. |
+| **Backlog** | Refine imported or manually created tasks and review their plans and scores. |
 | **Implement** | An agent plans and makes the code changes. |
-| **Verify** | Checks and pull request feedback help validate the changes. |
-| **Done** | The task has completed the factory workflow. |
+| **Verify** | Review the attached pull request, checks and feedback. |
+| **Done** | The task has a recorded closed outcome; inspect whether it completed or was rejected. |
 
 </div>
 
@@ -101,7 +106,9 @@ Start with **Backlog**. This is where you’ll find imported tasks before an age
 
 ## 4. Understand what happens next
 
-When you start a task it moves through implementation and verification. A failed check can return the task to the agent with feedback. Work reaches Done when the completion rule is satisfied, such as attaching a pull request after every required status check passes.
+Open a task in **Backlog**, review its plan, and add missing context in the SuperPlane refinement conversation. Select **Start** when it is ready. **Auto-start** is off by default and must be configured separately from intake.
+
+Implementation opens or updates a pull request and leaves the task in **Verify** for review. The default discussion handler responds to human feedback that mentions `@superplaneagent` and to bot feedback. Automatic CI repair requires the optional **Fix pull request checks** automation. Review the diff and checks before merging. The default PR Closure automation completes the task when its attached pull requests are merged; a closure without merge records a rejected outcome. Passing checks alone does not move work to **Done**.
 
 <figure class="sp-media-figure sp-media-figure--flush not-content">
   <img src="https://docs-assets.superplane.com/images/superplane_task_flow.png" alt="Factory flow from Backlog through Implement and Verify to a review ready pull request" />

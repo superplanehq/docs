@@ -23,28 +23,28 @@ import { CardGrid, Icon, LinkCard, Tabs, TabItem } from "@astrojs/starlight/comp
 
 SuperPlane is an **open source software factory for teams**. It turns well-defined backlog issues into pull requests ready for review. Coding agents make the changes. SuperPlane coordinates execution, CI checks and feedback. Your team reviews the result and decides what to merge.
 
-When checks fail, the factory sends the details back to the agent for another attempt. Shared rules keep the process consistent, giving engineers more time for work that needs their judgment.
+When configured, the optional check-repair automation sends failed CI checks to an agent for another attempt. Shared rules and task history help engineers inspect the result and decide what needs attention.
 
 <GettingStartedGuides />
 
 ## What SuperPlane does?
 
-SuperPlane connects the intake and configure the Factory to listen for matching development issues. The [intake](/intakes/overview) automatically imports each issue and records a confidence score from the checks configured by agent. It helps separate bounded work with an observable outcome from work that still needs clarification.
+Configure an [intake](/intakes/overview) to import matching development issues. Initial import brings existing work into Backlog; **Automatic intake** controls later events. Backlog refinement produces a plan and assessment, and you can clarify the task in SuperPlane before starting it.
 
 <figure class="sp-media-figure sp-media-figure--flush not-content">
   <img src="https://docs-assets.superplane.com/videos/superplane_demo_issue_1280.gif" alt="SuperPlane importing an issue and running it through the factory workflow" />
 </figure>
 
-When your team starts a task, SuperPlane dispatches the configured coding agent on a runner. The implementation automation records the run, branch and pull request. The verification automation then evaluates required status checks and pull request feedback. A failed check can return to the agent with its output attached; a passing result proceeds to human review.
+When your team selects **Start**, SuperPlane dispatches the configured coding agent on a runner. **Auto-start** is off by default. Implementation records the run, branch and pull request, which waits in Verify for review. The default GitHub setup assesses merge confidence and handles discussion feedback. Automatic CI repair requires **Fix pull request checks** to be enabled.
 
 For example, an issue that says **“Add the YouTube channel to the Community page”** can specify the target page, URL, accessible label and required new-tab behavior. SuperPlane can import that issue, run the change, check the link and build and present the resulting pull request with its run history. A person reviews the final diff and decides whether to merge it.
 
 
 ### What you can do with SuperPlane?
 
-- **Import Intakes :** Listen issues from Sentry, linear, GitHub, Notion and more coming with that record a confidence score before execution starts.
+- **Import work:** Use supported intakes such as GitHub, Jira, Linear and Sentry. Use custom automations for other sources.
 - **Run coding agents on configured compute:** Start an agent with the repository, task context, model, tools and runner settings defined by the Factory.
-- **Apply verification on every run:** Evaluate CI status, repository checks and review feedback before the task reaches a person.
+- **Configure verification:** Choose CI checks, repository validation and review-feedback handling for your workflow.
 - **Connect your engineering stack:** Build automations with more than 400 integration components across source control, CI/CD, observability, incident response, cloud infrastructure and AI providers.
 - **Route failures with evidence:** Attach command output, check results and pull request feedback to the next attempt instead of asking an engineer to reconstruct the failure.
 - **Keep an execution record:** Track task state, automation runs, artifacts, cost and the final outcome in a shared workspace.
@@ -57,9 +57,11 @@ A coding agent can inspect a repository, edit files and run commands. The softwa
   <img src="https://docs-assets.superplane.com/images/superplane_workflow_horizontal_tight.png" alt="Factory workflow: development ticket, import and score, agent implementation, automated verification, human review, and merge or close. Failed checks return to the agent with evidence." />
 </figure>
 
-The normal path has one human review after the required automated checks pass. The Factory can pause earlier when a task needs a product, security or scope decision, but those exceptions are not additional review stages in the standard path.
+Review the task before manual Start, then review the pull request and required checks before merging. Additional approval or escalation gates are configuration choices. Passing checks alone does not close the task; the default closure automation records completion after merge or rejection after closure without merge.
 
 ## Example: add a YouTube link from a GitHub issue
+
+The retained media illustrates an older workflow. Follow the current [Quickstart](/get-started/quickstart) for setup and [Verify](/fundamentals/verify) for feedback and check handling.
 
 <div class="factory-tabs example-flow-tabs not-content">
   <Tabs>
@@ -110,7 +112,7 @@ A coding agent works on a task. SuperPlane coordinates the process around it: sh
     <div class="sp-comparison__row">
       <dt>Verification</dt>
       <dd><strong>Interactive coding agent session</strong><span>Can run tests. Session instructions determine which checks run and how failures are handled.</span></dd>
-      <dd><strong>SuperPlane Factory</strong><span>Records required checks and sends failures back with evidence. Passing work moves to human review.</span></dd>
+      <dd><strong>SuperPlane Factory</strong><span>Records check evidence and can repair failures through configured automation. Your team reviews the pull request.</span></dd>
     </div>
     <div class="sp-comparison__row">
       <dt>Continuity</dt>
@@ -125,7 +127,7 @@ A coding agent works on a task. SuperPlane coordinates the process around it: sh
   </dl>
 </div>
 
-Read [Learn how Superplane works](/get-started/how-superplane-works) to learn how SuperPlane applies this model.
+Read [Learn how SuperPlane works](/get-started/how-superplane-works) to learn how SuperPlane applies this model.
 
 ## Need help? Share in the community
 

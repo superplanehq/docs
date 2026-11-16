@@ -34,7 +34,7 @@ Coding agents can help with individual steps. Engineers often still coordinate t
 
 ### 1. The issue enters the backlog
 
-Once your repository is connected SuperPlane can listen for GitHub issues and bring them into the factory Backlog. The GitHub issue remains the source of the work. SuperPlane adds the execution process around it.
+Follow the [Quickstart](/get-started/quickstart) to connect the code and backlog repositories and prepare model access. The initial import brings existing issues into Backlog; ongoing **Automatic intake** imports later matching events. Check the filters and import result if an issue is missing, or import it manually. The GitHub issue remains linked to the task.
 
 <figure class="sp-media-figure not-content">
   <img src="https://docs-assets.superplane.com/images/main_screenshot.webp" alt="GitHub issues listed in the Backlog stage of a SuperPlane factory" />
@@ -50,11 +50,11 @@ Before an agent starts coding SuperPlane evaluates whether the issue is a good c
 - Whether the expected result can be checked
 - Whether relevant tests are available
 
-Focused work can move forward with higher confidence. Ambiguous work or work that needs judgment stays with the team.
+Use scores to assess readiness, not as a guarantee. Refine ambiguous work in SuperPlane by adding context and reviewing its updated plan and description. Select **Start** when ready. **Auto-start** is off by default and must be configured separately.
 
 <figure class="sp-media-figure not-content">
   <img src="https://docs-assets.superplane.com/images/main_screenshot.webp" alt="SuperPlane backlog showing confidence indicators for imported GitHub issues" />
-  <figcaption>The YouTube logo issue has a high confidence indicator, so it can move into implementation without a manual approval step.</figcaption>
+  <figcaption>This illustrative backlog shows an assessment indicator. A high score alone does not enable automatic start.</figcaption>
 </figure>
 
 ### 3. The implementation agent works on the issue
@@ -96,7 +96,7 @@ Once implementation produces a pull request SuperPlane moves the task into Verif
 - Deterministic validation
 - Human approval
 
-If a check fails or a reviewer requests a change the workflow can return that context to the agent for another attempt. Human judgment remains available for decisions the factory should not make on its own.
+The listed checks and gates are configuration choices. The default GitHub discussion handler responds to human feedback that mentions `@superplaneagent` and to bot feedback. Automatic CI repair requires **Fix pull request checks**, with selected checks and an attempt limit. Review the diff and check results before merging. Passing checks alone does not complete the task; the default closure automation records completion after merge or rejection after closure without merge.
 
 ## Next steps
 

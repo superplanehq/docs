@@ -3,7 +3,7 @@ title: Done
 description: Understand what completion means and what the Factory preserves afterward.
 ---
 
-Done means the task satisfied the completion rules defined by the Factory. It does not simply mean that an agent stopped running. The requested result exists, the required evidence has been collected and any approval or merge condition has been met.
+Done shows tasks with a recorded closed outcome. Inspect the outcome to distinguish completed work from rejected or failed work. In the default GitHub workflow, PR Closure records completion after merge and rejection after a pull request closes without merge; it waits for all attached pull requests to be merged or closed.
 
 <figure class="sp-media-figure not-content">
   <img src="https://docs-assets.superplane.com/images/done_work.webp" alt="A completed pull request produced from a SuperPlane task with its code changes ready for review." />
@@ -12,7 +12,7 @@ Done means the task satisfied the completion rules defined by the Factory. It do
 
 ## Define completion deliberately
 
-Different lines can have different definitions of Done. A scoped documentation fix may complete when its pull request passes the build and is ready for review. A production repair may need an approval, a merge and a check that confirms the original alert has cleared.
+The default workflow does not complete a task just because a pull request exists or checks pass. A custom automation can use another completion boundary, such as a review-ready handoff or confirmation of a production repair. Configure that boundary explicitly before relying on it.
 
 Write the rule around the outcome you need rather than the last action the agent performed. “Pull request created” proves that an artifact exists. “Required checks passed and review is requested” proves that it reached a useful engineering handoff.
 
@@ -32,7 +32,7 @@ This history is useful during code review but its value lasts longer. It explain
 
 ## Done can still hand work to a person
 
-Factories do not need to merge every pull request automatically. A task can complete its automated line after the configured checks pass and leave the pull request and recorded evidence for the repository's normal owners to review. For lower-risk work, the Factory can include approval and merge in its completion rule.
+The default workflow leaves merging to your team and keeps an open pull request in Verify. Custom workflows can close a task at a review-ready handoff or perform approval and merge actions. These are configuration choices, not default behavior.
 
 The important point is that the boundary is explicit. People should know whether Done means “ready for review,” “approved” or “merged” for this Factory.
 

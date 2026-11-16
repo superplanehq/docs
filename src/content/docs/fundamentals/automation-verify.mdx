@@ -3,7 +3,7 @@ title: Verify automation
 description: Customize checks, pull request feedback and correction routes.
 ---
 
-The Verify automation decides whether an implementation is ready to move forward. Customize it around the evidence your repository trusts, then route failed checks and pull request feedback back to the step that can act on them.
+Verify contains automations that assess and respond to pull requests. The default GitHub setup includes **Merge confidence** and **Address PR feedback**. **Fix pull request checks** is optional. Configure the evidence and correction routes your repository needs; passing checks alone does not close the task.
 
 <figure class="sp-media-figure not-content">
   <img src="https://docs-assets.superplane.com/images/automation-pr-feedback.png" alt="An Address PR feedback automation triggered by pull request comments and reviews, followed by an agent that applies the requested changes." />
@@ -14,7 +14,7 @@ The Verify automation decides whether an implementation is ready to move forward
 
 A Verify canvas can react to continuous integration status, pull request comments, review submissions or replies to review threads. Use the event that carries enough context to identify the task and pull request.
 
-The example listens for several GitHub review events. Each path finds the pull request, records the activity and sends the feedback to an agent. Browse [continuous integration and delivery](/integrations/ci-cd) for check providers and [source control](/integrations/source-control) for review events.
+The illustrated discussion handler listens for GitHub comments and reviews. In the default onboarding configuration, human feedback must mention `@superplaneagent`, while bot feedback can run without a mention. Filters can be changed. Browse [continuous integration and delivery](/integrations/ci-cd) for check providers and [source control](/integrations/source-control) for review events.
 
 ## Put deterministic evidence first
 
@@ -38,7 +38,7 @@ Avoid replaying the complete execution history when a short failure excerpt iden
 
 Define what happens after the agent pushes a correction. The pull request should return through the required checks before the task advances.
 
-Set a limit for repeated failures. Route the task to human attention when the same check keeps failing, the feedback conflicts with the original scope or a reviewer asks for a product decision. Preserve every attempt in the task history so the reviewer can see what changed.
+For **Fix pull request checks**, configure selected checks and the maximum repair attempts. Automatic fixes pause at that limit; a check timeout records an error. Inspect the task and pull request before resuming work. Additional escalation or approval routes are custom workflow choices.
 
 ## Match verification cost to risk
 
@@ -46,4 +46,4 @@ Do not use the same verification stack for every task. A text-only change may ne
 
 Run inexpensive deterministic checks first. Start model-based review only after those checks pass and require a person only where judgment changes the outcome.
 
-When all required evidence passes, [Done automation](/fundamentals/automation-done) applies the Factory's completion rule.
+After checks pass, review and merge through your team's process. The default PR Closure automation records the outcome when attached pull requests are merged or closed. See [Done automation](/fundamentals/automation-done) for default closure and custom completion boundaries.

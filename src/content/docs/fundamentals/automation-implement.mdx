@@ -29,13 +29,13 @@ Set the workspace model source in [Model sources](/billing/model-sources). Choos
 
 Use [source-control components](/integrations/source-control) to find, create or update the pull request after the agent runs. Attach the branch and pull request to the task so Verify receives durable links instead of extracting them from agent prose.
 
-The example canvas handles both cases:
+The illustrated canvas handles both cases. The current default also creates or updates and attaches a pull request, then leaves it for review in Verify; it does not close the task at this point:
 
 1. Run the implementation agent.
 2. Attach the branch artifact.
 3. Find an existing pull request for the branch.
 4. Update it when found or create it when missing.
-5. Attach the pull request and record a closure note.
+5. Attach the pull request for review.
 
 This graph makes repeated runs safer. A correction can update the existing pull request rather than opening a duplicate.
 

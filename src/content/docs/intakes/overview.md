@@ -7,7 +7,7 @@ Use intakes to bring work from your existing tools into a Factory. Start with a 
 
 ## Choose a source
 
-For your first GitHub repository, follow the [Quickstart](/get-started/quickstart). For other sources, use the integration components in a custom automation.
+For the GitHub tutorial path, follow the [Quickstart](/get-started/quickstart). Onboarding also supports Jira and Linear work intake. Connect Jira and choose a project, or connect Linear and choose a team and any project filters. Other supported intakes can be added to the workspace; use integration components when you need a custom source workflow.
 
 | Source | Reference |
 | --- | --- |
@@ -16,11 +16,13 @@ For your first GitHub repository, follow the [Quickstart](/get-started/quickstar
 | Linear | [Linear issues and events](/components/linear) |
 | Sentry | [Sentry events and actions](/components/sentry) |
 
-Component references describe available events and actions. Connecting a source alone does not define how its events become Factory tasks; configure that behavior in your intake automation.
+Component references describe available events and actions. Connecting a service alone does not create tasks. The guided setup provisions the selected intake; review its source and filters before relying on it.
+
+The first workspace runs an initial import. Later workspace setup can skip it. **Automatic intake** controls ongoing events separately: turning it off leaves the initial import enabled. Check the import result and use manual intake import for a missing or one-off issue.
 
 ## Define what to import
 
-Choose a repository or project and a narrow set of matching requests. Use filters such as labels or issue state where the source supports them.
+Choose a repository or project and a narrow set of matching requests. Use filters such as labels, assignment or issue state where supported. New GitHub intakes listen for new and reopened issues and require authors to have repository access by default. An include-label filter also lets adding that label to an open issue trigger intake. With no labels selected, adding a label alone does not trigger intake.
 
 Each task needs enough context to act on:
 

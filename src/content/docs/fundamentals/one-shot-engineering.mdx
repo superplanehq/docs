@@ -92,7 +92,7 @@ A pull request is an output, not proof that the task is complete. The Verify sta
   <figcaption>Verification keeps the result and the remaining decision visible before the task reaches Done.</figcaption>
 </figure>
 
-Failure is part of the workflow. If a test fails SuperPlane preserves the error and the execution context, then returns actionable feedback to the next attempt. The agent does not need a person to copy logs from one tool into another. If the workflow cannot resolve the problem safely it stops and asks for attention.
+Failure is part of the workflow. Enable **Fix pull request checks** when you want automatic CI correction, and configure its selected checks and attempt limit. The default discussion handler also accepts human feedback that mentions `@superplaneagent` and bot feedback. Additional escalation and approval paths require configuration; the workflow does not guarantee that every unsafe or ambiguous result is detected.
 
 <figure class="sp-media-figure not-content">
   <img src="https://docs-assets.superplane.com/images/initial_check.png" alt="One-shot engineering flow with retry and human attention paths" />

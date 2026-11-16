@@ -14,10 +14,12 @@ Source-control integrations give a Factory access to backlog items and the revie
 ## Work intake
 
 - [GitHub](/components/github) provides issue intake during the guided Factory setup.
-- [Jira](/components/jira) manages Jira issues in custom workflows.
-- [Linear](/components/linear) manages and reacts to Linear issues.
+- [Jira](/components/jira) supports guided issue intake from a selected project and actions in custom workflows.
+- [Linear](/components/linear) supports guided issue intake from a selected team, with optional project filters, and actions in custom workflows.
 - [ServiceNow](/components/servicenow) connects service-management records and events.
 
 ## Access guidance
 
-Use a dedicated connection with the minimum repository scope. Confirm that it can read the backlog, create the required branch and pull request and receive the review events used by the line.
+Authorize the GitHub App for the code and backlog repositories used by the tutorial. Confirm write access to the code repository, read access to its issues source, and the code repository's default branch. The two repositories can be the same. Review model prerequisites in the [Quickstart](/get-started/quickstart#prerequisites) before completing setup.
+
+Initial issue import and ongoing **Automatic intake** are separate settings. Review filters and import results in [Intakes](/intakes/overview); connecting a repository does not guarantee that every issue enters Backlog.

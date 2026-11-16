@@ -45,11 +45,11 @@ SuperPlane can run configured checks against imported tasks and record a confide
   </div>
 </div>
 
-An unclear task should not become a more detailed agent prompt by accident. Improve the source issue first when the missing information changes what should be built.
+Refine unclear tasks in SuperPlane before implementation. Add context in the refinement conversation, answer its questions and review the updated task description and plan. Update the source issue as well when your team needs those decisions recorded there; editing it is not required for every refinement.
 
 ## Starting work is an authorization boundary
 
-The **Start** action tells the Factory that the task is ready for its line. This is a small but important control point. Discovery can run continuously while implementation begins only after the task meets your team's rules.
+The **Start** action dispatches the task to its line. **Auto-start** is off by default. You can configure it in Planning to start tasks that meet the automatic-start conditions. Automatic intake and automatic start are separate decisions: importing an issue does not by itself authorize implementation.
 
 Before you start a task, confirm that:
 

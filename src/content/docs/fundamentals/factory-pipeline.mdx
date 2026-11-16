@@ -27,7 +27,9 @@ This separation matters. A change can be technically complete but still fail ver
 
 A task is the unit of work. It begins with a request from an issue tracker or another connected source and gathers context as it moves. The task can hold links, agent output, pull requests, checks, approvals and notes from the people involved.
 
-An automation defines what a stage does. A run is one execution of that automation for a particular task. This distinction is useful when debugging: the stage describes the policy while the run shows exactly what happened this time.
+Automations define actions around the task lifecycle. A run is one execution of an automation. The default onboarding line runs Implement; merge-confidence and PR-closure automations listen for repository events separately. A board column is not necessarily a line step or an agent run.
+
+Refine work in SuperPlane before selecting **Start**. **Auto-start** is off by default. An attached pull request waits in **Verify** for review; passing checks alone does not complete it. The default closure automation records completion after merge, or a rejected outcome after closure without merge. Additional checks, repair loops and approval gates depend on the automations you enable.
 
 <div class="factory-execution-flow not-content" role="list" aria-label="Factory pipeline stages">
   <span role="listitem">Qualify the task</span>

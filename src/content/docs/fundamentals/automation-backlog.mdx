@@ -3,7 +3,7 @@ title: Backlog automation
 description: Customize how the Factory imports, enriches and qualifies incoming work.
 ---
 
-The Backlog automation turns an incoming issue or manual request into a task the Factory can evaluate. Customize it to collect the right context, report confidence and keep unclear work out of implementation.
+Intake creates tasks from matching requests. The Backlog automation refines those tasks in SuperPlane and records a plan and assessment. Use the task's refinement conversation to add context before starting implementation. The canvas examples below illustrate workflow design and can differ from the current default template.
 
 <figure class="sp-media-figure not-content">
   <img src="https://docs-assets.superplane.com/images/automation-backlog.png" alt="A Backlog automation with an On Task trigger, a SuperPlane agent, failure recording, an artifact and a confidence check." />
@@ -32,20 +32,22 @@ Avoid sending an entire repository or unrelated issue history into every scoring
 
 ## Route every result deliberately
 
-The example canvas uses separate routes after the agent:
+The illustrated canvas uses separate routes after the agent:
 
 - **Passed:** Attach the analysis as a task artifact and report the confidence check.
 - **Failed:** Record the run error so the task shows why analysis did not finish.
 
-Add a human route when a low-confidence task needs a decision. A person can improve the source issue, narrow its scope or reject it before implementation spends model and machine usage.
+Keep low-confidence tasks in Backlog for refinement. A person can clarify the task in SuperPlane, narrow its scope or reject it. Update the source issue when those decisions also belong in the issue tracker.
 
 ## Keep the start decision visible
 
-Scoring helps sort work but it should not silently authorize every change. Keep the **Start** action when your team wants to review tasks before code execution. If you automate that decision, define a narrow rule such as a trusted repository, an approved label and a confidence threshold.
+Scoring helps assess readiness; it does not guarantee success or automatically start every high-scoring task. **Auto-start** is off by default. Enable it in Planning only when you want tasks that meet its readiness conditions to start without manual **Start**. Keep intake filters and start settings separate.
+
+Automatic start requires a task specification, no outstanding refinement questions, and maximum first-reported Clarity, Complexity and Verifiability scores. A later high score does not override a low first score for automatic start. Review and start such a task manually when it is ready.
 
 ## Control backlog cost
 
-Backlog analysis runs once for every matching request, so small choices multiply quickly.
+Backlog refinement can run for new tasks and further conversation turns, so intake volume and repeated refinement affect cost.
 
 - Filter unsupported work before an agent node.
 - Use a smaller model for classification when it produces a reliable structured result.

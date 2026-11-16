@@ -81,7 +81,7 @@ Start with the repository, code and notes you saved above. If you used Conductor
 
 Sign in to [SuperPlane](https://app.superplane.com/) and follow the onboarding flow. Connect your GitHub account, authorize the SuperPlane GitHub App and choose the repository you used in Conductor. You need write access to that repository.
 
-Choose **GitHub issues** as your work source. Review **Import existing issues** and **Automatic intake** so SuperPlane brings in the work you intend to migrate. The [Quickstart](/get-started/quickstart) walks through the setup.
+For this migration path, choose **GitHub issues** as your work source. The first workspace runs an initial import; later workspace setup can skip it. **Automatic intake** controls ongoing events separately and does not skip that first import when turned off. Prepare an available hosted model or permitted provider API key during setup; select ChatGPT subscriptions later in Settings. The [Quickstart](/get-started/quickstart) explains the prerequisites.
 
 For an existing workspace, open **Settings → Repository** and confirm the repository and **Default branch** before starting work.
 
@@ -133,7 +133,7 @@ Choose a focused issue that has not entered implementation, such as a small bug 
 - The commands or checks that confirm success.
 - Relevant decisions from your Conductor sessions and links to any saved work.
 
-Open **Backlog** and confirm that the intake has imported the issue with the right repository and context. Follow [Intakes](/intakes/overview) if you need to review which requests enter the backlog.
+Open **Backlog** and confirm that the intake has imported the issue with the right repository and context. If it is missing, check the intake filters and import result, then use manual import. Refine the task in SuperPlane to add missing context. Follow [Intakes](/intakes/overview) to review which requests enter the backlog.
 
 Keep existing pull requests under review in GitHub while you test the first Factory task. A branch or pull request link gives the agent context; it does not select that branch for the new run. Confirm the repository and base branch before handing off unfinished work.
 
@@ -144,8 +144,8 @@ Review the task's confidence assessment and its reason. Clarify the scope and ac
 Follow the task through the Factory:
 
 1. In **Implement**, inspect the agent's progress and check that repository setup succeeds.
-2. In **Verify**, open the linked pull request and review the required checks and feedback. Failed checks can return to the agent for a correction.
-3. Review the final diff against the original issue and follow your team's merge process. The task reaches **Done** when the Factory's completion condition is satisfied.
+2. In **Verify**, open the linked pull request and review the checks and feedback. Mention `@superplaneagent` for a human correction request when the default discussion handler is active. Automatic CI repair requires the optional **Fix pull request checks** automation.
+3. Review the final diff against the task and follow your team's merge process. The default closure automation records completion after merge and rejection after closure without merge. Passing checks alone does not complete the task.
 
 <figure class="sp-media-figure sp-media-figure--flush not-content">
   <img src="https://docs-assets.superplane.com/videos/superplane_start_run_1280.gif" alt="Starting a SuperPlane task and following its agent run" />
@@ -174,7 +174,7 @@ After the move, follow work through the Factory board and review the evidence at
 | Unit of work | A [workspace](https://www.conductor.build/docs/concepts/workflow) contains a branch, working files and agent sessions. | A [task](/fundamentals/factory-pipeline) moves through Backlog, Implement, Verify and Done. |
 | Starting work | Create a workspace from a branch, issue or pull request. | [Intakes](/intakes/overview) bring requests into Backlog. Review a task before starting it. |
 | Project setup | Local setup scripts, or a shared [Cloud Computer](https://www.conductor.build/docs/cloud/cloud-computer) with repository setup scripts. | Save setup commands per workspace in [Agent setup](#3-transfer-your-repository-setup). Tasks run on configured runners. |
-| Checks and review | Run tests and inspect changes through workspace tools and GitHub checks. | [Verify](/fundamentals/verify) evaluates checks and pull request feedback, then returns failures to the agent for correction. Your team reviews the result. |
+| Checks and review | Run tests and inspect changes through workspace tools and GitHub checks. | [Verify](/fundamentals/verify) holds the pull request for review. Discussion feedback and optional CI-repair automation can start corrections. Your team reviews the result. |
 | Work history | Chats, diffs and branch state belong to the workspace. | The task record links the original request, agent runs, check results and pull request. |
 | Model access | Connect coding-agent accounts, subscriptions or API keys. | Choose a workspace [model source](#2-choose-your-model-source): SuperPlane models, a provider key or ChatGPT for Codex. |
 | Deployment | Use the local Mac app or Conductor Cloud. | Use the [hosted web app](https://app.superplane.com/) or [run SuperPlane on your infrastructure](/self-hosting/overview). |

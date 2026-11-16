@@ -3,7 +3,7 @@ title: Done automation
 description: Define completion, update connected systems and preserve the final result.
 ---
 
-The Done automation closes the loop after verification. Customize it to define what completion means, update connected systems and leave the task with a record that another engineer can understand later.
+The default **PR Closure** automation records a task outcome when all attached pull requests are merged or closed. A merge records completion; closure without merge records rejection. For a completed task with a supported GitHub issue origin, it also comments on and closes the source issue. Additional notifications, deployments and completion boundaries below are custom workflow choices.
 
 <figure class="sp-media-figure not-content">
   <img src="https://docs-assets.superplane.com/images/complete_done.png" alt="A SuperPlane Factory board with completed and merged tasks recorded in the Done column." />
@@ -12,7 +12,7 @@ The Done automation closes the loop after verification. Customize it to define w
 
 ## Choose the completion boundary
 
-Done should represent an outcome rather than the moment an agent stops. Decide which boundary fits the Factory:
+Done records closed outcomes, including rejection. Passing checks alone does not close the default task. If you build a custom completion workflow, choose the boundary it should enforce:
 
 - **Ready for review:** Required checks pass and the pull request is handed to its owners.
 - **Approved:** Required reviewers or policy gates have accepted the result.

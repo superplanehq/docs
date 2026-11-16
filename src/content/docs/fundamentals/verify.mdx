@@ -3,7 +3,7 @@ title: Verify
 description: Decide whether an implementation satisfies the task and is ready for review.
 ---
 
-Verify answers a stricter question than “Did the agent finish?” It asks whether the result satisfies the original task, preserves the repository's required behavior and has enough evidence for a reviewer to trust the handoff.
+Verify is where you review the attached pull request and its evidence against the task. The default GitHub setup includes Merge confidence and a discussion-feedback handler. It does not install every check or repair workflow described below.
 
 <figure class="sp-media-figure not-content">
   <img src="https://docs-assets.superplane.com/images/verify_phase_issue_1.webp" alt="A Factory board with a task in Verify and its pull request attached for review." />
@@ -12,7 +12,7 @@ Verify answers a stricter question than “Did the agent finish?” It asks whet
 
 ## Build an evidence stack
 
-No single signal proves every kind of software change. A useful Verify stage combines evidence that matches the risk of the task.
+No single signal proves every kind of software change. Choose evidence that matches the task's risk. The following are possible verification inputs, not a list of installed default gates.
 
 | Evidence | What it can establish |
 | --- | --- |
@@ -26,7 +26,9 @@ Choose checks before execution when possible. Verification is strongest when its
 
 ## A failed check is feedback
 
-When a deterministic check fails, return the relevant output to implementation. The agent needs the command, failure message and current task context. It should not receive a vague instruction to “try again.”
+To repair failed CI checks automatically, enable **Fix pull request checks** and select the checks and maximum attempts. This optional automation waits for checks, starts a correction on failure, and pauses automatic fixes at the attempt limit. A timeout records an error rather than proof of success. Without it, inspect the failure and request a correction through your review process.
+
+The default **Address PR feedback** handler responds to human comments and reviews that mention `@superplaneagent`, and to bot feedback under the onboarding settings. Check the handler's filters if a comment does not start a run. A correction updates the pull request; it does not guarantee that the requested behavior or all checks pass.
 
 This creates a bounded correction loop:
 
@@ -59,6 +61,6 @@ Human attention is appropriate when the answer depends on judgment rather than c
 
 ## Exit criteria
 
-A task can leave Verify when the Factory's required checks have passed and all required decisions are recorded. Depending on the Factory, that may mean the pull request is ready for normal team review or already approved for merge.
+Review the diff, check results and remaining decisions before merging. In the default workflow, the task stays in Verify while its pull request is open, even when checks pass. The PR Closure automation records completion after merge and a rejected outcome after closure without merge. For tasks with multiple attached pull requests, it waits until all are merged or closed.
 
-Passing verification moves the task to [Done](/fundamentals/done). Failing verification returns useful context to the stage that can act on it.
+Additional approval gates and completion boundaries require configuration. Read [Done](/fundamentals/done) to distinguish the recorded task outcome from verification evidence.

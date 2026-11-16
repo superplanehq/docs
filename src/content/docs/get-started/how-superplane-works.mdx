@@ -1,11 +1,13 @@
 ---
-title: Learn how Superplane works
+title: Learn how SuperPlane works
 description: Understand how SuperPlane imports tasks, runs agents and verifies their results.
 ---
 
 import { Icon } from "@astrojs/starlight/components";
 
-SuperPlane connects your **development tickets**, **coding agents**, **source control**, **continuous integration (CI)** and **review process** into a software factory. Intake automations import matching tickets and record confidence scores. Factory lines then give agents a controlled path to execute approved tasks, apply configured checks and bring your team in when human judgment is needed.
+SuperPlane connects your development tickets, coding agents, source control, continuous integration (CI) and review process into a software factory. Intake imports matching tickets, and Backlog refinement records plans and assessments. Factory lines run tasks with configured agents and checks while your team reviews the result.
+
+The retained images and recordings are illustrative. Use the written instructions and linked guides for the current workflow.
 
 <figure class="sp-media-figure sp-media-figure--flush not-content">
   <img src="https://docs-assets.superplane.com/images/superplane_factory_flow.png" alt="SuperPlane coordinating agents through a software factory workflow" />
@@ -13,7 +15,7 @@ SuperPlane connects your **development tickets**, **coding agents**, **source co
 
 ## 1. Import work from your existing tools
 
-SuperPlane connects to the tools where engineering work already lives. Connect a GitHub repository and issues can appear in the factory backlog without developers copying tasks into another system. You can also assign tasks through Jira, Sentry, Linear, Notion and so on.
+SuperPlane connects to the tools where engineering work already lives. Guided setup supports GitHub, Jira and Linear issue intake. Additional supported intakes, such as Sentry, can be added to a workspace. Other integrations need a custom automation to turn their events into tasks.
 
 Each issue becomes a piece of work that SuperPlane tracks from intake through implementation and verification. Your existing tools remain part of the workflow. SuperPlane coordinates them and lets you use your preferred coding agent and model provider.
 
@@ -25,7 +27,7 @@ Read about [Intakes](/intakes/overview) to learn how to choose sources and defin
 
 ## 2. Assess which tasks are ready for agents
 
-Before implementation begins the Backlog automation can inspect the task and repository context and report a confidence check. The score and its reason show whether the request has a bounded scope, enough context and an observable success condition. Your routing rule decides whether a task can move forward or must stay visible for the team.
+Before implementation, the Backlog automation can refine the task and repository context into a plan and assessment. Add missing context in the SuperPlane refinement conversation and review the updated description. Scores help assess readiness but do not guarantee success. Use manual **Start** by default; **Auto-start** is a separate configuration choice.
 
 The assessment considers scope, available context and test coverage. It helps your team decide which tasks are ready before an agent starts work.
 
@@ -54,9 +56,9 @@ See which tasks are waiting, in progress or complete. Each task moves through fo
 
 ## 4. Configure agents for each stage
 
-When a task enters a stage, SuperPlane runs the agent with the model, instructions, tools and execution steps you define.
+SuperPlane runs agents when their configured automation or refinement flow starts. A board stage is not necessarily a separate agent run. Choose models, instructions, tools and execution steps for the agents your workflow uses.
 
-Use SuperPlane’s built-in models or connect your own ChatGPT subscription to run Codex. Choose a different model for each stage to match the work it needs to do.
+Use an available hosted model or permitted provider API key during workspace setup. You can select ChatGPT subscriptions for Codex later through [Model sources](/billing/model-sources). Choose available models that match the work each agent needs to do.
 
 <figure class="sp-media-figure sp-media-figure--flush not-content">
   <img src="https://docs-assets.superplane.com/videos/superplane_models_steps.gif" alt="Configuring models and execution steps for a SuperPlane agent" />
@@ -64,7 +66,7 @@ Use SuperPlane’s built-in models or connect your own ChatGPT subscription to r
 
 ## 5. Verify changes and handle failures
 
-After implementation SuperPlane continues working on the result. The Verify stage handles failing status checks and pull request feedback. If something fails that feedback can return to the workflow for another attempt or otherwise you can merge the PR.
+After implementation attaches a pull request, the task waits in **Verify** for review. The default GitHub discussion handler responds to human feedback that mentions `@superplaneagent` and to bot feedback. Automatic CI repair requires the optional **Fix pull request checks** automation, with selected checks and an attempt limit. Review the diff and checks before merging; passing checks alone does not complete the task.
 
 <figure class="sp-media-figure sp-media-figure--flush not-content">
   <img src="https://docs-assets.superplane.com/videos/superplane_verification.gif?v=20261103-215257" alt="SuperPlane verifying a change and handling pull request feedback" />
@@ -72,9 +74,9 @@ After implementation SuperPlane continues working on the result. The Verify stag
 
 ## 6. Keep people in control of decisions
 
-SuperPlane does not remove developers from every decision. The factory continues automatically when the outcome is clear and stops when the next step requires judgment.
+SuperPlane keeps the start and merge decisions visible. Manual **Start** is the default. Automatic start, additional approval gates and escalation routes depend on configuration; they are not guarantees that the factory detects every decision requiring judgment.
 
-A person remains responsible for decisions such as accepting uncertain work, reviewing important changes or merging the final pull request.
+A person remains responsible for accepting uncertain work, reviewing changes and merging the pull request. The default closure automation records completion after merge, or rejection after closure without merge.
 
 <figure class="sp-media-figure sp-media-figure--flush not-content">
   <img src="https://docs-assets.superplane.com/images/superplane_human_in_the_loop.png" alt="A person reviewing a decision in the SuperPlane workflow" />

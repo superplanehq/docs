@@ -42,9 +42,9 @@ SuperPlane turns that coordination into a repeatable factory workflow.
 
 ### 1. The improvement enters the backlog
 
-Create the improvement as a normal GitHub issue. Once the repository is connected SuperPlane brings that work into the factory Backlog.
+Create the improvement as a GitHub issue. Follow the [Quickstart](/get-started/quickstart) to prepare repository and model access. The initial import and ongoing **Automatic intake** are separate: later events must match the active intake filters. Check the import result or import the issue manually if it is missing.
 
-The issue remains the definition of the work. SuperPlane adds the process for getting it finished.
+The issue remains linked to the task. Refine the task in SuperPlane to clarify its scope and expected result before starting.
 
 <div class="use-case-signals not-content">
   <div><strong>GitHub</strong><span>Issue describes the small code improvement.</span></div>
@@ -90,7 +90,7 @@ The goal is not to rewrite nearby code. It is to solve the issue while keeping t
 
 ## Example: add a theme toggle
 
-The Factory Starter App has a GitHub issue requesting a toggle that switches the website between light and dark themes. The issue gives the factory enough context to understand the goal without turning it into a redesign.
+The retained example shows a Factory Starter App issue requesting a light and dark theme toggle. Its media illustrates an older run, not the current interface or a guaranteed score. To try the example, use your own repository copy and create an issue with that scope if it is absent.
 
 <figure class="sp-media-figure not-content">
   <img src="https://docs-assets.superplane.com/images/github_issue.png" alt="GitHub issue 5 requesting a light and dark theme toggle for the Factory Starter App" />
@@ -110,7 +110,7 @@ Before trying this example, follow [Build your first Factory](/get-started/build
 
 ### 1. Backlog
 
-SuperPlane imports the GitHub issue into Backlog and analyzes its suitability. The clear scope and visible result give the task a high confidence score, so it is ready to start.
+Import the GitHub issue into Backlog and review its plan and assessment. Clarify missing requirements in SuperPlane, then select **Start** when ready. **Auto-start** is off by default; a high score alone does not authorize implementation.
 
 <figure class="sp-media-figure not-content">
   <img src="https://docs-assets.superplane.com/images/backlog_check.png" alt="Theme toggle issue in the Backlog stage with a high confidence indicator" />
@@ -133,11 +133,11 @@ Starting the task moves it into Implement. The configured agent reads the issue,
 
 ### 3. Verify
 
-After implementation SuperPlane checks the result and prepares the pull request for review. The task view keeps the completed analysis and implementation steps together with the review instructions.
+After implementation attaches a pull request, the task waits in Verify. Review the build, tests and theme behavior. The default discussion handler accepts human feedback mentioning `@superplaneagent` and bot feedback. Automatic CI repair requires the optional **Fix pull request checks** automation.
 
 <figure class="sp-media-figure not-content">
   <img src="https://docs-assets.superplane.com/images/toggle_review_section.webp" alt="SuperPlane task ready for pull request review after verification" />
-  <figcaption>Verification confirms the result and gives the reviewer a clear next action.</figcaption>
+  <figcaption>The illustrated task is waiting for review; inspect the evidence to confirm the result.</figcaption>
 </figure>
 
 ### 4. Review
@@ -151,14 +151,14 @@ The pull request contains the focused theme toggle change and links back to the 
 
 ### 5. Done
 
-When the pull request is merged the task moves to Done. The board keeps the completed work and its pull request visible as part of the factory history.
+In the default workflow, merging the attached pull request lets PR Closure record completion in Done. Closing it without merging records rejection. Passing checks alone does not complete the task. The board keeps the outcome and pull request visible in the history.
 
 <figure class="sp-media-figure not-content">
   <img src="https://docs-assets.superplane.com/images/complete_done.png" alt="Merged theme toggle task in the Done stage" />
   <figcaption>The merged pull request closes the factory task.</figcaption>
 </figure>
 
-The deployed application now includes the requested theme toggle while preserving the original interface and layout.
+The retained screenshot illustrates the completed theme toggle. Deployment uses the example project's own process; a Factory task does not deploy this change by default.
 
 <a href="https://factoryapp-ashen.vercel.app/" target="_blank" rel="noreferrer">
   <figure class="sp-media-figure not-content">

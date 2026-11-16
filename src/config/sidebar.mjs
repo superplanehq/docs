@@ -5,7 +5,7 @@ export const sidebar = [
     collapsed: true,
     items: [
       { label: "Introduction", slug: "get-started/overview" },
-      { label: "Learn how Superplane works", slug: "get-started/how-superplane-works" },
+      { label: "Learn how SuperPlane works", slug: "get-started/how-superplane-works" },
       { label: "Quickstart", slug: "get-started/quickstart" },
       { label: "Video Walkthrough", slug: "get-started/video-walkthrough" },
       { label: "Build your first Factory", slug: "get-started/build-first-factory" },

@@ -1,13 +1,13 @@
 ---
 title: Implement automation
-description: Customize how an agent changes code and creates a reviewable pull request.
+description: Customize how an agent changes code and creates pull requests across workspace repositories.
 ---
 
-The Implement automation converts an approved task into a branch and pull request. Customize it to choose the coding agent, repository instructions, validation commands, artifact handling and failure behavior for your codebase.
+The Implement automation converts an approved task into changes and pull requests across workspace repositories. Customize the agent, repository instructions, validation commands, artifact handling and failure behavior for your codebase.
 
 <figure class="sp-media-figure not-content">
   <img src="https://docs-assets.superplane.com/images/automation-implement.png" alt="An Implement automation that runs a SuperPlane agent, records errors, attaches a branch and creates or updates a pull request." />
-  <figcaption>The canvas keeps agent work, pull request handling and failure recording in one visible process.</figcaption>
+  <figcaption>The agent opens pull requests and attaches them to the task. The canvas records implementation failures.</figcaption>
 </figure>
 
 ## Shape the agent around the repository
@@ -27,17 +27,16 @@ Set the workspace model source in [Model sources](/billing/model-sources). Choos
 
 ## Keep repository actions explicit
 
-Use [source-control components](/integrations/source-control) to find, create or update the pull request after the agent runs. Attach the branch and pull request to the task so Verify receives durable links instead of extracting them from agent prose.
+Open **Settings → Agent** and review **Repositories**. The agent can change the primary repository and enabled **Read & Write** repositories from the same provider. **Read Only** repositories remain reference material.
 
-The example canvas handles both cases:
+The default Implement workflow uses agent-owned pull request creation:
 
 1. Run the implementation agent.
-2. Attach the branch artifact.
-3. Find an existing pull request for the branch.
-4. Update it when found or create it when missing.
-5. Attach the pull request and record a closure note.
+2. Commit changes in each affected repository.
+3. Use the SuperPlane pull request operation for each changed repository.
+4. Confirm that each pull request is attached to the task.
 
-This graph makes repeated runs safer. A correction can update the existing pull request rather than opening a duplicate.
+The pull request operation updates an existing pull request or opens one when needed. Verify receives stored links for every changed repository. A workspace with one repository uses the same workflow.
 
 ## Design the failure path before increasing volume
 
@@ -47,7 +46,7 @@ Do not retry unchanged work without a reason. Retry a temporary provider error. 
 
 ## Spend model usage where it improves the result
 
-Implementation is usually the most expensive stage because it can combine model tokens and machine time. Keep the task narrow and let deterministic components handle repository bookkeeping.
+Implementation is usually the most expensive stage because it combines model tokens and machine time. Keep tasks narrow and use the SuperPlane pull request operation to attach review links.
 
 - Use the smallest model that can complete this class of work reliably.
 - Pass the relevant task context instead of every prior message.

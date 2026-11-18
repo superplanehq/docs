@@ -130,11 +130,23 @@ done
 | westus2 | not offered | zone 1 |
 | westus3 | zones 1, 2, 3 | zones 1, 2, 3 |
 
-If this command prints no SKUs, set `create_postgresql_flexible_server = false` before the first apply. PostgreSQL then runs in the cluster.
+Check whether the subscription can create a PostgreSQL server in the region:
 
 ```bash
 az postgres flexible-server list-skus --location eastus -o table
 ```
+
+If this command prints no SKUs, set `create_postgresql_flexible_server = false` before the first apply. PostgreSQL then runs in the cluster. Azure restricts PostgreSQL in some regions for new subscriptions. The table output is then empty, and `-o json` shows `Provisioning is restricted in this region`.
+
+Check the vCPU quota. The cluster node uses 2 regional vCPUs, and each runner machine uses 2 more. The default fleet can grow to 10 machines, which needs 22 regional vCPUs. A new subscription can have as few as 4.
+
+```bash
+az vm list-usage --location eastus \
+  --query "[?name.value=='cores' || name.value=='standardDDSv4Family' || name.value=='StandardDpdsv6Family'].{Quota:name.localizedValue,Used:currentValue,Limit:limit}" \
+  -o table
+```
+
+`Limit` minus `Used` on **Total Regional vCPUs** caps the fleet size. To run more machines, [request a quota increase](https://learn.microsoft.com/azure/quotas/per-vm-quota-requests) for the region and the VM family, or lower **Maximum capacity** in step 8.
 
   </TabItem>
   <TabItem label="Google Cloud">
@@ -194,6 +206,8 @@ cd azure
 cp terraform.tfvars.example terraform.tfvars
 ```
 
+Replace the contents of `terraform.tfvars` with these values. The example file has other defaults, such as an older chart version, in comments.
+
 ```hcl
 subscription_id          = "your_subscription_id"
 domain_name              = "superplane.example.com"
@@ -205,7 +219,7 @@ runner_image_arm64       = "latest_arm64_image_id"
 superplane_chart_version = "@@SUPERPLANE_CHART_VERSION@@"
 ```
 
-Use the image ids from the list command. Leave `superplane_image_tag` and `helm_chart_path` empty. The chart version has no `v` prefix. An empty image tag selects the image for that chart.
+Use the image ids from the list command. Leave `superplane_image_tag` and `helm_chart_path` empty. The chart version has no `v` prefix. An empty image tag selects the image for that chart. When the PostgreSQL check in step 2 printed no SKUs, add `create_postgresql_flexible_server = false`.
 
 Terraform names the resource groups and the cluster `superplane` by default. When the subscription already has an installation, give this one its own names. The PostgreSQL server name must be unique across Azure:
 
@@ -272,6 +286,15 @@ Read the plan before you apply it. `terraform apply tfplan` does not ask again. 
 
 The apply takes 15–25 minutes. On Google Cloud it also waits for the certificate, which can add about 15 minutes.
 
+On Azure, the ingress IP exists before the apply ends. When the host in `domain_name` already has a DNS record, update it early to shorten the certificate wait in step 6. In another terminal, print the IP from the resource group AKS manages, `MC_<resource_group_name>_<cluster_name>_<location>`:
+
+```bash
+az network public-ip list --resource-group MC_superplane_superplane_eastus \
+  --query "[].ipAddress" -o tsv
+```
+
+Point the A record at that IP. Step 6 confirms it.
+
 ## 5. Connect kubectl
 
 ```bash
@@ -288,7 +311,13 @@ The command updates kubeconfig for the EKS cluster.
   </TabItem>
   <TabItem label="Azure">
 
-The command uses the resource group and cluster from `terraform.tfvars`. When it reports that the context already exists, check that the existing context belongs to a cluster you removed. Then run the printed command again with `--overwrite-existing`.
+The command uses the resource group and cluster from `terraform.tfvars`. When it reports that a different object already exists in your kubeconfig, check that the existing context belongs to a cluster you removed. The context is the cluster name with `-admin`, such as `superplane-admin`:
+
+```bash
+kubectl --context superplane-admin get nodes
+```
+
+A removed cluster fails with `no such host`. Then run the printed command again with `--overwrite-existing`. When the command lists nodes, the cluster still exists: set a different `cluster_name` instead.
 
   </TabItem>
   <TabItem label="Google Cloud">
@@ -370,7 +399,9 @@ SuperPlane creates an organization named Demo for this account.
 
 <Steps>
 
-1. On **Create the owner account**, enter the name, email, and password. The password needs 8 or more characters, one number, and one capital letter. Select **Continue**.
+1. On **Create the owner account**, enter the first name, last name, and email. Enter the password twice. The password needs 8 or more characters, one number, and one capital letter.
+
+   The checkbox under the form is selected by default. It sends the owner email and the organization name with the anonymous install report. Clear it to leave them out. Select **Continue**.
 
    <figure class="sp-media-figure not-content">
      <img src="https://docs-assets.superplane.com/images/self-hosting/owner-account.webp" alt="Create the owner account form" />
@@ -403,14 +434,14 @@ SuperPlane creates an organization named Demo for this account.
      <img src="https://docs-assets.superplane.com/images/self-hosting/fleet-provider.webp" alt="Choose a cloud provider" />
    </figure>
 
-3. On **Configure the default fleet**, keep `e1-large-amd64`. The default **Warm capacity** is `1`. The default **Maximum capacity** is `10`. Change either value when you need a different number of machines. Each AWS or Azure machine uses 2 vCPUs. Select **Generate install command**.
+3. On **Configure the default fleet**, keep `e1-large-amd64`. The default **Warm capacity** is `1`. The default **Maximum capacity** is `10`. Change either value when you need a different number of machines. Each AWS or Azure machine uses 2 vCPUs. On Azure, keep the machines within the free regional vCPUs from the quota check in step 2. A machine past the quota fails with `QuotaExceeded`. Select **Generate install command**.
 
    <figure class="sp-media-figure not-content">
      <img src="https://docs-assets.superplane.com/images/self-hosting/fleet-configure.webp" alt="Configure the default fleet" />
      <figcaption>The machine type list follows the provider. Capacity is the same on every cloud.</figcaption>
    </figure>
 
-4. On **Create the chart values**, copy the command. Run it on the machine where you ran Terraform, from the cloud directory, such as `terraform/azure`. It writes `fleet-manager-values.yaml` in that directory. Select **Continue**.
+4. On **Create the chart values**, copy the command. Run it on the machine where you ran Terraform, in the cloud directory, such as `terraform/azure`. It writes `fleet-manager-values.yaml` in the current directory, and the Helm command in the next step reads the file from there. Select **Continue**.
 
    <figure class="sp-media-figure not-content">
      <img src="https://docs-assets.superplane.com/images/self-hosting/fleet-values.webp" alt="Create the chart values" />
@@ -418,7 +449,7 @@ SuperPlane creates an organization named Demo for this account.
 
 5. On **Install the chart**, check the command before you run it. This SuperPlane release supports Fleet Manager `@@FLEET_MANAGER_VERSION@@` and Runner `@@RUNNER_VERSION@@`.
 
-   In `fleet-manager-values.yaml`, set `image.tag` to `@@FLEET_MANAGER_VERSION@@`. Set every `runnerVersion` to `@@RUNNER_VERSION@@`. In the Helm command, set `--version` to `@@FLEET_MANAGER_CHART_VERSION@@`. The setup page can show a newer Fleet Manager or Runner. Use the versions on this page.
+   In `fleet-manager-values.yaml`, set `image.tag` to `@@FLEET_MANAGER_VERSION@@`. Set every `runnerVersion` to `@@RUNNER_VERSION@@`. In the Helm command, set `--version` to `@@FLEET_MANAGER_CHART_VERSION@@`. The setup page can show a newer Fleet Manager or Runner. Use the versions on this page. A newer Fleet Manager cannot create runners, and the log shows `unknown field "fleetManagerId"`.
 
    Helm installs into the current kubectl context. Before you run Helm, confirm that the context is the one from step 5:
 
@@ -429,6 +460,12 @@ SuperPlane creates an organization named Demo for this account.
    When you manage more than one cluster, add `--kube-context your_context` to the Helm command.
 
    Run the command in the same directory. When the page says Fleet Manager created the selected fleets, select **Finish installation**.
+
+   The Fleet Manager log can show `fleet not found` (404) once, right after the install. Ignore it when the next lines show the fleet reconciling:
+
+   ```bash
+   kubectl logs -n superplane deploy/fleet-manager-fleet-manager --tail=20
+   ```
 
    <figure class="sp-media-figure not-content">
      <img src="https://docs-assets.superplane.com/images/self-hosting/fleet-verified.webp" alt="Install the chart with Finish installation" />

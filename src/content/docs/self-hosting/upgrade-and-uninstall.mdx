@@ -58,9 +58,9 @@ The script does not delete the VM or its cloud disks. Remove those resources sep
 
 ## Upgrade a cloud install
 
-1. In your Terraform checkout, set `superplane_chart_version` to `@@SUPERPLANE_CHART_VERSION@@`. Leave `superplane_image_tag` empty. The chart version has no `v` prefix. An install from installer tag `v0.1.0` pins older Fleet Manager and Runner releases. Move the checkout to `v0.1.1` with `git fetch --depth 1 origin tag v0.1.1` and `git checkout v0.1.1`.
+1. An install from installer tag `v0.1.0` pins older Fleet Manager and Runner releases. First move the checkout to `v0.1.1` with `git fetch --depth 1 origin tag v0.1.1` and `git checkout v0.1.1`. Then set `superplane_chart_version` to `@@SUPERPLANE_CHART_VERSION@@`. Leave `superplane_image_tag` empty. The chart version has no `v` prefix.
 2. On Azure, check that `terraform.tfvars` sets `node_count = 2` or more. With one node, the migration job stays `Pending`, and the new pods wait for it. Adding a node uses 2 more regional vCPUs.
-3. Set the new runner image IDs from the release notes. On Google Cloud, build a new image with Packer when the runner tools change, or keep the current image. `runner_image_amd64` must not be empty while runners are enabled. From installer tag `v0.1.1`, AWS and Google Cloud always create the runner infrastructure, and Google Cloud always creates the GCS bucket. Remove `enable_runners` and `enable_gcs_blob_storage` from `terraform.tfvars`.
+3. Set the new runner image IDs from the release notes. On Google Cloud, build a new image with Packer when the runner tools change, or keep the current image. `runner_image_amd64` must not be empty. From installer tag `v0.1.1`, AWS and Google Cloud always create the runner infrastructure, and Google Cloud always creates the GCS bucket. Remove `enable_runners` and `enable_gcs_blob_storage` from `terraform.tfvars`.
 4. Apply, then run the Fleet Manager Helm command from **Fleet setup** again. Set `image.tag` to `@@FLEET_MANAGER_VERSION@@`. Set every `runnerVersion` to `@@RUNNER_VERSION@@`. Set Helm `--version` to `@@FLEET_MANAGER_CHART_VERSION@@`. Do not install a newer Fleet Manager chart or Runner. The plan can remove the `name` label from the `superplane` namespace. The Fleet Manager Helm command adds that label, so the change is expected.
 
 ```bash

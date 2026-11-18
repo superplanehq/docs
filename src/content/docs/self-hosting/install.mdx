@@ -142,11 +142,11 @@ Check the vCPU quota. Step 3 creates two cluster nodes, which use 4 regional vCP
 
 ```bash
 az vm list-usage --location eastus \
-  --query "[?name.value=='cores' || name.value=='standardDDSv4Family' || name.value=='StandardDpdsv6Family'].{Quota:name.localizedValue,Used:currentValue,Limit:limit}" \
+  --query "[?name.value=='cores' || name.value=='standardDSv4Family' || name.value=='standardDDSv4Family' || name.value=='StandardDpdsv6Family'].{Quota:name.localizedValue,Used:currentValue,Limit:limit}" \
   -o table
 ```
 
-`Limit` minus `Used` on **Total Regional vCPUs** caps the fleet size. To run more machines, [request a quota increase](https://learn.microsoft.com/azure/quotas/per-vm-quota-requests) for the region and the VM family, or lower **Maximum capacity** in step 8.
+The cluster nodes count against **Standard DSv4 Family vCPUs**. The amd64 runners count against **Standard DDSv4 Family vCPUs**. Each family needs room, and `Limit` minus `Used` on **Total Regional vCPUs** caps the fleet size. To run more machines, [request a quota increase](https://learn.microsoft.com/azure/quotas/per-vm-quota-requests) for the region and the VM family, or lower **Maximum capacity** in step 8.
 
   </TabItem>
   <TabItem label="Google Cloud">
@@ -175,7 +175,7 @@ The answer must be the static IP. Google Cloud has no public runner image yet, s
 Clone the Terraform installer at a fixed release tag. This keeps the infrastructure configuration stable until you choose to upgrade it.
 
 ```bash
-git clone --branch v0.1.0 --depth 1 https://github.com/superplanehq/terraform.git
+git clone --branch v0.1.1 --depth 1 https://github.com/superplanehq/terraform.git
 cd terraform
 ```
 
@@ -264,7 +264,7 @@ runner_image_amd64       = "projects/your_gcp_project/global/images/image_name"
 superplane_chart_version = "@@SUPERPLANE_CHART_VERSION@@"
 ```
 
-Use the image path that the build printed. The plan stops when `runner_image_amd64` is empty. To install without runners, set `enable_runners = false` and skip Fleet Manager in step 8. Leave `superplane_image_tag` and `superplane_chart_path` empty. The chart version has no `v` prefix. An empty image tag selects the image for that chart. A plain commit SHA in `superplane_image_tag` loads the UI from `assets.superplane.com`, and the browser blocks it on your domain. Keep `machine_type` at `e2-standard-2` or larger.
+Use the image path that the build printed. The plan stops when `runner_image_amd64` is empty. Leave `superplane_image_tag` and `superplane_chart_path` empty. The chart version has no `v` prefix. An empty image tag selects the image for that chart. A plain commit SHA in `superplane_image_tag` loads the UI from `assets.superplane.com`, and the browser blocks it on your domain. Keep `machine_type` at `e2-standard-2` or larger.
 
   </TabItem>
 </Tabs>

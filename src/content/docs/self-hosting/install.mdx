@@ -138,7 +138,7 @@ az postgres flexible-server list-skus --location eastus -o table
 
 If this command prints no SKUs, set `create_postgresql_flexible_server = false` before the first apply. PostgreSQL then runs in the cluster. Azure restricts PostgreSQL in some regions for new subscriptions. The table output is then empty, and `-o json` shows `Provisioning is restricted in this region`.
 
-Check the vCPU quota. The cluster node uses 2 regional vCPUs, and each runner machine uses 2 more. The default fleet can grow to 10 machines, which needs 22 regional vCPUs. A new subscription can have as few as 4.
+Check the vCPU quota. Step 3 creates two cluster nodes, which use 4 regional vCPUs. Each runner machine uses 2 more. The default fleet can grow to 10 machines, which needs 24 regional vCPUs. A new subscription can have as few as 4, which leaves no room for a runner.
 
 ```bash
 az vm list-usage --location eastus \
@@ -217,9 +217,10 @@ runner_zones             = ["1"]
 runner_image_amd64       = "latest_amd64_image_id"
 runner_image_arm64       = "latest_arm64_image_id"
 superplane_chart_version = "@@SUPERPLANE_CHART_VERSION@@"
+node_count               = 2
 ```
 
-Use the image ids from the list command. Leave `superplane_image_tag` and `helm_chart_path` empty. The chart version has no `v` prefix. An empty image tag selects the image for that chart. When the PostgreSQL check in step 2 printed no SKUs, add `create_postgresql_flexible_server = false`.
+Keep `node_count = 2`. One 2-vCPU node runs SuperPlane, but it has no room for the database migration job during an upgrade, so the upgrade never finishes. Use the image ids from the list command. Leave `superplane_image_tag` and `helm_chart_path` empty. The chart version has no `v` prefix. An empty image tag selects the image for that chart. When the PostgreSQL check in step 2 printed no SKUs, add `create_postgresql_flexible_server = false`.
 
 Terraform names the resource groups and the cluster `superplane` by default. When the subscription already has an installation, give this one its own names. The PostgreSQL server name must be unique across Azure:
 

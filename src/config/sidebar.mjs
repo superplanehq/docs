@@ -16,7 +16,7 @@ export const sidebar = [
     label: "2. Software Factory Fundamentals",
     collapsed: true,
     items: [
-      { label: "How one-shot engineering works", slug: "fundamentals/one-shot-engineering" },
+      { label: "How a software factory works", slug: "fundamentals/how-a-software-factory-works" },
       {
         label: "The Factory pipeline",
         collapsed: true,

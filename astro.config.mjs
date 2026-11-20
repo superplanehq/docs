@@ -16,6 +16,7 @@ export default defineConfig({
     "/": "/get-started/overview",
     "/integrations/coding-agents-ai": "/billing/model-sources",
     "/billing/bring-your-own-key": "/billing/model-sources",
+    "/fundamentals/one-shot-engineering": "/fundamentals/how-a-software-factory-works",
   },
   integrations: [
     mermaid({ autoTheme: true }),

@@ -41,4 +41,8 @@ Keep requests with missing context in the backlog until someone clarifies them. 
 
 Import one bounded request and confirm its source and context are attached. Check the assessment result before starting implementation. Once the task follows the expected path, expand the intake rules to more work.
 
+When a custom automation creates a task through an agent's task creation tool, the task's **Intake** section identifies the automation. It shows the automation name and **Created by automated intake**. If the task also has an origin ticket, its link remains separate from the automation that created it. Older tasks without stored creator or source-run information cannot show this attribution.
+
+If one intake run creates several tasks, each task retains the automation name, but the shared run does not appear in their run histories. Review the run from the automation instead. See [Factory costs](/fundamentals/performance-costs) for shared intake cost attribution.
+
 Follow [Build your first Factory](/get-started/build-first-factory) to run tasks through implementation, verification and review.

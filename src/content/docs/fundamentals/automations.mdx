@@ -35,6 +35,16 @@ You can edit in two ways:
 
 Review the staged graph before you select **Save**. Check both the success path and the failure path. A workflow that handles only success is incomplete once it reaches real repositories and external services.
 
+## Skip workspace setup for file-only work
+
+For file-only work, turn on **Skip setup commands** in the automation's agent settings. Use this for work that does not need project dependencies, such as editing documentation. This skips the commands saved under **Settings → Agent → Setup steps** for that agent's future runs. The choice applies to the agent, not to individual repositories.
+
+Repository checkout, including enabled additional repositories, still runs. Credentials, agent preparation and attachment processing continue. Explicit **Bash** steps still run, so the switch does not prevent a configured step or prompt from running setup commands. Run logs can still contain agent preparation entries labeled as setup.
+
+In configuration pages with a **Save** button, click **Save** to apply the choice. Agent settings opened for an individual step save the switch immediately. Where your organization enables custom automations, their editor also saves this choice for runs with or without a task.
+
+New custom automations leave the switch off by default. Existing automations keep their saved choice and defaults. Turn the switch off to restore normal workspace setup behavior. Keep it off when your work needs dependencies installed by workspace setup. Workspace setup remains scoped to the primary repository; turning the switch off does not run that setup in another target repository.
+
 ## Add an integration at the step that needs it
 
 Integration components let a canvas receive events or perform actions in another system. Connect only the services required by that stage.

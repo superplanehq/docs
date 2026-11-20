@@ -35,6 +35,25 @@ You can edit in two ways:
 
 Review the staged graph before you select **Save**. Check both the success path and the failure path. A workflow that handles only success is incomplete once it reaches real repositories and external services.
 
+## Run a custom automation when a task leaves a column
+
+Use a leave trigger to run prompt and Bash steps after a task moves out of a column. For example, notify a connected service when implementation finishes or when a completed task returns to Backlog.
+
+Your organization must have the experimental Custom Automations feature enabled. The leave trigger applies to custom automations on Backlog, Implement, Verify and Done. It does not change the triggers on built-in automations.
+
+Open the custom automation configuration for the column the task leaves. Under **Triggers**, set **Runs** to **on a task**. Select **Add trigger** and choose the leave trigger for your column, such as **When a task leaves Backlog**. Configure the steps and select **Save**.
+
+| Column | What starts its leave automation |
+| --- | --- |
+| [Backlog](/fundamentals/automation-backlog) | Dispatch, handoff or another move out of Backlog. |
+| [Implement](/fundamentals/automation-implement) | The task moves to Verify, Done or Backlog. A move between Implement phases does not start it. |
+| [Verify](/fundamentals/automation-verify) | The task moves to Done or Backlog. A retry that moves the task to Implement also starts it. |
+| [Done](/fundamentals/automation-done) | The task leaves Done, such as when you send it to Backlog or reopen it. |
+
+One departure starts each leave automation once. If the task returns to the column and leaves again, that later departure can start another run. A handoff to Implement or Verify also starts the Backlog leave automation. SuperPlane creates the task in Backlog before moving it.
+
+Leave triggers require task context. They are not available for **with no task** runs or schedules. The run retains access to its task tools if the departure closes or archives the task. In a [ChatGPT subscription workspace](/billing/bring-your-own-subscription), the task needs an owner with a connected subscription and an allowed model.
+
 ## Add an integration at the step that needs it
 
 Integration components let a canvas receive events or perform actions in another system. Connect only the services required by that stage.

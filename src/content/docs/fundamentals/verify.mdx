@@ -10,6 +10,16 @@ Verify answers a stricter question than “Did the agent finish?” It asks whet
   <figcaption>Verification begins with the proposed change and the evidence produced during implementation.</figcaption>
 </figure>
 
+## Understand when a task enters Verify
+
+SuperPlane records review readiness when a task successfully completes its line traversal. A traversal is one pass through the line, using the execution plan saved when it starts. The final executable stage must pass, including every parallel automation in a custom stage. Queued, running, failed, or cancelled work does not become ready; empty custom stages do not block completion.
+
+The desktop and phone boards show an open task in **Verify** when its latest traversal on that line records readiness. Renaming or moving **Verify**, or editing the live line, does not change recorded readiness. If you remove **Verify**, the task stays visible in its stage column. Restarting the traversal clears readiness, and a new traversal starts without it.
+
+Review readiness records traversal completion, not approval or proof that every repository check passed. The task remains open until a completion action closes it. Entering **Verify** does not start a sequential verification run. [Verify automations](/fundamentals/automation-verify) continue to react to their configured events, such as pull request feedback and check results.
+
+Use the [CLI](/cli#inspect-review-readiness) to inspect readiness separately from the task lifecycle state.
+
 ## Build an evidence stack
 
 No single signal proves every kind of software change. A useful Verify stage combines evidence that matches the risk of the task.

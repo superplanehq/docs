@@ -77,6 +77,21 @@ superplane workspace --help
 superplane tasks --help
 ```
 
+### Inspect review readiness
+
+Describe a task in the active workspace. Replace `your_task_key` with its task key, number, or UUID:
+
+```bash
+superplane tasks describe --task your_task_key
+superplane tasks describe --task your_task_key --output json
+```
+
+When the task has a line traversal, text output shows `Line`, `Traversal`, and `Review Ready` for the latest traversal. A traversal is one pass through a line. `Review Ready: true` records successful traversal completion or a direct handoff to **Verify**; it does not mean approval or task completion. See [Verify](/fundamentals/verify#understand-when-a-task-enters-verify) for board membership and rerun behavior.
+
+JSON output includes `reviewReady` in each entry of `task.lineDispatches`. The API also exposes `reviewReady` in task list and description responses. Read it separately from the task's lifecycle `state`; **Verify** is not a lifecycle state. Each line board uses the latest traversal on its own line, while CLI text shows the latest traversal across all lines.
+
+These commands use the separately installed CLI and your API token. They are not the task-scoped tools available to an agent during a runner task.
+
 ## Connect to a self-hosted installation
 
 Set `SUPERPLANE_URL` to your installation's public origin and use a token issued by that installation. Do not append `/api/v1` to the base URL. See [self-hosting](/self-hosting/overview) for deployment setup.

@@ -35,6 +35,18 @@ You can edit in two ways:
 
 Review the staged graph before you select **Save**. Check both the success path and the failure path. A workflow that handles only success is incomplete once it reaches real repositories and external services.
 
+## Move an automation card between stages
+
+You can move an existing card on the desktop line board if your organization enables **Factory custom stages** and you have permission to update the factory. A move keeps the automation’s settings and run history. It does not start a run.
+
+1. Open **Board view** and select **Edit stages**.
+2. Drag the card by its handle to a highlighted stage. With a keyboard, focus the handle and press the left or right arrow to move to the next compatible stage.
+3. Select **Save changes**, review the moves, and confirm. To undo the edits instead, select **Discard** and confirm **Discard changes**.
+
+Built-in automations, agent steps, and automations with a schedule or pull request trigger keep their original triggers and execution stages. For a custom automation triggered only when a task enters or leaves a stage, the trigger follows the card. For example, moving a task departure automation from **Backlog** to **Verify** makes it run when a task leaves **Verify**.
+
+Moving an agent step changes its position only on the selected line. Workspace automations share their placement across lines. For example, if you move a built-in **Verify** card to **Backlog**, another line must also have **Verify** to show that card.
+
 ## Add an integration at the step that needs it
 
 Integration components let a canvas receive events or perform actions in another system. Connect only the services required by that stage.

@@ -1494,3 +1494,60 @@
     }
   }
 }
+
+/* Software factory concepts page. */
+@layer starlight.user {
+  .sl-markdown-content:has(.factory-concepts-intro) .sl-heading-wrapper > :is(h2, h3) {
+    font-family: "Instrument Sans", sans-serif;
+    font-weight: 600 !important;
+    letter-spacing: -0.02em;
+    line-height: 1.35;
+  }
+  .sl-markdown-content:has(.factory-concepts-intro) .sl-heading-wrapper > h2 {
+    font-size: 28px !important;
+  }
+  .sl-markdown-content .factory-concepts-highlight {
+    color: #d6b83c;
+    font-weight: 600;
+  }
+  .sl-markdown-content:has(.factory-concepts-intro) a[href]:not(:where(.sl-anchor-link, .sp-next-grid *, .help-grid *)) {
+    color: #d6b83c;
+    text-decoration-line: underline;
+    text-decoration-color: #d6b83c80;
+    text-underline-offset: 4px;
+  }
+  .sl-markdown-content:has(.factory-concepts-intro) a[href]:not(:where(.sl-anchor-link, .sp-next-grid *, .help-grid *)):is(:hover, :focus-visible) {
+    color: #f3f3ea;
+    text-decoration-color: #d6b83c;
+  }
+  .factory-concepts-flow {
+    margin-block: 1.5rem;
+    padding: 1rem;
+    overflow-x: auto;
+    border: 1px solid #2b302d;
+    border-radius: 8px;
+    background: #101312;
+  }
+  .factory-concepts-flow pre.mermaid {
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible;
+    border: 0 !important;
+    background: transparent !important;
+    font-family: Arial, sans-serif;
+    font-size: 18px;
+    line-height: 1.3;
+    white-space: normal;
+  }
+  .factory-concepts-flow svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    margin-inline: auto;
+  }
+  @media (max-width: 49.999rem) {
+    .sl-markdown-content:has(.factory-concepts-intro) .sl-heading-wrapper > h2 {
+      font-size: 24px !important;
+    }
+  }
+}

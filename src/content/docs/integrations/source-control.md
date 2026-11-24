@@ -18,8 +18,6 @@ Connect a GitHub Enterprise Cloud organization on your `ghe.com` subdomain, such
 
 GitHub Enterprise Cloud is an Enterprise integration. Organizations without an Enterprise plan or license see the option marked **Enterprise** and can't select it. See [Compare plan features](/billing/overview#compare-plan-features).
 
-**Note:** GitHub Enterprise Server (self-hosted GitHub) isn't supported yet.
-
 ## Work intake
 
 - [GitHub](/components/github) provides issue intake during the guided Factory setup.

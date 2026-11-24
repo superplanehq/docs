@@ -1510,13 +1510,13 @@
     color: #d6b83c;
     font-weight: 600;
   }
-  .sl-markdown-content:has(.factory-concepts-intro) a[href]:not(:where(.sl-anchor-link, .sp-next-grid *)) {
+  .sl-markdown-content:has(.factory-concepts-intro) a[href]:not(:where(.sl-anchor-link, .sp-next-grid *, .help-grid *)) {
     color: #d6b83c;
     text-decoration-line: underline;
     text-decoration-color: #d6b83c80;
     text-underline-offset: 4px;
   }
-  .sl-markdown-content:has(.factory-concepts-intro) a[href]:not(:where(.sl-anchor-link, .sp-next-grid *)):is(:hover, :focus-visible) {
+  .sl-markdown-content:has(.factory-concepts-intro) a[href]:not(:where(.sl-anchor-link, .sp-next-grid *, .help-grid *)):is(:hover, :focus-visible) {
     color: #f3f3ea;
     text-decoration-color: #d6b83c;
   }

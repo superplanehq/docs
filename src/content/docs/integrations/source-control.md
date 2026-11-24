@@ -8,8 +8,15 @@ Source-control integrations give a Factory access to backlog items and the revie
 ## Source control
 
 - [GitHub](/components/github) manages issues, branches, pull requests, comments, checks and repository events.
+- [GitHub Enterprise Cloud](#github-enterprise-cloud) connects organizations hosted on `ghe.com`. It requires the Enterprise plan.
 - [GitLab](/components/gitlab) reacts to repository changes and manages GitLab resources.
 - [Bitbucket](/components/bitbucket) reacts to events in Bitbucket repositories.
+
+### GitHub Enterprise Cloud
+
+Connect a GitHub Enterprise Cloud organization on your `ghe.com` subdomain, such as `acme.ghe.com`. During Factory setup, choose **GitHub Enterprise Cloud** as the source control host, enter your host and organization, and create a private GitHub App in that organization. The [GitHub](/components/github) components then work against your Enterprise Cloud repositories.
+
+GitHub Enterprise Cloud is an Enterprise integration. Organizations without an Enterprise plan or license see the option marked **Enterprise** and can't select it. See [Compare plan features](/billing/overview#compare-plan-features).
 
 ## Work intake
 

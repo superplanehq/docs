@@ -27,6 +27,14 @@ Find the 20 most recently updated open tasks in this workspace.
 Identify any that overlap with this task.
 ```
 
+To comment on the GitHub issue that created a task, use its saved origin:
+
+```text
+Find this task in the workspace task list by its SuperPlane task key.
+Use origin.url to identify its GitHub issue, then comment with your existing GitHub access.
+If origin is absent, report that the task has no saved source link.
+```
+
   </TabItem>
   <TabItem label="Bash">
 
@@ -48,6 +56,14 @@ Repeat `--state` to query multiple states, for example `--state draft --state op
 - **limit** (optional): 1 to 100. The default is 100.
 
 **Output:** **tasks**. Each task has **id**, **key**, **title**, **state** and **url**.
+
+- `url`: The SuperPlane task link, not the external issue link.
+- `origin.url`: The saved external source link, such as the GitHub issue that created the task.
+- `origin.label` (optional): The source label, such as `GitHub issue #9876`.
+
+Tasks without a saved source link omit `origin`, including tasks created manually without an origin. Both `list_tasks` and the runner command `superplane task list` return these fields. Do not infer an issue number from a SuperPlane task number or key.
+
+The source link does not grant GitHub access. To comment on an issue, use your automation's existing GitHub access with permission to comment.
 
 </details>
 
@@ -123,6 +139,8 @@ To reject a draft task, use `--result rejected`.
 - **result** (optional): `completed`, `rejected` or `failed`. The default is `completed`. A draft task can only be `rejected`.
 
 **Output:** The closed task with **id**, **key**, **title**, **state**, **result** and **url**.
+
+If the task has a saved source link, the response also includes `origin`, as described in [Find tasks](#find-tasks).
 
 </details>
 

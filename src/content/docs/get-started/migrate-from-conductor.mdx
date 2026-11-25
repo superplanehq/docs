@@ -5,21 +5,19 @@ description: Move your repositories, task context and agent workflow from Conduc
 
 import { Aside, Icon, Steps } from "@astrojs/starlight/components";
 
-Conductor is [joining Meta](https://www.conductor.build/announcement) and is winding down. This guide will help you move your repositories, unfinished work and agent workflow to SuperPlane, where tasks move through intake, implementation, verification and human review inside the Open Source Software Factory.
+Use this guide to move your repositories, unfinished work and agent workflow from Conductor to SuperPlane. Tasks move through intake, implementation, verification and human review inside the open source software factory.
 
 <figure class="sp-media-figure sp-media-figure--flush not-content">
   <img src="https://docs-assets.superplane.com/images/superplane_session_vs_board.png" alt="SuperPlane factory board with Backlog, Implement, Verify and Done stages" />
 </figure>
 
-The local Conductor app continues to receive new models and critical fixes until early 2027, when it begins winding down.
-
 <div class="sp-first-project-note">
-  <Aside type="note" title="Using Conductor Cloud?">
-    Conductor Cloud becomes read-only on November 13, 2026 and shuts down on November 20, 2026, when Conductor begins deleting cloud data. Commit and push unfinished changes before the read-only date and export your data before shutdown.
+  <Aside type="note" title="Conductor status update">
+    Conductor has updated its <a href="https://www.conductor.build/announcement">announcement</a>: development will continue, and Conductor will keep working as normal. The earlier cloud shutdown guidance has been withdrawn. This guide covers migration for teams choosing to move to SuperPlane.
   </Aside>
 </div>
 
-Start with [Save your existing work](#before-november-13) to your own Open source Software factory on SuperPlane. For the detailed overview how to get it done, see our blog post [How to migrate from Conductor Cloud to SuperPlane](https://superplane.com/blog/how-to-migrate-from-conductor-cloud-to-superplane/)
+Start with [Save your existing work](#save-your-existing-work), then follow the migration steps below. For a walkthrough, see our blog post [How to migrate from Conductor Cloud to SuperPlane](https://superplane.com/blog/how-to-migrate-from-conductor-cloud-to-superplane/)
 ​
 
 
@@ -51,9 +49,9 @@ In Conductor, a workspace holds a checkout and agent sessions for a piece of wor
 Use these mappings to move your work into the Factory. Save existing code through Git and review the repository, model source and task context before starting a migrated task.
 
 
-## Before November 13
+## Save your existing work
 
-Conductor Cloud stops accepting new messages on November 13, 2026. Gather your code, task context and project setup while the workspaces are still active, so you can use them when setting up SuperPlane.
+Gather your code, task context and project setup before moving work to SuperPlane. Keep these backups available while you configure and validate your new workspace.
 
 <div class="conductor-preflight">
 <Steps>

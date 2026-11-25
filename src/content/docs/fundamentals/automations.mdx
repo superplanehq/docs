@@ -19,6 +19,16 @@ This separation makes the workflow easier to inspect. A required check remains a
 | **Connection** | Route a named result such as success, failure or approval to the next node |
 | **Run** | Inspect the inputs, outputs and path for one execution |
 
+## Add a custom automation
+
+With Factory update permission, you can add custom automations without enabling an experimental feature. On the line board, open the **Implement**, **Verify**, **Done** or custom-stage column menu and select **Add automation**, then **Build your own**. If only the custom option remains, **Add automation** opens its setup directly.
+
+Choose the trigger and add ordered prompt and Bash steps in the custom automation setup. Configure the workspace repository, source-control connection and agent model source before running repository-based work. Custom automations use the workspace's existing runner capacity and connected services.
+
+YAML editing and the automation source API still require the separate **Automations as code** experimental feature. You don't need that feature to configure a custom automation through its form.
+
+See [Customize a line's stages](/fundamentals/factory-pipeline#customize-a-lines-stages) to add stages for work that needs a separate place on the board.
+
 ## Edit an automation
 
 Open a Factory stage and select the **Automation** tab to inspect its canvas. Select the edit icon to change the graph.

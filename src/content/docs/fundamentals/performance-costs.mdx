@@ -18,6 +18,8 @@ Factory cost reporting shows the token and compute spend recorded for tasks that
 
 Connected model, cloud or continuous integration providers may charge outside SuperPlane. Their charges are not automatically represented by these charts. Use provider budgets alongside the Factory report.
 
+If an intake run creates one task through an agent's task creation tool, its recorded usage is attributed to that task. If the same run creates another task, its intake usage stays at workspace scope instead of being assigned to either task. This includes intake usage recorded before the second task was created. Do not expect these shared costs in the completed-task or per-task cost views; review the intake automation's runs to inspect them.
+
 ## Read per-task cost as a trend
 
 Per-task cost shows the median spend for a task that closed, grouped by day. It is more useful than the total when task volume changes between periods.

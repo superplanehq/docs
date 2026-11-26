@@ -89,6 +89,70 @@ superplane task create \
 
 </details>
 
+<span id="move_task"></span>
+
+### Move a task to another stage
+
+Move the current open task to a chosen stage or the next stage on its line. Movement takes effect immediately, without waiting for unfinished source-stage work to pass. SuperPlane removes superseded queued work, requests cancellation of other unfinished source runs, and starts or queues destination automations under existing execution limits.
+
+Use the stage's stable key, not its display name. Destinations must belong to the line recorded when this task started, including custom stages, `backlog` and `done`. Next-stage movement follows that recorded order, even if you edit the line later.
+
+<Tabs syncKey="agent-tool-interface">
+  <TabItem label="Prompt (MCP)">
+
+Move to the next recorded stage:
+
+```text
+Move this task to the next stage on its line now.
+Report the destination and resulting task state.
+```
+
+To choose a destination instead:
+
+```text
+Move this task to the stage with key done and complete it now.
+```
+
+  </TabItem>
+  <TabItem label="Bash">
+
+Move to the next recorded stage:
+
+```sh
+superplane task move --next
+```
+
+To choose a destination instead:
+
+```sh
+superplane task move --column done
+```
+
+Use exactly one of `--column` or `--next` per command.
+
+  </TabItem>
+</Tabs>
+
+Moving to `backlog` ends the active line traversal and returns the task to `draft`; use the existing **Start** action to start it again. Moving to `done` closes the task as completed. Choosing the current stage leaves its work unchanged. Empty destinations follow their existing auto-advance setting, so the returned destination can be a later stage.
+
+Movement requires a task-linked execution or merge-check run with `tasks:move` permission and an active line traversal. Planning and schedule runs cannot move tasks. Existing destination prerequisites still apply, including execution ownership, model access and the default branch required by Implement.
+
+The calling run can receive the response, but loses permission to move or automatically advance the traversal after a successful change. Another movement request from that superseded run fails, even if the task later returns to its original stage. Task and execution history remain available.
+
+<details>
+<summary>Tool reference: <code>move_task</code></summary>
+
+**Input:** exactly one of:
+
+- **column**: A nonempty stable stage key on the task's recorded line.
+- **next**: `true` to move to the next stage in recorded line order.
+
+**Output:** The task with **id**, **key**, **title**, **state**, **url** and **result** when set, plus **from_column**, **column** (the resulting stage key) and **changed**. A current-stage request returns **changed** as `false`.
+
+Missing or conflicting inputs, unknown destinations and a missing successor fail. Tasks without current line context, superseded runs, closed or archived tasks, and runs without movement permission cannot move. A contention error says `Task stage is changing. Retry the request`; retry only if that run still controls the current stage.
+
+</details>
+
 <span id="close_task"></span>
 
 ### Close a task
@@ -543,4 +607,4 @@ Most commands print JSON. Artifact creation commands print the link URL or artif
 
 ### Current limits
 
-The runner tools cannot move tasks between columns or filter tasks by column. Owner assignment applies only to the current task, including when a run creates additional tasks.
+The runner tools cannot filter tasks by column. Movement and owner assignment apply only to the current task, including when a run creates additional tasks.

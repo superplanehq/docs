@@ -75,6 +75,8 @@ export const sidebar = [
     items: [
       { label: "Connect an MCP client", slug: "agents/mcp" },
       { label: "Install and connect the CLI", slug: "cli" },
+      { label: "Manage workspace configuration", slug: "cli/workspace-configuration" },
+      { label: "Workspace YAML reference", slug: "cli/workspace-yaml" },
     ],
   },
   {

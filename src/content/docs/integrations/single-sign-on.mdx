@@ -1,0 +1,299 @@
+---
+title: Single Sign-On
+description: Connect Okta, Microsoft Entra ID, or another OpenID Connect provider so members sign in with their work account and SCIM manages membership.
+---
+
+import { Aside, Steps, Tabs, TabItem } from "@astrojs/starlight/components";
+
+Use this page to connect one identity provider to a SuperPlane organization. Members then sign in with their work account, SuperPlane adds them on their first sign-in, and the identity provider can add and remove members through System for Cross-domain Identity Management (SCIM) 2.0. It is for organization admins who also have admin access to the identity provider.
+
+<Aside type="caution" title="Enterprise only">
+Single Sign-On requires a SuperPlane Enterprise license with the Single Sign-On feature, and the feature must be on for the organization. On a self-hosted installation, an installation admin turns on **Single Sign-On** in the Enterprise features of the organization.
+</Aside>
+
+Select **Okta**, **Microsoft Entra ID**, or **Generic OIDC** once. The tabs on this page stay in sync.
+
+## How Single Sign-On works
+
+- SuperPlane uses OpenID Connect (OIDC) with the authorization code flow and PKCE. Each organization has one connection.
+- The login page finds the connection from the email domain. You prove that the organization owns the domain with a DNS TXT record.
+- A person with an email address on a verified domain becomes a member on the first sign-in, with the default role. You can turn this off and use only SCIM.
+- SCIM creates, updates and deactivates members. When the identity provider deactivates a person, SuperPlane removes the member and ends the session.
+- The sign-in policy sets whether Single Sign-On is optional or required, and how long a session lasts.
+
+## Before you begin
+
+- The **Admin** role in the SuperPlane organization.
+- Admin access to the identity provider.
+- Access to the DNS of the email domain, such as `example.com`.
+
+## 1. Verify an email domain
+
+<Steps>
+
+1. In SuperPlane, open **Settings** > **Single Sign-On**.
+2. In **Email domains**, enter the domain of your work email addresses, such as `example.com`, and click **Add domain**.
+3. Create the TXT record that SuperPlane shows at your DNS provider:
+
+   - **Name:** `_superplane-verification.example.com`
+   - **Value:** `superplane-domain-verification=` followed by a token
+
+4. When the record is live, click **Verify**.
+
+</Steps>
+
+SuperPlane does not accept public email domains, such as `gmail.com` or `outlook.com`. A verified domain belongs to one organization only. Add a domain for each email domain that your members use.
+
+## 2. Create the connection
+
+<Steps>
+
+1. In **Identity provider**, select the **Provider**.
+2. Enter a **Display name**. Members see this name on the login page.
+3. Click **Create connection**.
+
+</Steps>
+
+The **Values for your identity provider** card now shows the URLs that you copy into the identity provider:
+
+| Value | Use |
+| --- | --- |
+| **Redirect URI** | The identity provider returns to this URL after sign-in. |
+| **Initiate login URI** | The identity provider opens this URL when a person selects the SuperPlane tile in its app portal. |
+| **Post-logout redirect URI** | The identity provider returns to this URL after sign-out. |
+| **Back-channel logout URI** | The identity provider calls this URL to end a session (OIDC Back-Channel Logout). Not shown for Okta. |
+| **Global token revocation URL** | Okta calls this URL to end a session (Universal Logout). |
+
+## 3. Create the application in your identity provider
+
+<Tabs syncKey="idp">
+<TabItem label="Okta">
+
+<Steps>
+
+1. In the Okta Admin Console, open **Applications** > **Applications** and click **Create App Integration**.
+2. Select **OIDC - OpenID Connect** and **Web Application**, then click **Next**.
+3. Enter an **App integration name**, such as `SuperPlane`. Keep the **Authorization Code** grant type.
+4. In **Sign-in redirect URIs**, remove the default value and paste the **Redirect URI** from SuperPlane.
+5. In **Sign-out redirect URIs**, paste the **Post-logout redirect URI**.
+6. In **Assignments**, select the people or groups that can use SuperPlane, then click **Save**.
+7. On the **General** tab, click **Edit** in **Login**. Set **Login initiated by** to **Either Okta or App**, paste the **Initiate login URI**, and click **Save**.
+
+</Steps>
+
+Okta fills **Sign-in redirect URIs** with `/authorization-code/callback`. Replace it, or the sign-in fails with an error about the `redirect_uri` parameter.
+
+</TabItem>
+<TabItem label="Microsoft Entra ID">
+
+<Steps>
+
+1. In the Microsoft Entra admin center, open **Identity** > **Applications** > **App registrations** and click **New registration**.
+2. Enter a **Name**, such as `SuperPlane`. In **Supported account types**, select **Accounts in this organizational directory only**.
+3. In **Redirect URI**, select **Web** and paste the **Redirect URI** from SuperPlane. Click **Register**.
+4. Open **Authentication**. In **Web** > **Redirect URIs**, click **Add URI**, paste the **Post-logout redirect URI**, and click **Save**. Entra signs a person out only when the return URL is a registered redirect URI.
+5. Open **Token configuration**, click **Add optional claim**, select **ID** and **email**, and click **Add**. Accept the prompt that adds the Microsoft Graph `email` permission.
+6. Open **Certificates & secrets** > **Client secrets** and click **New client secret**. Copy the **Value**, not the **Secret ID**. Entra shows the value only once.
+7. Open **Branding & properties** and paste the **Initiate login URI** in **Home page URL**. The SuperPlane tile in My Apps then starts the sign-in.
+
+</Steps>
+
+To limit access, open **Enterprise applications**, select the application, set **Assignment required?** to **Yes** in **Properties**, and add people or groups in **Users and groups**.
+
+SuperPlane uses the `oid` claim as the stable user ID with this preset. The `email` claim comes from the **Email** property of the user in Entra. A person without an email address cannot sign in.
+
+</TabItem>
+<TabItem label="Generic OIDC">
+
+Create a confidential OIDC client, such as a Keycloak client with **Client authentication** on, with these settings:
+
+- **Grant type:** authorization code. SuperPlane sends PKCE with `S256`.
+- **Scopes:** `openid`, `email` and `profile`.
+- **Redirect URI:** the **Redirect URI** from SuperPlane.
+- **Post-logout redirect URI:** the **Post-logout redirect URI** from SuperPlane.
+- **Initiate login URI**, if the provider supports it: the **Initiate login URI** from SuperPlane.
+
+The ID token must contain `sub`, `email` and `name`. SuperPlane uses `sub` as the stable user ID.
+
+</TabItem>
+</Tabs>
+
+## 4. Enter the values from your identity provider
+
+In **Values from your identity provider**, enter these values and click **Save**:
+
+<Tabs syncKey="idp">
+<TabItem label="Okta">
+
+- **Issuer URL:** your Okta org URL, such as `https://your_org.okta.com`. Do not use the Admin Console URL, which contains `-admin`.
+- **Client ID** and **Client secret:** from **Client Credentials** on the **General** tab of the application.
+
+</TabItem>
+<TabItem label="Microsoft Entra ID">
+
+- **Issuer URL:** `https://login.microsoftonline.com/your_tenant_id/v2.0`. Copy `your_tenant_id` from **Directory (tenant) ID** on the **Overview** page of the app registration.
+- **Client ID:** **Application (client) ID** on the **Overview** page.
+- **Client secret:** the value that you copied in step 3.
+
+</TabItem>
+<TabItem label="Generic OIDC">
+
+- **Issuer URL:** the `issuer` value in `https://your_provider/.well-known/openid-configuration`. For Keycloak, this is `https://your_keycloak_host/realms/your_realm`.
+- **Client ID** and **Client secret:** from the client that you created.
+
+</TabItem>
+</Tabs>
+
+SuperPlane reads the discovery document from the issuer URL. The **Issuer URL** must match the `iss` claim of the ID token exactly.
+
+## 5. Test and activate the connection
+
+<Steps>
+
+1. In **Test and activate**, click **Test connection**. A new window opens the identity provider.
+2. Sign in with an account that the application allows. SuperPlane shows the result and the email address of the test account.
+3. Click **Activate**.
+
+</Steps>
+
+You cannot activate the connection before a test passes. After you activate it, members see **Continue with SSO** on the login page.
+
+## 6. Set up provisioning
+
+### Create members on first sign-in
+
+In **Provisioning**, **Create members on first sign-in** is on by default. A person with an email address on a verified domain becomes a member with the **Default role** when they first sign in. Turn it off to add members only through SCIM or invitations.
+
+SuperPlane links the sign-in to an existing SuperPlane account with the same email address only when the email domain is verified. The seat limit of the organization applies.
+
+### Connect SCIM
+
+<Steps>
+
+1. In **SCIM**, enter a **Token description** and click **Create token**.
+2. Copy the token. SuperPlane shows it only once.
+3. Copy the **SCIM base URL**.
+
+</Steps>
+
+SCIM uses the primary email address of the user, or the `userName` when it is an email address. Then connect the identity provider:
+
+<Tabs syncKey="idp">
+<TabItem label="Okta">
+
+In Okta, an app integration that uses OIDC has no **Provisioning** tab. Add a second application for SCIM, and assign the same people and groups to both applications.
+
+<Steps>
+
+1. Open **Applications** > **Browse App Catalog**, search for **SCIM 2.0 Test App (Header Auth)**, and click **Add Integration**.
+2. Enter an **Application label**, such as `SuperPlane SCIM`. Select **Do not display application icon to users**, because members sign in through the OIDC application. Click **Next**.
+3. In **Sign-On Options**, select **Secure Web Authentication** and **Administrator sets username, password is the same as user's Okta password**. Set **Application username format** to **Email** and click **Done**.
+4. On the **Provisioning** tab, click **Configure API Integration** and select **Enable API integration**.
+5. In **Base URL**, paste the **SCIM base URL**.
+6. In **API Token**, enter `Bearer ` followed by the SCIM token, such as `Bearer your_scim_token`. This application sends the field as the full `Authorization` header.
+7. Click **Test API Credentials**, then **Save**.
+8. In **Provisioning** > **To App**, click **Edit**, turn on **Create Users**, **Update User Attributes** and **Deactivate Users**, and click **Save**.
+9. On the **Assignments** tab, assign people or groups. For people that you assigned before step 8, click **Provision User**.
+
+</Steps>
+
+If **Deactivate Users** is off, Okta does not tell SuperPlane when you deactivate a person, and the member keeps access.
+
+</TabItem>
+<TabItem label="Microsoft Entra ID">
+
+<Steps>
+
+1. Open **Enterprise applications** and select the application that you registered.
+2. Open **Provisioning** and set **Provisioning Mode** to **Automatic**.
+3. In **Admin Credentials**, paste the **SCIM base URL** in **Tenant URL** and the SCIM token in **Secret Token**. Entra adds the `Bearer` scheme.
+4. Click **Test Connection**, then **Save**.
+5. In **Settings**, set **Scope** to **Sync only assigned users and groups**.
+6. Set **Provisioning Status** to **On** and click **Save**.
+
+</Steps>
+
+Entra runs a provisioning cycle about every 40 minutes. To test one person now, use **Provision on demand**. When you disable a person in Entra or remove the assignment, Entra deactivates the user in SuperPlane.
+
+</TabItem>
+<TabItem label="Generic OIDC">
+
+Configure a SCIM 2.0 client in the identity provider:
+
+- **Base URL:** the **SCIM base URL**.
+- **Authentication:** `Authorization: Bearer your_scim_token`. SuperPlane also accepts the token without the `Bearer` scheme.
+- **Resources:** `Users`. SuperPlane supports `GET`, `POST`, `PUT`, `PATCH` and `DELETE`, and the filters `userName eq` and `externalId eq`.
+
+</TabItem>
+</Tabs>
+
+When the identity provider sets `active` to `false` or deletes the user, SuperPlane removes the member from the organization and ends their sessions. The SuperPlane account stays, and other organizations are not affected. To stop SCIM, click **Revoke** next to the token.
+
+## 7. Set the sign-in policy
+
+In **Sign-in policy**:
+
+- **Enforcement:**
+  - **Optional:** members can sign in with Single Sign-On or another method.
+  - **Required:** members must sign in with Single Sign-On to open this organization. A member who signed in with another method goes to the identity provider.
+- **Owner bypass:** owners can sign in with another method when Single Sign-On is required. Keep it on until you know that Single Sign-On works, so that an identity provider outage does not lock you out.
+- **Maximum session age:** members sign in again after this time. Enter hours, such as `24` or `1.5`, or minutes, such as `15m`. The range is 15 minutes to 7 days.
+- **Sign out from the identity provider:** when a member signs out of SuperPlane, the identity provider session also ends.
+
+## 8. End sessions from the identity provider
+
+<Tabs syncKey="idp">
+<TabItem label="Okta">
+
+Okta ends SuperPlane sessions with Universal Logout. Okta does not support OIDC Back-Channel Logout.
+
+<Steps>
+
+1. In the OIDC application, open the **General** tab and click **Edit** in **Logout**.
+2. In **Global token revocation**, set **App logs out when** to **Okta system or admin initiates logout**.
+3. In **API based logout setup**, paste the **Global token revocation URL** from SuperPlane in **Endpoint URL**.
+4. Set **Endpoint authentication type** to **Signed JWT** and **Subject format** to **Issuer and Subject Identifier**. Click **Save**.
+
+</Steps>
+
+To test it, open **Directory** > **People**, select a person who is signed in to SuperPlane, and click **More Actions** > **Clear User Sessions**. The next request of that person in the organization goes to Okta.
+
+</TabItem>
+<TabItem label="Microsoft Entra ID">
+
+Entra does not support OIDC Back-Channel Logout. To end access from Entra, disable the person or remove the assignment, and SCIM removes the member. Use **Maximum session age** to limit how long a session lasts without a new sign-in.
+
+</TabItem>
+<TabItem label="Generic OIDC">
+
+If the provider supports OIDC Back-Channel Logout 1.0, paste the **Back-channel logout URI** in the client and turn on the session ID (`sid`) in the logout token. In Keycloak, set **Backchannel logout URL** and turn on **Backchannel logout session required**.
+
+When the provider ends a session, SuperPlane ends the matching SuperPlane session for this organization.
+
+</TabItem>
+</Tabs>
+
+## Sign in as a member
+
+- On the login page, click **Continue with SSO**, enter the **Work email**, and continue to the identity provider.
+- When the email form of the login page receives an address on a verified domain, it offers Single Sign-On.
+- Share `https://your_superplane_host/login/sso/your_organization_id` for a direct link to the identity provider.
+- Select the SuperPlane tile in the app portal of the identity provider.
+
+## Troubleshooting
+
+| Problem | Fix |
+| --- | --- |
+| The identity provider reports that the `redirect_uri` is not valid. | Paste the **Redirect URI** from SuperPlane in the application. In Okta, remove the default `/authorization-code/callback` value. |
+| The test fails before the identity provider opens. | Check the **Issuer URL**. It must be the issuer in the discovery document. In Okta, do not use the `-admin` URL. |
+| "This email belongs to an existing account. Ask an administrator to verify the email domain." | Verify the email domain of that person. |
+| "This organization has no seat for a new member." | Add seats or remove a member. |
+| "Single Sign-On is not licensed for a new member." | Ask the installation admin to turn on Single Sign-On for the organization. |
+| The identity provider reports "The SCIM token is not valid." | Create a token again. In Okta, enter `Bearer ` before the token in **API Token**. |
+| A deactivated person keeps access. | In Okta, turn on **Deactivate Users** in **Provisioning** > **To App**. In Entra, wait for the next provisioning cycle or use **Provision on demand**. |
+| An owner cannot open the organization after you require Single Sign-On. | Turn on **Owner bypass**, or sign in through the identity provider. |
+
+## Disable or delete the connection
+
+- **Disable** in **Test and activate**: members sign in with other methods again. The configuration stays.
+- **Delete connection** in **Danger zone**: SuperPlane deletes the connection, its SCIM tokens and the links between members and the identity provider. Members stay in the organization.

@@ -97,6 +97,7 @@ export const sidebar = [
       { label: "Observability", slug: "integrations/observability" },
       { label: "Cloud and infrastructure", slug: "integrations/cloud-infrastructure" },
       { label: "Custom integrations", slug: "integrations/custom-integrations" },
+      { label: "Single Sign-On", slug: "integrations/single-sign-on" },
       { label: "All components", slug: "components" },
     ],
   },

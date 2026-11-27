@@ -83,5 +83,7 @@ Set `SUPERPLANE_URL` to your installation's public origin and use a token issued
 
 ## Related tools
 
+- [Manage workspace configuration](/cli/workspace-configuration) for the planned export, plan, apply, and GitHub sync workflow.
+- [Workspace YAML reference](/cli/workspace-yaml) for the planned manifest format and automation keywords.
 - [Connect an MCP client](/agents/mcp) for editor and agent access through OAuth.
 - [API reference](https://superplane.com/api/) for endpoint definitions and client generation.

@@ -7,7 +7,7 @@ Use intakes to bring work from your existing tools into a Factory. Start with a 
 
 ## Choose a source
 
-For your first GitHub repository, follow the [Quickstart](/get-started/quickstart). For other sources, use the integration components in a custom automation.
+For your first GitHub repository, follow the [Quickstart](/get-started/quickstart). To receive JSON requests from another tool, configure a [webhook intake](/intakes/overview#receive-tasks-from-a-webhook). For other workflows, use the integration components in a custom automation.
 
 | Source | Reference |
 | --- | --- |
@@ -15,8 +15,24 @@ For your first GitHub repository, follow the [Quickstart](/get-started/quickstar
 | Jira | [Jira issues](/components/jira) |
 | Linear | [Linear issues and events](/components/linear) |
 | Sentry | [Sentry events and actions](/components/sentry) |
+| Webhook | [Receive tasks from a webhook](/intakes/overview#receive-tasks-from-a-webhook) |
 
 Component references describe available events and actions. Connecting a source alone does not define how its events become Factory tasks; configure that behavior in your intake automation.
+
+## Receive tasks from a webhook
+
+Use **Webhook** intake to turn authenticated JSON requests into tasks in **Backlog**. You don't need to enable an experimental feature. You need permission to update the workspace to add an intake or manage its webhooks.
+
+1. Open the **Backlog** column menu, click **Add intake**, and select **Webhook**.
+2. Choose **New webhook**, enter a **Name**, and select **Authentication**. The default is **Bearer token**; you can also choose **HMAC signature** or **Header token**. To reuse a webhook from the same workspace, choose **Existing webhook**.
+3. Click **Continue** and map **Title**, **Description**, and **Link** to fields in the JSON body. The defaults are `title`, `description`, and `url`. Use dots for nested fields, such as `issue.title`.
+4. If your workspace uses a [Codex subscription](/billing/bring-your-own-subscription), select a default task owner with Codex connected.
+5. Click **Create intake**. For a new webhook, copy the URL, secret, and example request before clicking **Done**. SuperPlane shows the secret only once.
+6. Configure the sender to use that URL and authentication method, then send a JSON request with the mapped fields. Confirm the task appears in **Backlog**.
+
+The **Title** mapping is required, but a request missing that field gets the title `Webhook request`. Leave **Description** empty to create tasks without a description. A populated **Link** prevents another task with the same source link; leave the mapping empty to create a task for each request. Webhook intake receives new requests and does not import earlier ones.
+
+Open **Settings** → **Workspace** → **Webhooks** to copy URLs, edit webhooks, regenerate secrets, or delete unused webhooks. You need workspace read permission to view this page and update permission to make changes; no experimental enablement is required. Regenerating a secret invalidates the previous secret immediately, so update the sender. Remove a webhook from its listening intakes and automations before deleting it.
 
 ## Define what to import
 

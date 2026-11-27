@@ -35,6 +35,18 @@ You can edit in two ways:
 
 Review the staged graph before you select **Save**. Check both the success path and the failure path. A workflow that handles only success is incomplete once it reaches real repositories and external services.
 
+## Remove and reinstall an automation
+
+You can remove installed template automations as well as automations you build yourself. You need permission to update the workspace.
+
+Open the automation from the board, select the delete action at the bottom left of its popup, and confirm deletion. You can also delete it from the run-history view, including when it has no runs. Cancel the confirmation to keep the automation installed.
+
+Deletion removes the selected automation and its execution bindings, cancels queued work, and requests cancellation of unfinished runs. Your tasks, repositories, integrations, other automations, and board columns remain.
+
+To reinstall a template, open its column menu and select **Add automation**, then choose the template. Use **Add intake** in Backlog for an intake source. The picker still applies column and provider restrictions and any feature prerequisites.
+
+Reinstallation creates a new automation with current template defaults, not the deleted customization or run history. Installing it does not start an initial run. Review its settings before using it again.
+
 ## Add an integration at the step that needs it
 
 Integration components let a canvas receive events or perform actions in another system. Connect only the services required by that stage.
